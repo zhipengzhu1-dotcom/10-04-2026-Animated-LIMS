@@ -424,6 +424,14 @@ test('the Test page shows who signed an OOS investigation’s closure while Inve
   assert.ok(closed.signatures[0].signed_at, 'with the time it was signed');
 });
 
+test('WebDAV option probes on the document folder find nothing with the Lab notebook withheld', async () => {
+  for (const url of ['/dav', '/dav/', '/dav/any-token/', '/dav/any-token']) {
+    const r = await fetch(`${BASE}${url}`, { method: 'OPTIONS' });
+    assert.equal(r.status, 404, `OPTIONS ${url}`);
+    assert.equal(r.headers.get('dav'), null, `OPTIONS ${url} does not advertise WebDAV`);
+  }
+});
+
 // Searches broadly enough to hit every result type, and returns the types that came back.
 async function searchTypes(c) {
   const types = new Set();
