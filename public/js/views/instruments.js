@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can } from '../core/state.js';
+import { state, can, shipped } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
@@ -124,7 +124,7 @@ export async function detail(ctx) {
           ['Location', i.location], ['Calibration interval', i.calibration_interval_days ? `${i.calibration_interval_days} days` : null],
           ['Last calibrated', fmtDate(i.last_calibrated)], ['Calibration due', i.calibration_due ? dueChip(i.calibration_due) : null], ['Notes', i.notes],
         ]) })}
-        ${d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
+        ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
       </div>
     </div>`);
 

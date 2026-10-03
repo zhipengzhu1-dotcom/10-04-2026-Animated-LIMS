@@ -10,7 +10,7 @@ import { bad, forbidden, notFound } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, RECORD_ACCESS } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
-import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
+import { DATA_DIR, MAX_UPLOAD_BYTES, isShipped } from '../config.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -157,6 +157,7 @@ const canAny = (user, perms) => perms === null || perms.some((p) => can(user, p)
 function assertAttachmentAccess(ctx, entity, id, mode) {
   if (!ATTACHABLE.includes(entity)) throw bad('Unknown record type');
   const rule = RECORD_ACCESS[entity];
+  if (rule.module && !isShipped(rule.module)) throw notFound();
   if (!canAny(ctx.user, rule.view)) throw forbidden();
   if (mode === 'edit') {
     if (!canAny(ctx.user, rule.edit)) throw forbidden('You cannot add or remove files on this record');
@@ -268,7 +269,7 @@ export default function routes(r) {
     else if (q.status && q.status !== 'all') { where.push('v.status = ?'); params.push(q.status); }
     if (q.type) { where.push('v.type = ?'); params.push(q.type); }
     return all(`${INV_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY v.status = 'Closed', v.id DESC`, ...params);
-  });
+  }, { module: 'investigations' });
 
   r.get('/api/investigations/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -282,11 +283,11 @@ export default function routes(r) {
         close: investigation.status !== 'Closed' && can(ctx.user, 'investigations.close'),
       },
     };
-  });
+  }, { module: 'investigations' });
 
-  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body));
-  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body));
-  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body), { module: 'investigations' });
+  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
+  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
 
   // ----- Attachments -----
   r.get('/api/attachments', (ctx) => {
