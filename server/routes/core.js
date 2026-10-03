@@ -1,7 +1,7 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update } from '../repo.js';
 import { audit, verifyChain } from '../audit.js';
-import { HttpError, bad, forbidden, notFound } from '../http.js';
+import { HttpError, bad, forbidden, isLoopback, notFound } from '../http.js';
 import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
@@ -9,6 +9,7 @@ import { getSettings, setSettings, DEFAULTS } from '../settings.js';
 import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
+import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
@@ -26,17 +27,16 @@ function publicSettings() {
 export default function routes(r) {
   // ---------- First-run setup ----------
   // First-time setup creates the first administrator, so it is only offered on the computer Aliquot runs on.
-  const isLocal = (ip) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
-
   r.get('/api/setup', (ctx) => {
     const s = getSettings();
-    return { needsSetup: !get('SELECT 1 FROM users LIMIT 1'), local: isLocal(ctx.ip), demo: s.demo_mode === '1', labName: s.lab_name };
+    return { needsSetup: !get('SELECT 1 FROM users LIMIT 1'), local: isLoopback(ctx.ip), demoAllowed: !CLOUDFLARE_TUNNEL, demo: s.demo_mode === '1', labName: s.lab_name };
   }, { auth: false });
 
   r.post('/api/setup', (ctx) => {
     if (get('SELECT 1 FROM users LIMIT 1')) throw forbidden('Setup has already been completed.');
-    if (!isLocal(ctx.ip)) throw forbidden('For security, finish the first-time setup on the computer running Aliquot (open http://localhost:3000 there).');
+    if (!isLoopback(ctx.ip)) throw forbidden('For security, finish the first-time setup on the computer running Aliquot (open http://localhost:3000 there).');
     if (ctx.body.mode === 'demo') {
+      if (CLOUDFLARE_TUNNEL) throw forbidden('Demo data cannot be loaded while Aliquot is published through Cloudflare Tunnel.');
       seedDemo();
       return { ok: true, demo: true };
     }
