@@ -20,8 +20,14 @@ const openLabels = (ids) => window.open(`/print/labels?ids=${ids.join(',')}`, '_
 export async function list(ctx) {
   ctx.title('Samples');
   const status = ctx.query.status ?? 'open';
+  const works = [
+    can('tests.perform') && ['assigned', 'Assigned to me'],
+    can('tests.review') && ['review', 'Awaiting my review'],
+    can('tests.approve') && ['approval', 'Awaiting QA approval'],
+  ].filter(Boolean);
+  const work = works.some(([key]) => key === ctx.query.work) ? ctx.query.work : '';
   const [rows, clients] = await Promise.all([
-    api.get('/api/samples', { status: status === 'all' ? '' : status, client_id: ctx.query.client, project_id: ctx.query.project, overdue: ctx.query.overdue }),
+    api.get('/api/samples', { status: status === 'all' ? '' : status, client_id: ctx.query.client, project_id: ctx.query.project, overdue: ctx.query.overdue, work }),
     api.get('/api/clients'),
   ]);
   const statuses = [['open', 'Open'], ['Received', 'Received'], ['In Testing', 'In testing'], ['In Review', 'In review'], ['Approved', 'Approved'], ['Reported', 'Reported'], ['all', 'All']];
@@ -40,6 +46,10 @@ export async function list(ctx) {
         <option value="">All clients</option>
         ${clients.map((c) => html`<option value="${c.id}" ${String(c.id) === ctx.query.client ? raw('selected') : ''}>${c.name}</option>`)}
       </select>
+      ${works.length ? html`<select data-work class="auto-w" aria-label="My work">
+        <option value="">All work</option>
+        ${works.map(([key, label]) => html`<option value="${key}" ${key === work ? raw('selected') : ''}>${label}</option>`)}
+      </select>` : ''}
       <span class="spacer"></span>
       ${searchBox('Filter by code, batch, description…', ctx.query.q || '')}
     </div>
@@ -73,6 +83,7 @@ export async function list(ctx) {
   filter.addEventListener('input', debounce(() => table.filter(filter.value), 120));
   if (ctx.query.q) table.filter(ctx.query.q);
   ctx.el.querySelector('[data-client]').addEventListener('change', (e) => navigate(setQuery({ client: e.target.value })));
+  ctx.el.querySelector('[data-work]')?.addEventListener('change', (e) => navigate(setQuery({ work: e.target.value })));
   ctx.el.querySelector('[data-act=labels]').addEventListener('click', () => openLabels(table.selected()));
 }
 
