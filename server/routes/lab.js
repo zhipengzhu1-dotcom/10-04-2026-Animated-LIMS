@@ -18,6 +18,7 @@ import {
 import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
+import { isShipped } from '../config.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -537,7 +538,7 @@ export default function routes(r) {
       tests,
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
-      investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id),
+      ...(isShipped('investigations') && { investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id) }),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'samples' AND entity_id = ? ORDER BY id`, id),
       can: {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
@@ -693,7 +694,7 @@ export default function routes(r) {
         review: can(me, 'tests.review') && test.status === 'Submitted' && !mine,
         approve: can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id,
         cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status),
-        raise: can(me, 'investigations.raise'),
+        raise: isShipped('investigations') && can(me, 'investigations.raise'),
         closeInvestigation: can(me, 'investigations.close') && !mine && investigations.some((v) => v.type === 'OOS' && v.status !== 'Closed'),
       },
       qualifiedMe,
