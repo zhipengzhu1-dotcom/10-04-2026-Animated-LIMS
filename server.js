@@ -6,7 +6,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { openDb, backupTo, run } from './server/db.js';
-import { Router, HttpError, readBody, sendJson } from './server/http.js';
+import { Router, HttpError, clientIp, readBody, sendJson } from './server/http.js';
 import { authenticate, can } from './server/auth.js';
 import { PORT, HOST, PUBLIC_DIR, DATA_DIR, BACKUP_KEEP } from './server/config.js';
 import { localDate, nowIso } from './server/util.js';
@@ -50,7 +50,7 @@ function securityHeaders(res) {
 }
 
 async function handleApi(req, res, url) {
-  const ctx = { req, res, url, ip: req.socket.remoteAddress, query: Object.fromEntries(url.searchParams), body: {}, user: null };
+  const ctx = { req, res, url, ip: clientIp(req), query: Object.fromEntries(url.searchParams), body: {}, user: null };
   try {
     const match = router.match(req.method, url.pathname);
     if (!match) throw new HttpError(404, 'Not found');

@@ -8,6 +8,8 @@ export const PORT = Number(process.env.PORT || 3000);
 export const HOST = process.env.HOST || '0.0.0.0';
 // Set SECURE_COOKIES=1 when the app is served over HTTPS (e.g. behind a reverse proxy).
 export const SECURE_COOKIES = process.env.SECURE_COOKIES === '1';
+// Set CLOUDFLARE_TUNNEL=1 when Cloudflare Tunnel is the only way in: the visitor's address then comes from its header.
+export const CLOUDFLARE_TUNNEL = process.env.CLOUDFLARE_TUNNEL === '1';
 export const SESSION_MAX_HOURS = 12;
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 export const BACKUP_KEEP = 14;
