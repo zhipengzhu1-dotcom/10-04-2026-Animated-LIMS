@@ -9,7 +9,10 @@
   },
   "scripts": {
     "start": "node server.js",
+    "dev": "node --watch scripts/dev.js",
+    "check": "node scripts/check.js",
     "backup": "node scripts/backup.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:upgrade": "node --test test/upgrade.test.js"
   }
 }

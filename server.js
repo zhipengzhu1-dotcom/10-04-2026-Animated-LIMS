@@ -184,7 +184,8 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 
 server.listen(PORT, HOST, () => {
-  const addresses = Object.values(os.networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => `http://${a.address}:${PORT}`);
+  // Team addresses only apply when listening on every interface (not e.g. HOST=127.0.0.1).
+  const addresses = !['0.0.0.0', '::'].includes(HOST) ? [] : Object.values(os.networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => `http://${a.address}:${PORT}`);
   console.log('');
   console.log('  Aliquot is running');
   console.log(`  On this computer:   http://localhost:${PORT}`);

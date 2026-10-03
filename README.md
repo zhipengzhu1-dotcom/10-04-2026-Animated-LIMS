@@ -168,7 +168,11 @@ Built in:
 - **Zero dependencies.** Node's built-in `http`, `crypto` and `node:sqlite`. The front end is plain ES modules with no build step.
 - `server/`: database schema and migrations (`schema.js`), audit trail (`audit.js`), auth and e-signatures (`auth.js`), and one route module per area in `routes/`. `lab.js` holds the core sample/test workflow.
 - `public/js/`: the single-page app. Core helpers are in `core/` (escaping templates, tables, modals, charts, barcodes) and there is one module per screen in `views/`.
+- `npm run dev` starts a development copy on http://localhost:3001 with its own `data-dev/` folder, reachable from this computer only, and restarts when server code changes. It never touches the lab's `data/`.
+- `npm run check` syntax-checks every JavaScript file.
 - `npm test` runs the end-to-end tests: it starts a server on a temporary database and walks the full workflow, including every control that must refuse.
+- **Upgrade test:** `test/upgrade.test.js` starts the current code against a database from an earlier release (in a throwaway copy) and checks that migrations apply, no records are lost and the audit chain still verifies. It runs every `test/fixtures/*.db`. Before a release, also run it against a recent backup: `UPGRADE_FROM=path/to/backup npm run test:upgrade` (a `.db` file, or a backup folder with `aliquot.db` and `files/`). On Windows use `set UPGRADE_FROM=...` first.
+- **CI:** every push to `main` and every pull request runs `npm run check` and `npm test` on Windows, macOS and Linux with Node 22.13 and 24 (`.github/workflows/ci.yml`).
 - **Schema changes:** add a new entry to `MIGRATIONS` in `server/schema.js`. Never edit one that has already run.
 
 ### Ideas for next steps
