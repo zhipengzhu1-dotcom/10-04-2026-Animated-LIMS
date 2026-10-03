@@ -461,9 +461,9 @@ setApiHooks({
 
 async function boot() {
   try {
-    const { needsSetup, local } = await api.get('/api/setup');
+    const { needsSetup, local, demoAllowed } = await api.get('/api/setup');
     if (needsSetup) {
-      if (local) renderSetup(root, startApp);
+      if (local) renderSetup(root, startApp, { demoAllowed });
       else root.innerHTML = String(html`<div class="error-page">${emptyState({ icon: 'lock', title: 'Aliquot is not set up yet', text: 'For security, the first-time setup has to be done on the computer that runs Aliquot. Open http://localhost:3000 there, then come back to this address.' })}</div>`);
       return;
     }

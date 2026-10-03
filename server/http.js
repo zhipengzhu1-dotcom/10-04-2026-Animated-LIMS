@@ -1,4 +1,4 @@
-import { MODULES, isShipped } from './config.js';
+import { CLOUDFLARE_TUNNEL, MODULES, isShipped } from './config.js';
 
 export class HttpError extends Error {
   constructor(status, message, code) {
@@ -6,6 +6,15 @@ export class HttpError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+export const isLoopback = (ip) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+
+/** The visitor's address. Behind the tunnel, Cloudflare's header is trusted only on connections from this computer. */
+export function clientIp(req) {
+  const socket = req.socket.remoteAddress;
+  const visitor = req.headers['cf-connecting-ip'];
+  return CLOUDFLARE_TUNNEL && visitor && isLoopback(socket) ? String(visitor).slice(0, 64) : socket;
 }
 
 export const bad = (message, code) => new HttpError(400, message, code);

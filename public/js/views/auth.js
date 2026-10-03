@@ -90,7 +90,7 @@ export async function renderLogin(root, { message, onSuccess } = {}) {
   }));
 }
 
-export function renderSetup(root, onDone) {
+export function renderSetup(root, onDone, { demoAllowed = true } = {}) {
   document.title = 'Welcome · Aliquot';
   root.innerHTML = String(html`
     <div class="auth">
@@ -100,11 +100,11 @@ export function renderSetup(root, onDone) {
           <h2>Welcome to Aliquot</h2>
           <p class="sub">Let's get your laboratory set up. This takes a minute.</p>
           <form novalidate>
-            <div class="setup-choice">
-              <label><input type="radio" name="mode" value="demo" checked><span><strong>Explore with demo data</strong><small>A fictional lab with 22 people, 5 clients and 5 months of samples, tests, investigations and invoices. Best for trying everything out.</small></span></label>
-              <label><input type="radio" name="mode" value="real"><span><strong>Set up my laboratory</strong><small>Start empty and create the first administrator account.</small></span></label>
+            <div class="setup-choice" ${demoAllowed ? '' : 'hidden'}>
+              <label><input type="radio" name="mode" value="demo" ${demoAllowed ? 'checked' : ''}><span><strong>Explore with demo data</strong><small>A fictional lab with 22 people, 5 clients and 5 months of samples, tests, investigations and invoices. Best for trying everything out.</small></span></label>
+              <label><input type="radio" name="mode" value="real" ${demoAllowed ? '' : 'checked'}><span><strong>Set up my laboratory</strong><small>Start empty and create the first administrator account.</small></span></label>
             </div>
-            <div class="real-fields" hidden>
+            <div class="real-fields" ${demoAllowed ? 'hidden' : ''}>
               <div style="display:grid;gap:14px">
                 ${field({ label: 'Laboratory name', name: 'lab_name', placeholder: 'e.g. Northside Analytical Ltd.' })}
                 ${field({ label: 'Your full name', name: 'full_name' })}
