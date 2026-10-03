@@ -8,9 +8,9 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad, forbidden, notFound } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
-import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, RECORD_ACCESS } from '../lookups.js';
+import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, recordAccess } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
-import { DATA_DIR, MAX_UPLOAD_BYTES, isShipped } from '../config.js';
+import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -156,8 +156,7 @@ const canAny = (user, perms) => perms === null || perms.some((p) => can(user, p)
 
 function assertAttachmentAccess(ctx, entity, id, mode) {
   if (!ATTACHABLE.includes(entity)) throw bad('Unknown record type');
-  const rule = RECORD_ACCESS[entity];
-  if (rule.module && !isShipped(rule.module)) throw notFound();
+  const rule = recordAccess(entity);
   if (!canAny(ctx.user, rule.view)) throw forbidden();
   if (mode === 'edit') {
     if (!canAny(ctx.user, rule.edit)) throw forbidden('You cannot add or remove files on this record');

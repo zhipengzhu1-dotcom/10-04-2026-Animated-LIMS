@@ -277,7 +277,7 @@ export function respondToRequest(ctx, id, input) {
 // ---------------------------------------------------------------------------------------------
 
 export default function routes(r) {
-  const open = { auth: false };
+  const open = { auth: false, module: 'portal' };
 
   // ===== Public =====
   r.get('/api/portal/info', () => {
@@ -499,7 +499,7 @@ export default function routes(r) {
   // ===================================================================================
   // Staff side
   // ===================================================================================
-  const staff = { perm: 'portal.view' };
+  const staff = { perm: 'portal.view', module: 'portal' };
 
   r.get('/api/portal-admin/summary', () => ({
     unread: get(`SELECT COUNT(*) n FROM portal_threads t WHERE ${LAB_UNREAD}`).n,

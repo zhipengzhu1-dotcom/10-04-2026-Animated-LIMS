@@ -17,12 +17,11 @@ const PASSWORD = 'demo1234';
 const PILOT_MODULES = ['samples', 'methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings'];
 const MODULES_ALL = 'dashboard,samples,worklist,reviews,notebook,methods,instruments,inventory,investigations,audit,clients,projects,invoices,portal,insights,team,settings';
 let server;
-let dataDir;
 
 class Client {
-  constructor() { this.cookie = ''; }
+  constructor(base = BASE) { this.base = base; this.cookie = ''; }
   async req(method, url, body) {
-    const res = await fetch(BASE + url, {
+    const res = await fetch(this.base + url, {
       method,
       headers: { 'X-Requested-With': 'aliquot', ...(body ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -42,32 +41,49 @@ class Client {
   }
 }
 
-async function as(username) {
-  const c = new Client();
+async function as(username, base = BASE) {
+  const c = new Client(base);
   await c.ok('POST', '/api/auth/login', { username, password: PASSWORD });
   return c;
 }
 
-before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-pilot-test-'));
-  server = spawn(process.execPath, ['server.js'], {
+/** Starts a server with the demo lab and the given Shipped modules on `port`. */
+async function startServer(port, modules) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-pilot-test-'));
+  const proc = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, SHIPPED_MODULES: PILOT_MODULES.join(',') },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ALIQUOT_DATA: dir, SHIPPED_MODULES: modules.join(',') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
-  server.stderr.on('data', (d) => { log += d; });
+  proc.stderr.on('data', (d) => { log += d; });
+  const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 50; i++) {
-    try { if ((await fetch(`${BASE}/api/setup`)).ok) break; } catch { /* not up yet */ }
+    try { if ((await fetch(`${base}/api/setup`)).ok) break; } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
-  const setup = await new Client().post('/api/setup', { mode: 'demo' });
+  const setup = await new Client(base).post('/api/setup', { mode: 'demo' });
   assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${log}`);
+  return { base, proc, dir };
+}
+
+const stopServer = ({ proc, dir }) => {
+  proc.kill();
+  fs.rmSync(dir, { recursive: true, force: true });
+};
+
+/** Runs `fn(base)` against a second server that ships only `modules`. */
+async function withModules(modules, fn) {
+  const s = await startServer(PORT + 200 + Math.floor(Math.random() * 90), modules);
+  try { await fn(s.base); } finally { stopServer(s); }
+}
+
+before(async () => {
+  server = await startServer(PORT, PILOT_MODULES);
 });
 
 after(() => {
-  server?.kill();
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  if (server) stopServer(server);
 });
 
 test('the current-user response lists exactly the Shipped modules', async () => {
@@ -366,4 +382,58 @@ test('attachments on Shipped records still work with the Lab notebook withheld; 
   });
   assert.equal(upload.status, 404, 'nothing can be attached to a notebook entry');
   assert.equal((await tom.get('/api/history/notebook_entries/1')).status, 404, 'notebook entry history is not served');
+});
+
+// Review fixes
+// The APIs that belong to a single module. No route uses DELETE, so DELETE on the same address shows what a missing route answers.
+const MODULE_APIS = {
+  methods: [['GET', '/api/methods/1'], ['POST', '/api/methods'], ['PUT', '/api/methods/1'], ['POST', '/api/methods/1/status'], ['POST', '/api/methods/1/new-version']],
+  instruments: [['GET', '/api/instruments/1'], ['POST', '/api/instruments'], ['PUT', '/api/instruments/1'], ['POST', '/api/instruments/1/logs']],
+  inventory: [['GET', '/api/inventory'], ['GET', '/api/inventory/1'], ['POST', '/api/inventory'], ['PUT', '/api/inventory/1'], ['POST', '/api/inventory/1/adjust']],
+  clients: [['GET', '/api/clients/1'], ['POST', '/api/clients'], ['PUT', '/api/clients/1']],
+  projects: [['GET', '/api/projects/1'], ['POST', '/api/projects'], ['PUT', '/api/projects/1']],
+  invoices: [['GET', '/api/invoices'], ['GET', '/api/invoices/unbilled'], ['GET', '/api/invoices/1'], ['POST', '/api/invoices'], ['PUT', '/api/invoices/1'], ['POST', '/api/invoices/1/add-unbilled'], ['POST', '/api/invoices/1/issue'], ['POST', '/api/invoices/1/paid'], ['POST', '/api/invoices/1/void']],
+  portal: [['GET', '/api/portal-admin/summary'], ['GET', '/api/portal-admin/threads'], ['GET', '/api/portal-admin/submissions/1'], ['POST', '/api/portal-admin/accounts'], ['GET', '/api/portal/info'], ['POST', '/api/portal/login'], ['GET', '/api/portal/me'], ['GET', '/api/portal/samples']],
+  insights: [['GET', '/api/insights']],
+  team: [['GET', '/api/users'], ['GET', '/api/users/1'], ['POST', '/api/users'], ['PUT', '/api/users/1'], ['POST', '/api/users/1/reset-password'], ['POST', '/api/qualifications'], ['POST', '/api/qualifications/1/revoke']],
+  settings: [['PUT', '/api/settings']],
+  samples: [['GET', '/api/samples'], ['POST', '/api/samples/receive'], ['GET', '/api/samples/labels?ids=1'], ['GET', '/api/samples/1'], ['PUT', '/api/samples/1'], ['POST', '/api/samples/1/custody'], ['POST', '/api/samples/1/tests'], ['POST', '/api/samples/1/cancel'], ['POST', '/api/samples/1/report'], ['GET', '/api/samples/1/coa'], ['POST', '/api/samples/1/coa-printed']],
+};
+
+async function assertWithheld(base, modules) {
+  for (const [who, c] of [['Administrator', await as('admin', base)], ['anonymous', new Client(base)]]) {
+    for (const module of modules) {
+      for (const [method, url] of MODULE_APIS[module]) {
+        const r = await c.req(method, url, method === 'GET' ? undefined : {});
+        const missing = await c.req('DELETE', url);
+        assert.ok([404, 405].includes(r.status), `${who} ${method} ${url} (${module}) → ${r.status}`);
+        assert.deepEqual([r.status, r.data], [missing.status, missing.data], `${who} ${method} ${url} (${module}) looks like a missing route`);
+      }
+    }
+  }
+}
+
+test('with only Samples shipped, every other module’s APIs answer like missing routes while the shared core still answers', async () => {
+  await withModules(['samples'], async (base) => {
+    await assertWithheld(base, ['methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings']);
+    const admin = await as('admin', base);
+    for (const url of ['/api/clients', '/api/projects', '/api/methods?usable=1', '/api/instruments', '/api/qualifications', '/api/lookups', '/api/settings', '/api/tests', '/api/samples']) await admin.ok('GET', url);
+    const nav = await admin.ok('GET', '/api/nav');
+    assert.ok(!('portal' in nav), 'no Client portal badge count');
+    for (const entity of ['clients', 'projects', 'methods', 'instruments', 'inventory', 'invoices']) {
+      assert.equal((await admin.get(`/api/history/${entity}/1`)).status, 404, `no ${entity} history`);
+      assert.equal((await admin.get(`/api/attachments?entity=${entity}&id=1`)).status, 404, `no ${entity} files`);
+    }
+    await admin.ok('GET', '/api/history/samples/1');
+    await admin.ok('GET', '/api/attachments?entity=tests&id=1');
+  });
+});
+
+test('with Samples withheld, the Samples APIs answer like missing routes while the Test page endpoints stay', async () => {
+  await withModules(['projects', 'methods'], async (base) => {
+    await assertWithheld(base, ['samples', 'clients', 'invoices', 'team']);
+    const admin = await as('admin', base);
+    const [t] = await admin.ok('GET', '/api/tests?limit=1');
+    await admin.ok('GET', `/api/tests/${t.id}`);
+  });
 });

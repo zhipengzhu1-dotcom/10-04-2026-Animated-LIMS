@@ -194,16 +194,16 @@ export default function routes(r) {
       id, yearStart(), id, id, id, ...TEST_OPEN) : null,
       can: { edit: can(ctx.user, 'clients.edit') },
     };
-  });
+  }, { module: 'clients' });
 
-  r.post('/api/clients', (ctx) => createClient(ctx, ctx.body));
+  r.post('/api/clients', (ctx) => createClient(ctx, ctx.body), { module: 'clients' });
 
   r.put('/api/clients/:id', (ctx) => {
     assertCan(ctx, 'clients.edit');
     const { code, ...schema } = clientSchema;
     update(ctx, 'clients', +ctx.params.id, clean(ctx.body, schema, { partial: true }), { summary: 'Client details edited' });
     return { ok: true };
-  });
+  }, { module: 'clients' });
 
   // ----- Projects -----
   r.get('/api/projects', (ctx) => {
@@ -237,9 +237,9 @@ export default function routes(r) {
       invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null,
       can: { edit: can(ctx.user, 'projects.edit'), bill: can(ctx.user, 'billing.edit'), receive: can(ctx.user, 'samples.receive') },
     };
-  });
+  }, { module: 'projects' });
 
-  r.post('/api/projects', (ctx) => createProject(ctx, ctx.body));
+  r.post('/api/projects', (ctx) => createProject(ctx, ctx.body), { module: 'projects' });
 
   r.put('/api/projects/:id', (ctx) => {
     assertCan(ctx, 'projects.edit');
@@ -248,7 +248,7 @@ export default function routes(r) {
     if ('budget' in b && !can(ctx.user, 'billing.edit')) delete b.budget;
     update(ctx, 'projects', +ctx.params.id, b, { summary: 'Project edited' });
     return { ok: true };
-  });
+  }, { module: 'projects' });
 
   // ----- Invoices -----
   r.get('/api/invoices', (ctx) => {
@@ -260,12 +260,12 @@ export default function routes(r) {
         ROUND(${NET} * (1 + i.tax_rate / 100.0), 2) AS total
       FROM invoices i JOIN clients c ON c.id = i.client_id LEFT JOIN projects p ON p.id = i.project_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY i.id DESC`, ...params);
-  }, { perm: 'billing.view' });
+  }, { perm: 'billing.view', module: 'invoices' });
 
   r.get('/api/invoices/unbilled', () => all(`
     SELECT p.id, p.code, p.title, p.po_number, c.id AS client_id, c.name AS client_name, COUNT(t.id) AS tests, SUM(t.price) AS value, MIN(t.approved_at) AS oldest
     FROM tests t JOIN samples s ON s.id = t.sample_id JOIN projects p ON p.id = s.project_id JOIN clients c ON c.id = p.client_id
-    WHERE t.status = 'Approved' AND t.invoice_id IS NULL GROUP BY p.id ORDER BY value DESC`), { perm: 'billing.view' });
+    WHERE t.status = 'Approved' AND t.invoice_id IS NULL GROUP BY p.id ORDER BY value DESC`), { perm: 'billing.view', module: 'invoices' });
 
   r.get('/api/invoices/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -280,9 +280,9 @@ export default function routes(r) {
       unbilledAvailable: invoice.project_id && invoice.status === 'Draft' ? unbilledLines(invoice.project_id).reduce((n, l) => n + l.quantity, 0) : 0,
       can: { edit: can(ctx.user, 'billing.edit') && invoice.status === 'Draft', status: can(ctx.user, 'billing.edit') },
     };
-  }, { perm: 'billing.view' });
+  }, { perm: 'billing.view', module: 'invoices' });
 
-  r.post('/api/invoices', (ctx) => createInvoice(ctx, ctx.body), { perm: 'billing.edit' });
+  r.post('/api/invoices', (ctx) => createInvoice(ctx, ctx.body), { perm: 'billing.edit', module: 'invoices' });
 
   r.put('/api/invoices/:id', (ctx) => {
     assertCan(ctx, 'billing.edit');
@@ -322,7 +322,7 @@ export default function routes(r) {
       update(ctx, 'invoices', id, b, { summary: 'Draft invoice edited', extraChanges: extra });
     });
     return { ok: true, released };
-  });
+  }, { module: 'invoices' });
 
   r.post('/api/invoices/:id/add-unbilled', (ctx) => {
     assertCan(ctx, 'billing.edit');
@@ -336,9 +336,9 @@ export default function routes(r) {
       update(ctx, 'invoices', id, {}, { summary: 'Completed work added to invoice', extraChanges: { lines: [null, lines.map((l) => `${l.quantity} × ${l.description}`).join(' | ')] } });
     });
     return { ok: true };
-  });
+  }, { module: 'invoices' });
 
-  r.post('/api/invoices/:id/issue', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'issue', ctx.body));
-  r.post('/api/invoices/:id/paid', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'paid', ctx.body));
-  r.post('/api/invoices/:id/void', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'void', ctx.body));
+  r.post('/api/invoices/:id/issue', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'issue', ctx.body), { module: 'invoices' });
+  r.post('/api/invoices/:id/paid', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'paid', ctx.body), { module: 'invoices' });
+  r.post('/api/invoices/:id/void', (ctx) => setInvoiceStatus(ctx, +ctx.params.id, 'void', ctx.body), { module: 'invoices' });
 }

@@ -6,11 +6,12 @@ import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
-import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
+import { ROLES, lookups, TEST_OPEN, recordAccess, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES, isShipped } from '../config.js';
 import { portalBadge } from './portal.js';
+import { TEST_QUEUES } from './lab.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 
@@ -99,22 +100,27 @@ export default function routes(r) {
   // Counts for the sidebar badges.
   r.get('/api/nav', (ctx) => {
     const me = ctx.user.id;
-    const out = {
-      myTests: get(`SELECT COUNT(*) n FROM tests WHERE analyst_id = ? AND status IN ('Pending','In Progress')`, me).n,
-      reviews: 0,
-      ...(isShipped('investigations') && { investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n }),
+    const queued = (name) => {
+      const [sql, ...params] = TEST_QUEUES[name](me);
+      return get(`SELECT COUNT(*) n FROM tests t WHERE ${sql}`, ...params).n;
     };
-    if (can(ctx.user, 'tests.review')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Submitted' AND analyst_id != ?`, me).n;
-    if (can(ctx.user, 'tests.approve')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Reviewed' AND analyst_id != ? AND COALESCE(reviewed_by, 0) != ?`, me, me).n;
-    if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
-    if (!isShipped('worklist')) delete out.myTests;
-    if (!isShipped('reviews')) delete out.reviews;
-    out.portal = portalBadge(ctx.user); // unread client messages + new submissions/requests
-    return out;
+    const reviews = () => {
+      let n = 0;
+      if (can(ctx.user, 'tests.review')) n += queued('review');
+      if (can(ctx.user, 'tests.approve')) n += queued('approval');
+      if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) n += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+      return n;
+    };
+    return {
+      ...(isShipped('worklist') && { myTests: queued('assigned') }),
+      ...(isShipped('reviews') && { reviews: reviews() }),
+      ...(isShipped('investigations') && { investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n }),
+      ...(isShipped('portal') && { portal: portalBadge(ctx.user) }), // unread client messages + new submissions/requests
+    };
   });
 
   // ---------- Users ----------
-  r.get('/api/users', () => all(`SELECT ${USER_FIELDS} FROM users ORDER BY active DESC, full_name`));
+  r.get('/api/users', () => all(`SELECT ${USER_FIELDS} FROM users ORDER BY active DESC, full_name`), { module: 'team' });
 
   r.get('/api/users/:id', (ctx) => {
     const user = get(`SELECT ${USER_FIELDS}, locked_until, password_changed_at FROM users WHERE id = ?`, +ctx.params.id);
@@ -122,10 +128,9 @@ export default function routes(r) {
     const stats = get(`
       SELECT
         (SELECT COUNT(*) FROM tests WHERE analyst_id = ? AND status = 'Approved' AND approved_at >= ?) AS approved_90d,
-        (SELECT COUNT(*) FROM signatures WHERE user_id = ? AND meaning IN ('Reviewed','Approved') AND signed_at >= ?) AS reviews_90d,
-        (SELECT COUNT(*) FROM notebook_entries WHERE author_id = ?) AS notebook_entries`,
-    user.id, addDays(today(), -90), user.id, addDays(today(), -90), user.id);
-    if (!isShipped('notebook')) delete stats.notebook_entries;
+        (SELECT COUNT(*) FROM signatures WHERE user_id = ? AND meaning IN ('Reviewed','Approved') AND signed_at >= ?) AS reviews_90d`,
+    user.id, addDays(today(), -90), user.id, addDays(today(), -90));
+    if (isShipped('notebook')) stats.notebook_entries = get('SELECT COUNT(*) n FROM notebook_entries WHERE author_id = ?', user.id).n;
     return {
       user,
       qualifications: all(`
@@ -138,7 +143,7 @@ export default function routes(r) {
         WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
       stats,
     };
-  });
+  }, { module: 'team' });
 
   const userSchema = {
     username: { required: true, max: 40 },
@@ -160,7 +165,7 @@ export default function routes(r) {
       password_hash: hashPassword(ctx.body.password), must_change_password: 1, created_at: nowIso(),
     }, { summary: `User account created (${ROLES[b.role].label})` });
     return { id };
-  }, { perm: 'users.manage' });
+  }, { perm: 'users.manage', module: 'team' });
 
   r.put('/api/users/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -170,7 +175,7 @@ export default function routes(r) {
     update(ctx, 'users', id, b, { summary: 'User account updated' });
     if (b.active === 0) run('DELETE FROM sessions WHERE user_id = ?', id);
     return { ok: true };
-  }, { perm: 'users.manage' });
+  }, { perm: 'users.manage', module: 'team' });
 
   r.post('/api/users/:id/reset-password', (ctx) => {
     const id = +ctx.params.id;
@@ -180,7 +185,7 @@ export default function routes(r) {
     }, { summary: 'Password reset by administrator (user must change at next sign-in)' });
     run('DELETE FROM sessions WHERE user_id = ?', id);
     return { ok: true };
-  }, { perm: 'users.manage' });
+  }, { perm: 'users.manage', module: 'team' });
 
   // ---------- Training / method qualifications ----------
   r.get('/api/qualifications', () => ({
@@ -212,7 +217,7 @@ export default function routes(r) {
       return { id: existing.id };
     }
     return { id: insert(ctx, 'qualifications', { ...b, trained_by: b.trained_by ?? ctx.user.id }, { code: b.method_code, summary: `${who} qualified on ${b.method_code}` }) };
-  }, { perm: 'qualifications.manage' });
+  }, { perm: 'qualifications.manage', module: 'team' });
 
   r.post('/api/qualifications/:id/revoke', (ctx) => {
     const q = get('SELECT q.*, u.full_name FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.id = ?', +ctx.params.id);
@@ -220,7 +225,7 @@ export default function routes(r) {
     if (!ctx.body.reason) throw bad('A reason is required', 'REASON_REQUIRED');
     update(ctx, 'qualifications', q.id, { revoked: 1 }, { summary: `${q.full_name} — qualification on ${q.method_code} revoked`, reason: ctx.body.reason });
     return { ok: true };
-  }, { perm: 'qualifications.manage' });
+  }, { perm: 'qualifications.manage', module: 'team' });
 
   // ---------- Settings ----------
   r.get('/api/settings', () => getSettings());
@@ -234,7 +239,7 @@ export default function routes(r) {
       throw bad('Idle timeout must be between 5 and 720 minutes');
     }
     return setSettings(ctx, patch);
-  }, { perm: 'settings.edit' });
+  }, { perm: 'settings.edit', module: 'settings' });
 
   // ---------- Audit trail ----------
   r.get('/api/audit', (ctx) => {
@@ -261,8 +266,7 @@ export default function routes(r) {
 
   // Per-record history is visible to whoever can see the record; money fields only to billing roles.
   r.get('/api/history/:entity/:id', (ctx) => {
-    const rule = RECORD_ACCESS[ctx.params.entity];
-    if (rule?.module && !isShipped(rule.module)) throw notFound();
+    const rule = recordAccess(ctx.params.entity);
     const allowed = rule ? rule.view === null || rule.view.some((p) => can(ctx.user, p)) : can(ctx.user, 'audit.view');
     if (!allowed) throw forbidden();
     const rows = all(`
