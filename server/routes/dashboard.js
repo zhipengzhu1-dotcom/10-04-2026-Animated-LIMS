@@ -106,7 +106,7 @@ export default function routes(r) {
       revenueTrend: money ? fillMonths(monthsBack(6), all(`SELECT substr(i.issued_date, 1, 7) AS month, SUM(l.quantity * l.unit_price) AS v
         FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.status IN ('Sent','Paid') AND i.issued_date >= ? GROUP BY month`, `${monthsBack(6)[0]}-01`)) : null,
     };
-  });
+  }, { module: 'dashboard' });
 
   r.get('/api/insights', (ctx) => {
     const months = monthsBack(12);

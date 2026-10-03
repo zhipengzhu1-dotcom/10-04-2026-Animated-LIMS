@@ -31,6 +31,7 @@ import * as print from './views/print.js';
 // A route whose nav key names a Withheld module highlights its own module instead (the Test page goes under Samples).
 const ROUTES = [
   ['/', dashboard.render, 'dashboard'],
+  ['/', samples.list, 'samples'], // the start page when the Dashboard is withheld
   ['/samples', samples.list, 'samples'],
   ['/samples/receive', samples.receive, 'samples'],
   ['/samples/:id', samples.detail, 'samples'],
@@ -354,7 +355,7 @@ async function renderRoute({ keepScroll = false } = {}) {
       icon: e.status === 404 ? 'search' : e.status === 403 ? 'lock' : 'alert',
       title: e.status === 404 ? 'Not found' : e.status === 403 ? 'Access restricted' : 'Something went wrong',
       text: e.message,
-      action: html`<a class="btn" href="/">Back to dashboard</a>`,
+      action: html`<a class="btn" href="/">Back to ${shipped('dashboard') ? 'dashboard' : 'samples'}</a>`,
     })}</div>`);
   }
   if (seq !== renderSeq) return undefined;
