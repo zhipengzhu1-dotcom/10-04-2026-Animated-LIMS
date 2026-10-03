@@ -10,7 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { all, get, run, tx } from '../db.js';
 import { audit } from '../audit.js';
-import { HttpError, bad, forbidden, notFound, readBody } from '../http.js';
+import { HttpError, bad, clientIp, forbidden, notFound, readBody } from '../http.js';
 import { assertCan } from '../auth.js';
 import { nowIso, localDate } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES, SESSION_MAX_HOURS } from '../config.js';
@@ -230,7 +230,7 @@ async function dav(req, res, url) {
   const doc = getDoc(link.document_id);
   if (!doc || doc.removed) throw new HttpError(404, 'Not found');
   const user = get('SELECT * FROM users WHERE id = ?', link.user_id);
-  const ctx = { user, ip: req.socket.remoteAddress };
+  const ctx = { user, ip: clientIp(req) };
   const base = `/dav/${token}/`;
   const href = base + encodeURIComponent(doc.filename);
   const collection = !name;
