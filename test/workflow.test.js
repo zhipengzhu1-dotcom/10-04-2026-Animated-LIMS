@@ -388,6 +388,80 @@ test('an OOS cannot be hidden by cancelling the test, and blocks the certificate
   assert.equal(report.status, 400);
 });
 
+// Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
+async function oosTest(analystUsername) {
+  const analyst = await as(analystUsername);
+  const { sampleId, testId } = await freshTest('ATM-0002', analystUsername);
+  const d = await analyst.ok('GET', `/api/tests/${testId}`);
+  await analyst.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.9' }] });
+  const { investigation } = await analyst.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  return { sampleId, testId, investigation };
+}
+
+test('an OOS investigation is closed from the Test page with an e-signature', async () => {
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId, investigation } = await oosTest('priya.raman');
+
+  const open = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.equal(open.length, 1);
+  assert.equal(open[0].code, investigation.code);
+  assert.equal(open[0].status, 'Open');
+  assert.match(open[0].description, /Out-of-specification/);
+  assert.ok(open[0].raised_at);
+  const blocked = await daniel.post(`/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.data.error, /still open/);
+
+  const close = `/api/tests/${testId}/investigation/close`;
+  const full = { root_cause: 'Sample absorbed moisture after opening', conclusion: 'Confirmed OOS — result valid', password: PASSWORD };
+  assert.equal((await (await as('tom.fletcher')).post(close, full)).status, 403, 'analysts lack the close permission');
+  const own = await (await as('priya.raman')).post(close, full);
+  assert.equal(own.status, 403, 'the analyst who performed the test cannot close its investigation');
+  assert.match(own.data.error, /performed/);
+  assert.equal((await daniel.post(close, { ...full, root_cause: '  ' })).status, 400, 'root cause required');
+  assert.equal((await daniel.post(close, { ...full, conclusion: undefined })).status, 400, 'conclusion required');
+  const wrong = await daniel.post(close, { ...full, password: 'nope' });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.data.code, 'SIGNATURE');
+  assert.equal((await daniel.ok('GET', `/api/tests/${testId}`)).investigations[0].status, 'Open', 'refusals leave it open');
+
+  await daniel.ok('POST', close, full);
+  const [closed] = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.equal(closed.status, 'Closed');
+  assert.equal(closed.root_cause, full.root_cause);
+  assert.equal(closed.conclusion, full.conclusion);
+  assert.equal(closed.closed_by_name, 'Daniel Okafor');
+  assert.ok(closed.closed_at);
+  const signed = (await daniel.ok('GET', `/api/investigations/${investigation.id}`)).signatures;
+  assert.ok(signed.some((s) => s.meaning === 'OOS investigation closed' && s.full_name === 'Daniel Okafor'), 'closing is e-signed');
+  const history = await daniel.ok('GET', `/api/history/investigations/${investigation.id}`);
+  const entry = history.find((h) => h.action === 'STATUS' && h.username === 'daniel.okafor');
+  assert.ok(entry, 'closing is audited');
+  assert.deepEqual(JSON.parse(entry.changes).root_cause, [null, full.root_cause]);
+  assert.equal((await daniel.post(close, full)).status, 400, 'nothing left to close');
+
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
+test('closing an investigation needs the right password on both endpoints, and wrong ones count toward lock-out', async () => {
+  const daniel = await as('daniel.okafor');
+  const helena = await as('helena.weiss');
+  const { testId, investigation } = await oosTest('tom.fletcher');
+  await daniel.ok('PUT', `/api/investigations/${investigation.id}`, { title: 'OOS water', root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' });
+  for (const password of [undefined, 'nope']) {
+    const r = await daniel.post(`/api/investigations/${investigation.id}/close`, { password });
+    assert.equal(r.status, 400);
+    assert.equal(r.data.code, 'SIGNATURE');
+  }
+  const body = { root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' };
+  for (let i = 0; i < 5; i++) await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: 'bad' });
+  const locked = await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: PASSWORD });
+  assert.equal(locked.status, 423, 'locked even with the right password');
+});
+
 test('non-text reasons cannot break the audit hash chain', async () => {
   const tom = await as('tom.fletcher');
   const items = await tom.ok('GET', '/api/inventory');

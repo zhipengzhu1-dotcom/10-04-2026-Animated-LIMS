@@ -468,6 +468,22 @@ const WORK_FILTERS = {
   approval: { perm: 'tests.approve', match: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me] },
 };
 
+/** Closes the Test's open OOS investigation from the Test page, so it never depends on the Investigations screens. */
+export function closeTestInvestigation(ctx, id, body) {
+  assertCan(ctx, 'investigations.close');
+  const t = getTest(id);
+  const inv = get(`SELECT id, code FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
+  if (!inv) throw bad('There is no open OOS investigation on this test');
+  if (t.analyst_id === ctx.user.id) throw forbidden('You performed this test — someone independent must close its investigation');
+  const b = clean(body, { root_cause: { type: 'text', required: true }, conclusion: { type: 'text', required: true } });
+  verifySignature(ctx, body.password);
+  tx(() => {
+    update(ctx, 'investigations', inv.id, { ...b, status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed from the test' });
+    applySignature(ctx, 'investigations', inv.id, 'OOS investigation closed', { code: inv.code });
+  });
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -650,13 +666,15 @@ export default function routes(r) {
     const mine = test.analyst_id === me.id;
     const qualifiedMe = isQualified(me.id, test.method_code);
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
+    const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
+      FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
     return {
       test,
       method,
       results: all('SELECT r.*, u.full_name AS entered_by_name FROM results r LEFT JOIN users u ON u.id = r.entered_by WHERE r.test_id = ? ORDER BY r.sort_order, r.id', id),
       materials: all('SELECT i.* FROM test_materials tm JOIN inventory i ON i.id = tm.inventory_id WHERE tm.test_id = ? ORDER BY i.code', id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'tests' AND entity_id = ? ORDER BY id`, id),
-      investigations: all('SELECT id, code, title, status, conclusion FROM investigations WHERE test_id = ? ORDER BY id DESC', id),
+      investigations,
       instruments: all(`SELECT id, code, name, type, status, calibration_due FROM instruments WHERE status != 'Retired' OR id = ? ORDER BY code`, test.instrument_id).map((i) => ({ ...i, problem: instrumentProblem(i) })),
       // Materials used before with this method are suggested first.
       inventory: all(`SELECT i.id, i.code, i.name, i.category, i.lot_no, i.potency, i.expiry_date, i.status,
@@ -676,6 +694,7 @@ export default function routes(r) {
         approve: can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id,
         cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status),
         raise: can(me, 'investigations.raise'),
+        closeInvestigation: can(me, 'investigations.close') && !mine && investigations.some((v) => v.type === 'OOS' && v.status !== 'Closed'),
       },
       qualifiedMe,
     };
@@ -688,6 +707,7 @@ export default function routes(r) {
   r.post('/api/tests/:id/review', (ctx) => reviewTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/approve', (ctx) => approveTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/cancel', (ctx) => cancelTest(ctx, +ctx.params.id, ctx.body.reason));
+  r.post('/api/tests/:id/investigation/close', (ctx) => closeTestInvestigation(ctx, +ctx.params.id, ctx.body));
 
   // ----- Review queue -----
   r.get('/api/reviews', (ctx) => {

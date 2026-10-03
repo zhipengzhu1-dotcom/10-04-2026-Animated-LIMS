@@ -412,7 +412,7 @@ export function promptReason(message = 'Give a reason for this change') {
  * Electronic signature dialog (21 CFR Part 11): the signer re-enters their password and states the meaning.
  * onSign({ password, comment }) performs the signed action; errors (e.g. wrong password) stay in the dialog.
  */
-export function esign({ title, meaning, description, confirmLabel = 'Sign', danger = false, comment = null, onSign }) {
+export function esign({ title, meaning, description, confirmLabel = 'Sign', danger = false, comment = null, fields = null, onSign }) {
   return openForm({
     title,
     size: 'sm',
@@ -424,10 +424,11 @@ export function esign({ title, meaning, description, confirmLabel = 'Sign', dang
         <div class="esign-who">${avatar(state.me.full_name, state.me.id, { size: 32 })}<div><strong>${state.me.full_name}</strong><small>${state.me.title || ''}</small></div></div>
         <div class="esign-meaning"><span>Meaning of signature</span><strong>${meaning}</strong></div>
       </div>
+      ${fields || ''}
       ${comment ? field({ label: comment.label || 'Comment', name: 'comment', type: 'textarea', rows: 2, required: comment.required, span: 2, placeholder: comment.placeholder }) : ''}
-      ${field({ label: 'Password', name: 'password', type: 'password', required: true, span: 2, autofocus: !comment, attrs: 'autocomplete="current-password"' })}
+      ${field({ label: 'Password', name: 'password', type: 'password', required: true, span: 2, autofocus: !comment && !fields, attrs: 'autocomplete="current-password"' })}
       <p class="span-2 legal">${icon('lock', { size: 12 })} By signing you confirm this electronic signature is the legally binding equivalent of your handwritten signature.</p>`,
-    onSubmit: (d) => onSign({ password: d.password, comment: d.comment?.trim() || null }),
+    onSubmit: (d) => onSign({ ...d, password: d.password, comment: d.comment?.trim() || null }),
   });
 }
 
