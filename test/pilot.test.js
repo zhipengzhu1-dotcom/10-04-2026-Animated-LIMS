@@ -128,6 +128,167 @@ test('an unknown module key stops start-up with a message naming it', async () =
   }
 });
 
+// #7
+// Drives a fresh Karl Fischer Test to an out-of-spec submission and through peer review.
+async function pilotOosTest(analystUsername) {
+  const priya = await as('priya.raman');
+  const clients = await priya.ok('GET', '/api/clients');
+  const method = (await priya.ok('GET', '/api/methods?usable=1')).find((m) => m.code === 'ATM-0002' && m.status === 'Effective');
+  const received = await priya.ok('POST', '/api/samples/receive', { client_id: clients[0].id, samples: [{ description: 'Pilot OOS' }], method_ids: [method.id] });
+  const sampleId = received.samples[0].id;
+  const testId = (await priya.ok('GET', `/api/samples/${sampleId}`)).tests[0].id;
+  const users = await priya.ok('GET', '/api/users');
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [testId], analyst_id: users.find((u) => u.username === analystUsername).id });
+  const analyst = await as(analystUsername);
+  const d = await analyst.ok('GET', `/api/tests/${testId}`);
+  await analyst.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.9' }] });
+  const { investigation } = await analyst.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  return { sampleId, testId, investigation };
+}
+
+test('Withheld Investigations APIs answer like routes that do not exist', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  const qa = await as('daniel.okafor'); // QA can raise and close investigations when the module ships
+  const calls = [
+    ['GET', '/api/investigations'], ['GET', '/api/investigations?status=open'], ['GET', '/api/investigations/1'],
+    ['POST', '/api/investigations', { type: 'Deviation', title: 'Pilot deviation' }],
+    ['PUT', '/api/investigations/1', { title: 'Renamed' }],
+    ['POST', '/api/investigations/1/close', { password: PASSWORD }],
+  ];
+  for (const [method, url, body] of calls) {
+    for (const [who, c] of [['QA', qa], ['anonymous', new Client()]]) {
+      const r = await c.req(method, url, body);
+      assert.equal(r.status, 404, `${who} ${method} ${url}`);
+      assert.deepEqual(r.data, nowhere.data, `${who} ${method} ${url} looks like a missing route`);
+    }
+  }
+});
+
+test('an out-of-spec submission still opens an OOS investigation that blocks approval and the CoA until closed on the Test page', async () => {
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId, investigation } = await pilotOosTest('priya.raman');
+  assert.match(investigation?.code ?? '', /^OOS-/, 'the OOS investigation opens automatically');
+
+  const d = await daniel.ok('GET', `/api/tests/${testId}`);
+  assert.deepEqual(d.investigations.map((v) => [v.code, v.status]), [[investigation.code, 'Open']], 'the Test page still shows its OOS investigation');
+  assert.equal(d.can.raise, false, 'no manual raising while Investigations is withheld');
+  assert.equal(d.can.closeInvestigation, true);
+  const blocked = await daniel.post(`/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.data.error, /still open/);
+  assert.equal((await daniel.post(`/api/samples/${sampleId}/report`, { password: PASSWORD })).status, 400, 'no CoA while it is open');
+
+  await daniel.ok('POST', `/api/tests/${testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
+test('search, badges, record files and history leave out Investigations', async () => {
+  const c = await as('daniel.okafor');
+  const { investigation } = await pilotOosTest('tom.fletcher');
+  for (const q of [investigation.code, 'OOS', 'DEV']) {
+    const found = await c.ok('GET', `/api/search?q=${encodeURIComponent(q)}`);
+    assert.ok(!found.results.some((x) => x.type === 'Investigation'), `no Investigation results for "${q}"`);
+    assert.ok(!found.results.some((x) => x.href.startsWith('/investigations')), `no links into Investigations for "${q}"`);
+  }
+  assert.equal((await c.ok('GET', `/api/search?q=${investigation.code}`)).exact, null);
+  const nav = await c.ok('GET', '/api/nav');
+  assert.ok(!('investigations' in nav), 'no investigations badge count');
+  assert.ok('portal' in nav, 'Shipped badges are still counted');
+  assert.equal((await c.get(`/api/attachments?entity=investigations&id=${investigation.id}`)).status, 404);
+  assert.equal((await c.get(`/api/history/investigations/${investigation.id}`)).status, 404);
+});
+
+test('sample, project and instrument details carry no investigation lists', async () => {
+  const c = await as('daniel.okafor');
+  const { sampleId } = await pilotOosTest('tom.fletcher');
+  const sample = await c.ok('GET', `/api/samples/${sampleId}`);
+  assert.ok(!('investigations' in sample), 'sample detail has no investigations');
+  assert.ok(sample.tests.length, 'the rest of the sample detail is intact');
+  const [project] = await c.ok('GET', '/api/projects');
+  assert.ok(!('investigations' in await c.ok('GET', `/api/projects/${project.id}`)), 'project detail has no investigations');
+  for (const i of await c.ok('GET', '/api/instruments')) {
+    assert.ok(!('investigations' in await c.ok('GET', `/api/instruments/${i.id}`)), `instrument ${i.code} detail has no investigations`);
+  }
+});
+
+// #8
+test('the Withheld Dashboard API answers like a route that does not exist, while Insights still works', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  for (const [who, c] of [['Analyst', await as('tom.fletcher')], ['anonymous', new Client()]]) {
+    const r = await c.get('/api/dashboard');
+    assert.equal(r.status, 404, `${who} GET /api/dashboard`);
+    assert.deepEqual(r.data, nowhere.data, `${who} GET /api/dashboard looks like a missing route`);
+  }
+  const insights = await (await as('oliver.grant')).ok('GET', '/api/insights');
+  assert.equal(insights.months.length, 12);
+  assert.ok(Array.isArray(insights.revenueByMonth), 'Business & Finance see revenue figures');
+});
+
+// #9
+test('Withheld Reviews & approvals queue answers like a route that does not exist, signed in or not', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  for (const [who, c] of [['QA', await as('daniel.okafor')], ['anonymous', new Client()]]) {
+    const r = await c.get('/api/reviews');
+    assert.equal(r.status, 404, `${who} GET /api/reviews`);
+    assert.deepEqual(r.data, nowhere.data, `${who} GET /api/reviews looks like a missing route`);
+  }
+});
+
+test('badge counts carry no Worklist or Reviews queue', async () => {
+  for (const username of ['tom.fletcher', 'sarah.lindqvist', 'daniel.okafor']) {
+    const nav = await (await as(username)).ok('GET', '/api/nav');
+    assert.ok(!('myTests' in nav), `${username}: no Worklist count`);
+    assert.ok(!('reviews' in nav), `${username}: no Reviews count`);
+  }
+});
+
+test('starting from a sample, a Test is assigned, performed, reviewed, approved and certified without the Worklist or Reviews', async () => {
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  const sarah = await as('sarah.lindqvist');
+  const daniel = await as('daniel.okafor');
+  const [client] = await priya.ok('GET', '/api/clients');
+  const methods = await priya.ok('GET', '/api/methods?usable=1');
+  const kf = methods.find((m) => m.code === 'ATM-0002' && m.status === 'Effective');
+  const ftir = methods.find((m) => m.code === 'ATM-0006' && m.status === 'Effective');
+  const received = await priya.ok('POST', '/api/samples/receive', { client_id: client.id, samples: [{ description: 'Pilot walk' }], method_ids: [kf.id, ftir.id] });
+  const sampleId = received.samples[0].id;
+  const { tests } = await priya.ok('GET', `/api/samples/${sampleId}`);
+  const kfTest = tests.find((t) => t.method_code === 'ATM-0002');
+  const irTest = tests.find((t) => t.method_code === 'ATM-0006');
+
+  // The assign dialog lists the sample's tests and assigns one; the analyst picks up the other.
+  const listed = await priya.ok('GET', `/api/tests?sample_id=${sampleId}`);
+  assert.deepEqual(listed.map((t) => t.id).sort(), [kfTest.id, irTest.id].sort());
+  const tomUser = (await priya.ok('GET', '/api/users')).find((u) => u.username === 'tom.fletcher');
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [kfTest.id], analyst_id: tomUser.id });
+  await tom.ok('POST', `/api/tests/${irTest.id}/claim`);
+
+  for (const id of [kfTest.id, irTest.id]) await tom.ok('POST', `/api/tests/${id}/start`);
+  const kfDetail = await tom.ok('GET', `/api/tests/${kfTest.id}`);
+  await tom.ok('PUT', `/api/tests/${kfTest.id}`, { instrument_id: kfDetail.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: kfDetail.results[0].id, value: '0.21' }] });
+  const irDetail = await tom.ok('GET', `/api/tests/${irTest.id}`);
+  await tom.ok('PUT', `/api/tests/${irTest.id}`, { instrument_id: irDetail.instruments.find((i) => i.code === 'FTIR-01').id, results: [{ id: irDetail.results[0].id, value: 'Conforms to reference', outcome: 'Pass' }] });
+
+  for (const id of [kfTest.id, irTest.id]) {
+    const submitted = await tom.ok('POST', `/api/tests/${id}/submit`, { password: PASSWORD });
+    assert.ok(!submitted.investigation, 'in-spec results open no investigation');
+    assert.equal((await tom.post(`/api/tests/${id}/review`, { decision: 'approve', password: PASSWORD })).status, 403, 'no self-review');
+    assert.ok((await sarah.ok('GET', `/api/tests/${id}`)).can.review);
+    await sarah.ok('POST', `/api/tests/${id}/review`, { decision: 'approve', password: PASSWORD });
+    assert.equal((await sarah.post(`/api/tests/${id}/approve`, { decision: 'approve', password: PASSWORD })).status, 403, 'the reviewer cannot also approve');
+    assert.ok((await daniel.ok('GET', `/api/tests/${id}`)).can.approve);
+    await daniel.ok('POST', `/api/tests/${id}/approve`, { decision: 'approve', password: PASSWORD });
+  }
+
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved');
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
 // #6
 test('Withheld Lab notebook APIs, including Word/Excel documents, answer like routes that do not exist', async () => {
   const nowhere = await new Client().get('/api/no-such-route');

@@ -170,7 +170,7 @@ export async function detail(ctx) {
         <a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>
         ${d.can.assign ? html`<button data-act="assign">${icon('users')}${t.analyst_id ? 'Reassign' : 'Assign'}</button>` : ''}
         ${d.can.raise ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
-        ${can('notebook.write') && shipped('notebook') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
+        ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
         ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel test</button>` : ''}
       </div>
     </div>`;
@@ -192,7 +192,7 @@ export async function detail(ctx) {
     <div class="card stepper-card">${stepper(TEST_STEPS, t.status === 'Cancelled' ? null : t.status, { stopped: t.status === 'Cancelled' })}</div>
 
     ${returned ? html`<div class="notice warn mb">${icon('undo', { size: 16 })}<span><strong>Returned by ${returned.full_name}:</strong> “${returned.comment}” — correct and resubmit.</span></div>` : ''}
-    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
+    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => (shipped('investigations') ? html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> ` : html`<strong>${v.code}</strong> `))}is open — this result cannot be approved until it is closed.</span></div>` : ''}
     ${t.analyst_id === state.me.id && !d.qualifiedMe && !['Approved', 'Cancelled'].includes(t.status) ? html`<div class="notice warn mb">${icon('training', { size: 16 })}<span>Your training on ${t.method_code} is not current. Ask your manager to update the training record before you record results.</span></div>` : ''}
     ${d.can.review ? html`<div class="notice info mb">${icon('review', { size: 16 })}<span><strong>Peer review:</strong> check the results against the raw data${t.raw_data_ref ? html` (${t.raw_data_ref})` : ''}, the calculations and the specification, then sign or return it to ${t.analyst_name}.</span></div>` : ''}
     ${d.can.approve ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
@@ -266,7 +266,7 @@ export async function detail(ctx) {
         ]) })}
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
         ${d.investigations.map((v) => card({
-          title: html`<a href="/investigations/${v.id}" class="code">${v.code}</a> ${statusBadge(v.status)}`,
+          title: html`${shipped('investigations') ? html`<a href="/investigations/${v.id}" class="code">${v.code}</a>` : html`<span class="code">${v.code}</span>`} ${statusBadge(v.status)}`,
           actions: d.can.closeInvestigation && v.type === 'OOS' && v.status !== 'Closed' ? html`<button class="btn sm primary" data-act="close-investigation">${icon('sign', { size: 14 })}Close</button>` : '',
           body: kv([
             ['Raised', fmtDateTime(v.raised_at)],

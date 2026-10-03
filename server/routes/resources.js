@@ -4,12 +4,12 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden, notFound } from '../http.js';
-import { isShipped } from '../config.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import {
   TECHNIQUES, INSTRUMENT_TYPES, INSTRUMENT_STATUSES, INSTRUMENT_LOG_KINDS, INVENTORY_CATEGORIES, INVENTORY_STATUSES,
 } from '../lookups.js';
 import { clean, nowIso, today, addDays, likeTerm } from '../util.js';
+import { isShipped } from '../config.js';
 import { TEST_SELECT } from './lab.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -306,7 +306,7 @@ export default function routes(r) {
       instrument,
       logs: all('SELECT l.*, u.full_name FROM instrument_logs l LEFT JOIN users u ON u.id = l.user_id WHERE l.instrument_id = ? ORDER BY l.performed_at DESC, l.id DESC', id),
       recentTests: all(`${TEST_SELECT} WHERE t.instrument_id = ? ORDER BY t.id DESC LIMIT 20`, id),
-      investigations: all('SELECT id, code, title, status FROM investigations WHERE instrument_id = ? ORDER BY id DESC', id),
+      ...(isShipped('investigations') && { investigations: all('SELECT id, code, title, status FROM investigations WHERE instrument_id = ? ORDER BY id DESC', id) }),
       can: { edit: can(ctx.user, 'instruments.edit'), log: can(ctx.user, 'instruments.log') },
     };
   });

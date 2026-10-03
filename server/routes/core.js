@@ -102,11 +102,13 @@ export default function routes(r) {
     const out = {
       myTests: get(`SELECT COUNT(*) n FROM tests WHERE analyst_id = ? AND status IN ('Pending','In Progress')`, me).n,
       reviews: 0,
-      investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n,
+      ...(isShipped('investigations') && { investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n }),
     };
     if (can(ctx.user, 'tests.review')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Submitted' AND analyst_id != ?`, me).n;
     if (can(ctx.user, 'tests.approve')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Reviewed' AND analyst_id != ? AND COALESCE(reviewed_by, 0) != ?`, me, me).n;
     if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+    if (!isShipped('worklist')) delete out.myTests;
+    if (!isShipped('reviews')) delete out.reviews;
     out.portal = portalBadge(ctx.user); // unread client messages + new submissions/requests
     return out;
   });
@@ -313,8 +315,10 @@ export default function routes(r) {
       push('Notebook', all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
         (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
     }
-    push('Investigation', all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
-      (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
+    if (isShipped('investigations')) {
+      push('Investigation', all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
+        (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
+    }
     if (can(ctx.user, 'billing.view')) {
       push('Invoice', all(`SELECT i.id, i.code, i.status, c.name AS client FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.code LIKE ? ESCAPE '\\' LIMIT ${L}`, t),
         (x) => ({ code: x.code, title: x.client, meta: x.status, href: `/invoices/${x.id}` }));

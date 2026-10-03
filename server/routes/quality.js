@@ -269,7 +269,7 @@ export default function routes(r) {
     else if (q.status && q.status !== 'all') { where.push('v.status = ?'); params.push(q.status); }
     if (q.type) { where.push('v.type = ?'); params.push(q.type); }
     return all(`${INV_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY v.status = 'Closed', v.id DESC`, ...params);
-  });
+  }, { module: 'investigations' });
 
   r.get('/api/investigations/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -283,11 +283,11 @@ export default function routes(r) {
         close: investigation.status !== 'Closed' && can(ctx.user, 'investigations.close'),
       },
     };
-  });
+  }, { module: 'investigations' });
 
-  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body));
-  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body));
-  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body), { module: 'investigations' });
+  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
+  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
 
   // ----- Attachments -----
   r.get('/api/attachments', (ctx) => {

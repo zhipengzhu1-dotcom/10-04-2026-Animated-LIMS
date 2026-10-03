@@ -362,6 +362,7 @@ export async function detail(ctx) {
   const stopped = ['Cancelled', 'Disposed'].includes(s.status);
   const allResults = d.tests.flatMap((t) => (t.status === 'Cancelled' ? [] : t.results));
   const fails = allResults.filter((r) => r.outcome === 'Fail').length;
+  const oosTests = d.tests.filter((t) => t.status !== 'Cancelled' && t.results.some((r) => r.outcome === 'Fail'));
   const L = state.lookups;
 
   ctx.el.innerHTML = String(html`
@@ -385,8 +386,8 @@ export async function detail(ctx) {
           <div class="dropdown-menu" hidden>
             ${d.can.edit ? html`<button data-act="edit">${icon('edit')}Edit details</button>` : ''}
             ${d.can.custody ? html`<button data-act="custody">${icon('pin')}Record movement</button>` : ''}
-            ${can('investigations.raise') ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
-            ${can('notebook.write') && shipped('notebook') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
+            ${shipped('investigations') && can('investigations.raise') ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
+            ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
             ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel sample</button>` : ''}
             ${d.can.dispose && !stopped ? html`<button data-act="dispose">${icon('trash')}Dispose</button>` : ''}
           </div>
@@ -395,7 +396,7 @@ export async function detail(ctx) {
 
     <div class="card stepper-card">${stepper(SAMPLE_STEPS, stopped ? null : s.status, { stopped })}${stopped ? html`<p class="muted small" style="margin:10px 0 0;text-align:center">This sample is ${s.status.toLowerCase()}.</p>` : ''}</div>
 
-    ${fails ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span><strong>${plural(fails, 'result')} out of specification.</strong> ${d.investigations.filter((v) => v.status !== 'Closed').length ? html`Investigation ${d.investigations.filter((v) => v.status !== 'Closed').map((v) => html`<a href="/investigations/${v.id}">${v.code}</a> `)}is open.` : 'See the linked investigation for the conclusion.'}</span></div>` : ''}
+    ${fails ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span><strong>${plural(fails, 'result')} out of specification.</strong> ${!shipped('investigations') ? html`See the OOS investigation on test ${oosTests.map((t) => html`<a href="/tests/${t.id}">${t.code}</a> `)}for its status and conclusion.` : d.investigations.filter((v) => v.status !== 'Closed').length ? html`Investigation ${d.investigations.filter((v) => v.status !== 'Closed').map((v) => html`<a href="/investigations/${v.id}">${v.code}</a> `)}is open.` : 'See the linked investigation for the conclusion.'}</span></div>` : ''}
 
     <div class="split">
       <div class="stack">
@@ -434,7 +435,7 @@ export async function detail(ctx) {
           actions: d.can.custody ? html`<button class="btn sm" data-act="custody">${icon('pin', { size: 13 })}Move</button>` : '',
           body: html`<ol class="timeline">${d.custody.map((c) => html`<li><span class="tl-dot"></span><div class="tl-body"><div><strong>${c.action}</strong>${c.location ? html` → ${c.location}` : ''}</div><div class="muted small">${c.full_name} · ${fmtDateTime(c.at)}</div>${c.note ? html`<div class="small">${c.note}</div>` : ''}</div></li>`)}</ol>`,
         })}
-        ${d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
+        ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
         ${shipped('notebook') && d.notebook.length ? card({ title: 'Notebook entries', flush: true, body: html`<ul class="list">${d.notebook.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta">${n.code} · ${n.author_name}</div></div>${statusBadge(n.status)}</li>`)}</ul>` }) : ''}
         ${d.signatures.length ? card({ title: 'Signatures', body: signatureList(d.signatures) }) : ''}
       </div>

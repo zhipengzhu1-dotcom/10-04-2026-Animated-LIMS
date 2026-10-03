@@ -28,8 +28,10 @@ import * as account from './views/account.js';
 import * as print from './views/print.js';
 
 // [path pattern, view function, nav key, module (defaults to the nav key; a Withheld module's routes fall through to not found)]
+// A route whose nav key names a Withheld module highlights its own module instead (the Test page goes under Samples).
 const ROUTES = [
   ['/', dashboard.render, 'dashboard'],
+  ['/', samples.list, 'samples'], // the start page when the Dashboard is withheld
   ['/samples', samples.list, 'samples'],
   ['/samples/receive', samples.receive, 'samples'],
   ['/samples/:id', samples.detail, 'samples'],
@@ -154,8 +156,8 @@ const visible = (item) => shipped(item.key) && (!item.perm || item.perm.some((p)
 function newMenuItems() {
   return [
     can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
-    can('notebook.write') && shipped('notebook') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
-    can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
+    shipped('notebook') && can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
+    shipped('investigations') && can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
     can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
     can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },
     can('clients.edit') && { action: 'client', label: 'Client', icon: 'building' },
@@ -353,7 +355,7 @@ async function renderRoute({ keepScroll = false } = {}) {
       icon: e.status === 404 ? 'search' : e.status === 403 ? 'lock' : 'alert',
       title: e.status === 404 ? 'Not found' : e.status === 403 ? 'Access restricted' : 'Something went wrong',
       text: e.message,
-      action: html`<a class="btn" href="/">Back to dashboard</a>`,
+      action: html`<a class="btn" href="/">Back to ${shipped('dashboard') ? 'dashboard' : 'samples'}</a>`,
     })}</div>`);
   }
   if (seq !== renderSeq) return undefined;
@@ -363,7 +365,7 @@ async function renderRoute({ keepScroll = false } = {}) {
   window.scrollTo(0, keepScroll ? scrollY : 0);
   if (!keepScroll && !isPrint) document.getElementById('content')?.focus({ preventScroll: true });
   if (!isPrint) {
-    const nav = found?.route.nav;
+    const nav = found && (shipped(found.route.nav) || !found.route.module ? found.route.nav : found.route.module);
     if (nav !== currentNav) {
       root.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
       currentNav = nav;

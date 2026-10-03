@@ -84,7 +84,7 @@ export async function detail(ctx) {
       actions: html`
         ${d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
         ${d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
-        ${can('notebook.write') && shipped('notebook') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
+        ${shipped('notebook') && can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
         ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
     })}
     <div class="kpis">
@@ -119,7 +119,7 @@ export async function detail(ctx) {
         ]) })}
         ${card({ title: 'Tests by status', body: kv(['Pending', 'In Progress', 'Submitted', 'Reviewed', 'Approved', 'Cancelled'].filter((s) => byStatus[s]).map((s) => [statusBadge(s), html`<span class="num">${byStatus[s]}</span>`])) })}
         ${budgetPct != null && money_ ? card({ title: 'Budget', body: html`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span>${money(p.invoiced)} invoiced</span><span class="muted">${money(p.budget)}</span></div><span class="progress wide ${budgetPct > 90 ? '' : 'green'}"><span style="width:${Math.min(100, budgetPct)}%"></span></span>${budgetPct > 90 ? html`<p class="small warn-text" style="margin:8px 0 0">${budgetPct}% of the budget is invoiced — talk to the client about a change order.</p>` : ''}` }) : ''}
-        ${d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
+        ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
         ${d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal)}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'Not invoiced yet' }) }) : ''}
       </div>
     </div>`);
