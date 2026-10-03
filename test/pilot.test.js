@@ -432,6 +432,50 @@ test('WebDAV option probes on the document folder find nothing with the Lab note
   }
 });
 
+// Each detail page's own module, and the lists it embeds from other modules.
+const EMBEDDED = {
+  client: ['clients', { projects: 'projects', samples: 'samples', methods: 'methods', invoices: 'invoices' }],
+  project: ['projects', { samples: 'samples', invoices: 'invoices' }],
+  method: ['methods', { recentTests: 'samples', qualified: 'team' }],
+  instrument: ['instruments', { recentTests: 'samples' }],
+  item: ['inventory', { tests: 'samples' }],
+  user: ['team', { openTests: 'samples' }],
+};
+
+async function detailKeys(c) {
+  const first = async (list) => (await c.get(list)).data[0];
+  const keys = {};
+  const client = await first('/api/clients');
+  if (client) keys.client = (await c.get(`/api/clients/${client.id}`)).data;
+  const project = await first('/api/projects?status=all');
+  if (project) keys.project = (await c.get(`/api/projects/${project.id}`)).data;
+  const method = await first('/api/methods');
+  if (method) keys.method = (await c.get(`/api/methods/${method.id}`)).data;
+  const instrument = await first('/api/instruments');
+  if (instrument) keys.instrument = (await c.get(`/api/instruments/${instrument.id}`)).data;
+  keys.item = (await c.get('/api/inventory/1')).data;
+  keys.user = (await c.get('/api/users/2')).data;
+  return keys;
+}
+
+test('detail pages embed lists from other modules only while those modules ship', async () => {
+  const shippedEverywhere = await detailKeys(await as('oliver.grant'));
+  for (const [page, [, lists]] of Object.entries(EMBEDDED)) {
+    for (const key of Object.keys(lists)) assert.ok(key in shippedEverywhere[page], `${page} detail has ${key} while its module ships`);
+  }
+  for (const modules of [['clients', 'instruments', 'inventory', 'team'], ['projects', 'methods']]) {
+    await withModules(modules, async (base) => {
+      const details = await detailKeys(await as('oliver.grant', base));
+      for (const [page, [own, lists]] of Object.entries(EMBEDDED)) {
+        if (!modules.includes(own)) continue;
+        for (const [key, module] of Object.entries(lists)) {
+          assert.equal(key in details[page], modules.includes(module), `${page} detail ${modules.includes(module) ? 'has' : 'omits'} ${key} with ${module} ${modules.includes(module) ? 'shipped' : 'withheld'}`);
+        }
+      }
+    });
+  }
+});
+
 // Searches broadly enough to hit every result type, and returns the types that came back.
 async function searchTypes(c) {
   const types = new Set();

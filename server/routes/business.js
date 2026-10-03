@@ -182,10 +182,10 @@ export default function routes(r) {
     const showMoney = can(ctx.user, 'billing.view');
     return {
       client,
-      projects: all(`SELECT p.*, u.full_name AS lead_name, ${PROJECT_STATS} FROM projects p LEFT JOIN users u ON u.id = p.lead_id WHERE p.client_id = ? ORDER BY p.status IN ('Completed','Cancelled'), p.id DESC`, id),
-      samples: all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, s.priority, s.received_at, s.due_date FROM samples s WHERE s.client_id = ? ORDER BY s.id DESC LIMIT 25`, id),
-      methods: all(`SELECT id, code, version, title, status FROM methods WHERE client_id = ? ORDER BY code, version DESC`, id),
-      invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.client_id = ? ORDER BY i.id DESC`, id) : null,
+      ...(isShipped('projects') && { projects: all(`SELECT p.*, u.full_name AS lead_name, ${PROJECT_STATS} FROM projects p LEFT JOIN users u ON u.id = p.lead_id WHERE p.client_id = ? ORDER BY p.status IN ('Completed','Cancelled'), p.id DESC`, id) }),
+      ...(isShipped('samples') && { samples: all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, s.priority, s.received_at, s.due_date FROM samples s WHERE s.client_id = ? ORDER BY s.id DESC LIMIT 25`, id) }),
+      ...(isShipped('methods') && { methods: all(`SELECT id, code, version, title, status FROM methods WHERE client_id = ? ORDER BY code, version DESC`, id) }),
+      ...(isShipped('invoices') && { invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.client_id = ? ORDER BY i.id DESC`, id) : null }),
       money: showMoney ? get(`SELECT
           (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.client_id = ? AND i.status IN ('Sent','Paid') AND i.issued_date >= ?) AS revenue_ytd,
           (SELECT COALESCE(SUM(l.quantity * l.unit_price * (1 + i.tax_rate / 100.0)), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.client_id = ? AND i.status = 'Sent') AS outstanding,
@@ -228,13 +228,15 @@ export default function routes(r) {
     if (!showMoney) { project.budget = null; project.unbilled = null; project.invoiced = null; }
     return {
       project,
-      samples: all(`SELECT s.*, (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
-          (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved
-        FROM samples s WHERE s.project_id = ? ORDER BY s.id DESC`, id),
+      ...(isShipped('samples') && {
+        samples: all(`SELECT s.*, (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
+            (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved
+          FROM samples s WHERE s.project_id = ? ORDER BY s.id DESC`, id),
+      }),
       testsByStatus: all(`SELECT t.status, COUNT(*) AS n FROM tests t JOIN samples s ON s.id = t.sample_id WHERE s.project_id = ? GROUP BY t.status`, id),
       ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, n.created_at, u.full_name AS author_name FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.project_id = ? ORDER BY n.id DESC`, id) }),
       ...(isShipped('investigations') && { investigations: all('SELECT id, code, type, title, status, severity FROM investigations WHERE project_id = ? ORDER BY id DESC', id) }),
-      invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null,
+      ...(isShipped('invoices') && { invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null }),
       can: { edit: can(ctx.user, 'projects.edit'), bill: can(ctx.user, 'billing.edit'), receive: can(ctx.user, 'samples.receive') },
     };
   }, { module: 'projects' });

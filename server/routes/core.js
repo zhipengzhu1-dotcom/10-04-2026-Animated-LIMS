@@ -137,10 +137,12 @@ export default function routes(r) {
         SELECT q.*, t.full_name AS trained_by_name,
           (SELECT title FROM methods m WHERE m.code = q.method_code ORDER BY version DESC LIMIT 1) AS method_title
         FROM qualifications q LEFT JOIN users t ON t.id = q.trained_by WHERE q.user_id = ? ORDER BY q.method_code`, user.id),
-      openTests: all(`
-        SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
-        FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
-        WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
+      ...(isShipped('samples') && {
+        openTests: all(`
+          SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
+          FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
+          WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
+      }),
       stats,
     };
   }, { module: 'team' });

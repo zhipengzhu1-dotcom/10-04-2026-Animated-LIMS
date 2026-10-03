@@ -248,8 +248,8 @@ export default function routes(r) {
       method,
       analytes: all('SELECT * FROM method_analytes WHERE method_id = ? ORDER BY sort_order, id', id),
       versions: all(`SELECT m.id, m.version, m.status, m.effective_date, m.created_at, u.full_name AS approved_by_name FROM methods m LEFT JOIN users u ON u.id = m.approved_by WHERE m.code = ? ORDER BY m.version DESC`, method.code),
-      qualified: all(`SELECT q.*, u.full_name, u.initials, u.role FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.method_code = ? AND q.revoked = 0 ORDER BY u.full_name`, method.code),
-      recentTests: all(`${TEST_SELECT} WHERE t.method_id = ? ORDER BY t.id DESC LIMIT 15`, id),
+      ...(isShipped('team') && { qualified: all(`SELECT q.*, u.full_name, u.initials, u.role FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.method_code = ? AND q.revoked = 0 ORDER BY u.full_name`, method.code) }),
+      ...(isShipped('samples') && { recentTests: all(`${TEST_SELECT} WHERE t.method_id = ? ORDER BY t.id DESC LIMIT 15`, id) }),
       ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.method_id = ? ORDER BY n.id DESC`, id) }),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'methods' AND entity_id = ? ORDER BY id`, id),
       stats,
@@ -305,7 +305,7 @@ export default function routes(r) {
     return {
       instrument,
       logs: all('SELECT l.*, u.full_name FROM instrument_logs l LEFT JOIN users u ON u.id = l.user_id WHERE l.instrument_id = ? ORDER BY l.performed_at DESC, l.id DESC', id),
-      recentTests: all(`${TEST_SELECT} WHERE t.instrument_id = ? ORDER BY t.id DESC LIMIT 20`, id),
+      ...(isShipped('samples') && { recentTests: all(`${TEST_SELECT} WHERE t.instrument_id = ? ORDER BY t.id DESC LIMIT 20`, id) }),
       ...(isShipped('investigations') && { investigations: all('SELECT id, code, title, status FROM investigations WHERE instrument_id = ? ORDER BY id DESC', id) }),
       can: { edit: can(ctx.user, 'instruments.edit'), log: can(ctx.user, 'instruments.log') },
     };
@@ -342,7 +342,7 @@ export default function routes(r) {
     return {
       item,
       txns: all('SELECT x.*, u.full_name FROM inventory_txns x LEFT JOIN users u ON u.id = x.user_id WHERE x.inventory_id = ? ORDER BY x.at DESC, x.id DESC', id),
-      tests: all(`${TEST_SELECT} WHERE t.id IN (SELECT test_id FROM test_materials WHERE inventory_id = ?) ORDER BY t.id DESC LIMIT 50`, id),
+      ...(isShipped('samples') && { tests: all(`${TEST_SELECT} WHERE t.id IN (SELECT test_id FROM test_materials WHERE inventory_id = ?) ORDER BY t.id DESC LIMIT 50`, id) }),
       can: { edit: can(ctx.user, 'inventory.edit') || can(ctx.user, 'inventory.release'), stock: can(ctx.user, 'inventory.edit') },
     };
   }, { module: 'inventory' });
