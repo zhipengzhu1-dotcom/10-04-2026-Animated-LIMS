@@ -265,7 +265,17 @@ export async function detail(ctx) {
           t.invoice_id && can('billing.view') && ['Invoice', html`<a href="/invoices/${t.invoice_id}">View invoice</a>`],
         ]) })}
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
-        ${d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.conclusion || v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
+        ${d.investigations.map((v) => card({
+          title: html`<a href="/investigations/${v.id}" class="code">${v.code}</a> ${statusBadge(v.status)}`,
+          actions: d.can.closeInvestigation && v.type === 'OOS' && v.status !== 'Closed' ? html`<button class="btn sm primary" data-act="close-investigation">${icon('sign', { size: 14 })}Close</button>` : '',
+          body: kv([
+            ['Raised', fmtDateTime(v.raised_at)],
+            ['Description', v.description ? html`<div style="white-space:pre-wrap">${v.description}</div>` : null],
+            v.status === 'Closed' && ['Root cause', html`<div style="white-space:pre-wrap">${v.root_cause}</div>`],
+            v.status === 'Closed' && ['Conclusion', html`<div style="white-space:pre-wrap">${v.conclusion}</div>`],
+            v.status === 'Closed' && ['Closed by', html`${v.closed_by_name}<div class="muted small">${fmtDateTime(v.closed_at)}</div>`],
+          ]),
+        }))}
         ${d.method.procedure ? card({ title: html`Method summary <span class="muted small" style="font-weight:400">· ${d.method.code} v${d.method.version}</span>`, body: html`<div class="md small">${raw(markdown(d.method.procedure))}</div>${d.method.reference ? html`<p class="muted small" style="margin-top:8px">Reference: ${d.method.reference}</p>` : ''}` }) : ''}
       </div>
     </div>`);
@@ -384,6 +394,21 @@ export async function detail(ctx) {
     'approve-ok': () => signDecision('approve', true),
     'approve-return': () => signDecision('approve', false),
     assign: async () => { if (await assignDialog([t.id], [t])) ctx.refresh(); },
+    'close-investigation': () => esign({
+      title: `Close ${openInv.find((v) => v.type === 'OOS').code}`,
+      meaning: 'OOS investigation closed',
+      description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked and the result can go to approval.`,
+      fields: html`
+        ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true })}
+        ${field({ label: 'Conclusion', name: 'conclusion', type: 'textarea', rows: 3, required: true, span: 2, placeholder: 'e.g. Confirmed OOS — result valid' })}`,
+      confirmLabel: 'Sign & close',
+      onSign: async (sig) => {
+        await api.post(`/api/tests/${t.id}/investigation/close`, { root_cause: sig.root_cause, conclusion: sig.conclusion, password: sig.password });
+        toast('Investigation closed');
+        refreshNav();
+        ctx.refresh();
+      },
+    }),
     cancel: async () => {
       const reason = await promptReason('Why is this test being cancelled? It will no longer be billed or reported');
       if (!reason) return;
