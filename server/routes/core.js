@@ -9,7 +9,7 @@ import { getSettings, setSettings, DEFAULTS } from '../settings.js';
 import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
-import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES } from '../config.js';
+import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES, isShipped } from '../config.js';
 import { portalBadge } from './portal.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
@@ -106,7 +106,7 @@ export default function routes(r) {
     };
     if (can(ctx.user, 'tests.review')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Submitted' AND analyst_id != ?`, me).n;
     if (can(ctx.user, 'tests.approve')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Reviewed' AND analyst_id != ? AND COALESCE(reviewed_by, 0) != ?`, me, me).n;
-    if (can(ctx.user, 'notebook.witness')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+    if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
     out.portal = portalBadge(ctx.user); // unread client messages + new submissions/requests
     return out;
   });
@@ -117,6 +117,13 @@ export default function routes(r) {
   r.get('/api/users/:id', (ctx) => {
     const user = get(`SELECT ${USER_FIELDS}, locked_until, password_changed_at FROM users WHERE id = ?`, +ctx.params.id);
     if (!user) throw notFound('User');
+    const stats = get(`
+      SELECT
+        (SELECT COUNT(*) FROM tests WHERE analyst_id = ? AND status = 'Approved' AND approved_at >= ?) AS approved_90d,
+        (SELECT COUNT(*) FROM signatures WHERE user_id = ? AND meaning IN ('Reviewed','Approved') AND signed_at >= ?) AS reviews_90d,
+        (SELECT COUNT(*) FROM notebook_entries WHERE author_id = ?) AS notebook_entries`,
+    user.id, addDays(today(), -90), user.id, addDays(today(), -90), user.id);
+    if (!isShipped('notebook')) delete stats.notebook_entries;
     return {
       user,
       qualifications: all(`
@@ -127,12 +134,7 @@ export default function routes(r) {
         SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
         FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
         WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
-      stats: get(`
-        SELECT
-          (SELECT COUNT(*) FROM tests WHERE analyst_id = ? AND status = 'Approved' AND approved_at >= ?) AS approved_90d,
-          (SELECT COUNT(*) FROM signatures WHERE user_id = ? AND meaning IN ('Reviewed','Approved') AND signed_at >= ?) AS reviews_90d,
-          (SELECT COUNT(*) FROM notebook_entries WHERE author_id = ?) AS notebook_entries`,
-      user.id, addDays(today(), -90), user.id, addDays(today(), -90), user.id),
+      stats,
     };
   });
 
@@ -258,6 +260,7 @@ export default function routes(r) {
   // Per-record history is visible to whoever can see the record; money fields only to billing roles.
   r.get('/api/history/:entity/:id', (ctx) => {
     const rule = RECORD_ACCESS[ctx.params.entity];
+    if (rule?.module && !isShipped(rule.module)) throw notFound();
     const allowed = rule ? rule.view === null || rule.view.some((p) => can(ctx.user, p)) : can(ctx.user, 'audit.view');
     if (!allowed) throw forbidden();
     const rows = all(`
@@ -306,8 +309,10 @@ export default function routes(r) {
       (x) => ({ code: x.code, title: x.name, meta: x.status, href: `/instruments/${x.id}` }));
     push('Inventory', all(`SELECT id, code, name, lot_no, category FROM inventory WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: [x.category, x.lot_no && `Lot ${x.lot_no}`].filter(Boolean).join(' · '), href: `/inventory/${x.id}` }));
-    push('Notebook', all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
-      (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
+    if (isShipped('notebook')) {
+      push('Notebook', all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
+        (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
+    }
     push('Investigation', all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
       (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
     if (can(ctx.user, 'billing.view')) {

@@ -1,6 +1,6 @@
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, roleLabel } from '../core/state.js';
+import { state, can, shipped, roleLabel } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/nav.js';
 import {
@@ -83,7 +83,7 @@ export async function detail(ctx) {
       <div class="kpi"><div class="k-label">Tests approved (90 days)</div><div class="k-value">${d.stats.approved_90d}</div></div>
       <div class="kpi"><div class="k-label">Reviews & approvals signed (90 days)</div><div class="k-value">${d.stats.reviews_90d}</div></div>
       <div class="kpi"><div class="k-label">Open tests</div><div class="k-value">${d.openTests.length}</div></div>
-      <div class="kpi"><div class="k-label">Notebook entries</div><div class="k-value">${d.stats.notebook_entries}</div></div>
+      ${shipped('notebook') ? html`<div class="kpi"><div class="k-label">Notebook entries</div><div class="k-value">${d.stats.notebook_entries}</div></div>` : ''}
     </div>
     <div class="split">
       <div class="stack">

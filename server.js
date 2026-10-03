@@ -8,7 +8,7 @@ import path from 'node:path';
 import { openDb, backupTo, run } from './server/db.js';
 import { Router, HttpError, clientIp, readBody, sendJson } from './server/http.js';
 import { authenticate, can } from './server/auth.js';
-import { PORT, HOST, PUBLIC_DIR, DATA_DIR, BACKUP_KEEP } from './server/config.js';
+import { PORT, HOST, PUBLIC_DIR, DATA_DIR, BACKUP_KEEP, isShipped } from './server/config.js';
 import { localDate, nowIso } from './server/util.js';
 import coreRoutes from './server/routes/core.js';
 import labRoutes from './server/routes/lab.js';
@@ -153,6 +153,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/api/')) handleApi(req, res, url);
   // Desktop Word/Excel open and save notebook documents over WebDAV (see server/routes/documents.js).
+  else if (url.pathname.startsWith('/dav/') && !isShipped('notebook')) res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
   else if (url.pathname.startsWith('/dav/') || req.method === 'OPTIONS') handleDav(req, res, url);
   else serveStatic(req, res, url).catch((e) => {
     console.error(e);

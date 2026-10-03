@@ -3,6 +3,7 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden } from '../http.js';
+import { isShipped } from '../config.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
 import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN, TEST_OPEN } from '../lookups.js';
@@ -231,7 +232,7 @@ export default function routes(r) {
           (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved
         FROM samples s WHERE s.project_id = ? ORDER BY s.id DESC`, id),
       testsByStatus: all(`SELECT t.status, COUNT(*) AS n FROM tests t JOIN samples s ON s.id = t.sample_id WHERE s.project_id = ? GROUP BY t.status`, id),
-      notebook: all(`SELECT n.id, n.code, n.title, n.status, n.created_at, u.full_name AS author_name FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.project_id = ? ORDER BY n.id DESC`, id),
+      ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, n.created_at, u.full_name AS author_name FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.project_id = ? ORDER BY n.id DESC`, id) }),
       investigations: all('SELECT id, code, type, title, status, severity FROM investigations WHERE project_id = ? ORDER BY id DESC', id),
       invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null,
       can: { edit: can(ctx.user, 'projects.edit'), bill: can(ctx.user, 'billing.edit'), receive: can(ctx.user, 'samples.receive') },
