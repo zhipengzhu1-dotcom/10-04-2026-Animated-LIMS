@@ -387,7 +387,7 @@ export async function detail(ctx) {
             ${d.can.edit ? html`<button data-act="edit">${icon('edit')}Edit details</button>` : ''}
             ${d.can.custody ? html`<button data-act="custody">${icon('pin')}Record movement</button>` : ''}
             ${shipped('investigations') && can('investigations.raise') ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
-            ${can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
+            ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
             ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel sample</button>` : ''}
             ${d.can.dispose && !stopped ? html`<button data-act="dispose">${icon('trash')}Dispose</button>` : ''}
           </div>
@@ -436,7 +436,7 @@ export async function detail(ctx) {
           body: html`<ol class="timeline">${d.custody.map((c) => html`<li><span class="tl-dot"></span><div class="tl-body"><div><strong>${c.action}</strong>${c.location ? html` → ${c.location}` : ''}</div><div class="muted small">${c.full_name} · ${fmtDateTime(c.at)}</div>${c.note ? html`<div class="small">${c.note}</div>` : ''}</div></li>`)}</ol>`,
         })}
         ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
-        ${d.notebook.length ? card({ title: 'Notebook entries', flush: true, body: html`<ul class="list">${d.notebook.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta">${n.code} · ${n.author_name}</div></div>${statusBadge(n.status)}</li>`)}</ul>` }) : ''}
+        ${shipped('notebook') && d.notebook.length ? card({ title: 'Notebook entries', flush: true, body: html`<ul class="list">${d.notebook.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta">${n.code} · ${n.author_name}</div></div>${statusBadge(n.status)}</li>`)}</ul>` }) : ''}
         ${d.signatures.length ? card({ title: 'Signatures', body: signatureList(d.signatures) }) : ''}
       </div>
     </div>`);

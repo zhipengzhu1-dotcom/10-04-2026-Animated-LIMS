@@ -170,7 +170,7 @@ export async function detail(ctx) {
         <a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>
         ${d.can.assign ? html`<button data-act="assign">${icon('users')}${t.analyst_id ? 'Reassign' : 'Assign'}</button>` : ''}
         ${d.can.raise ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
-        ${can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
+        ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
         ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel test</button>` : ''}
       </div>
     </div>`;

@@ -250,7 +250,7 @@ export default function routes(r) {
       versions: all(`SELECT m.id, m.version, m.status, m.effective_date, m.created_at, u.full_name AS approved_by_name FROM methods m LEFT JOIN users u ON u.id = m.approved_by WHERE m.code = ? ORDER BY m.version DESC`, method.code),
       qualified: all(`SELECT q.*, u.full_name, u.initials, u.role FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.method_code = ? AND q.revoked = 0 ORDER BY u.full_name`, method.code),
       recentTests: all(`${TEST_SELECT} WHERE t.method_id = ? ORDER BY t.id DESC LIMIT 15`, id),
-      notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.method_id = ? ORDER BY n.id DESC`, id),
+      ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.method_id = ? ORDER BY n.id DESC`, id) }),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'methods' AND entity_id = ? ORDER BY id`, id),
       stats,
       transitions: TRANSITIONS[method.status] || [],

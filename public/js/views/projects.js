@@ -84,7 +84,7 @@ export async function detail(ctx) {
       actions: html`
         ${d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
         ${d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
-        ${can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
+        ${shipped('notebook') && can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
         ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
     })}
     <div class="kpis">
@@ -105,11 +105,11 @@ export async function detail(ctx) {
             <td><span class="row nowrap">${progress(s.tests_approved, s.test_count)}<span class="muted small num">${s.tests_approved}/${s.test_count}</span></span></td>
             <td>${statusBadge(s.status)}</td><td>${dueChip(s.due_date, { done: ['Reported', 'Cancelled', 'Disposed'].includes(s.status) })}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'tube', title: 'No samples yet', action: d.can.receive ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">Receive samples</a>` : '' }),
         })}
-        ${card({
+        ${shipped('notebook') ? card({
           title: 'Notebook entries',
           flush: true,
           body: d.notebook.length ? html`<ul class="list">${d.notebook.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta">${n.code} · ${n.author_name} · ${fmtDate(n.created_at)}</div></div>${statusBadge(n.status)}</li>`)}</ul>` : emptyState({ icon: 'book', title: 'No notebook entries', text: 'Method development and validation work is recorded here.' }),
-        })}
+        }) : ''}
         ${recordFooter()}
       </div>
       <div class="stack">

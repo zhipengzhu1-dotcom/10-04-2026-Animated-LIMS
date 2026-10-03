@@ -1,6 +1,6 @@
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { can } from '../core/state.js';
+import { can, shipped } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { refreshNav, setQuery } from '../core/nav.js';
 import {
@@ -31,7 +31,7 @@ export async function render(ctx) {
   const sections = [
     can('tests.review') && { key: 'review', label: 'Peer review', count: d.toReview.length },
     can('tests.approve') && { key: 'approve', label: 'QA approval', count: d.toApprove.length },
-    can('notebook.witness') && { key: 'witness', label: 'Notebook witnessing', count: d.toWitness.length },
+    shipped('notebook') && can('notebook.witness') && { key: 'witness', label: 'Notebook witnessing', count: d.toWitness.length },
     can('reports.issue') && { key: 'issue', label: 'Certificates to issue', count: d.toIssue.length },
   ].filter(Boolean);
   if (!sections.length) {

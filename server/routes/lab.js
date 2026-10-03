@@ -537,7 +537,7 @@ export default function routes(r) {
       sample,
       tests,
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
-      notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
+      ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id) }),
       ...(isShipped('investigations') && { investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id) }),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'samples' AND entity_id = ? ORDER BY id`, id),
       can: {
@@ -716,7 +716,7 @@ export default function routes(r) {
     const out = { toReview: [], toApprove: [], toWitness: [], toIssue: [] };
     if (can(ctx.user, 'tests.review')) out.toReview = all(`${TEST_SELECT} WHERE t.status = 'Submitted' AND t.analyst_id != ? ORDER BY t.submitted_at`, me);
     if (can(ctx.user, 'tests.approve')) out.toApprove = all(`${TEST_SELECT} WHERE t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ? ORDER BY t.reviewed_at`, me, me);
-    if (can(ctx.user, 'notebook.witness')) {
+    if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) {
       out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);

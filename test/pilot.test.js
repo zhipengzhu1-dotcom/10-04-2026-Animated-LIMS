@@ -288,3 +288,82 @@ test('starting from a sample, a Test is assigned, performed, reviewed, approved 
   await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
   assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
 });
+
+// #6
+test('Withheld Lab notebook APIs, including Word/Excel documents, answer like routes that do not exist', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  const tom = await as('tom.fletcher'); // an analyst who keeps notebook entries when the notebook ships
+  const gets = ['/api/notebook', '/api/notebook?mine=1', '/api/notebook/1', '/api/notebook/1/documents', '/api/notebook-documents/1/versions', '/api/notebook-documents/1/file', '/api/notebook-documents/1/preview'];
+  const posts = ['/api/notebook', '/api/notebook/1/sign', '/api/notebook/1/witness', '/api/notebook/1/addenda', '/api/notebook/1/documents', '/api/notebook-documents/1/edit-link', '/api/notebook-documents/1/remove'];
+  for (const [who, c] of [['analyst', tom], ['anonymous', new Client()]]) {
+    for (const url of gets) {
+      const r = await c.get(url);
+      assert.equal(r.status, 404, `${who} GET ${url}`);
+      assert.deepEqual(r.data, nowhere.data, `${who} GET ${url} looks like a missing route`);
+    }
+    for (const url of posts) assert.equal((await c.post(url, { title: 'x', password: PASSWORD })).status, 404, `${who} POST ${url}`);
+    assert.equal((await c.put('/api/notebook/1', { body: 'x' })).status, 404, `${who} PUT /api/notebook/1`);
+  }
+});
+
+test('Office documents are not served over WebDAV with the Lab notebook withheld', async () => {
+  for (const method of ['OPTIONS', 'PROPFIND', 'GET', 'PUT', 'LOCK']) {
+    const r = await fetch(`${BASE}/dav/any-token/Linearity.xlsx`, { method });
+    assert.equal(r.status, 404, `${method} /dav/…`);
+    assert.equal(r.headers.get('dav'), null, `${method} /dav/… does not advertise WebDAV`);
+  }
+});
+
+test('global search returns no Notebook results with the Lab notebook withheld', async () => {
+  const c = await as('kenji.watanabe');
+  for (const q of ['peptide map', 'ELN-', 'Linearity']) {
+    const { results } = await c.ok('GET', `/api/search?q=${encodeURIComponent(q)}`);
+    assert.deepEqual(results.filter((x) => x.type === 'Notebook' || x.href.startsWith('/notebook')), [], `search "${q}"`);
+  }
+  const { results } = await c.ok('GET', '/api/search?q=ATM-0009');
+  assert.ok(results.some((x) => x.type === 'Method'), 'Shipped result types still come back');
+});
+
+test('sample, project, method and user details carry no notebook data', async () => {
+  const c = await as('kenji.watanabe');
+  const [sample] = await c.ok('GET', '/api/samples?status=');
+  const s = await c.ok('GET', `/api/samples/${sample.id}`);
+  assert.ok(s.sample, 'the sample detail still answers');
+  assert.ok(!('notebook' in s), 'no notebook list on the sample');
+  for (const p of await c.ok('GET', '/api/projects?status=all')) {
+    const d = await c.ok('GET', `/api/projects/${p.id}`);
+    assert.ok(!('notebook' in d), `no notebook list on project ${p.code}`);
+  }
+  const method = (await c.ok('GET', '/api/methods')).find((m) => m.code === 'ATM-0009');
+  const m = await c.ok('GET', `/api/methods/${method.id}`);
+  assert.ok(!('notebook' in m), 'no notebook list on the method');
+  const me = await c.ok('GET', '/api/auth/me');
+  const u = await c.ok('GET', `/api/users/${me.user.id}`);
+  assert.ok(u.stats.approved_90d >= 0, 'user stats still answer');
+  assert.ok(!('notebook_entries' in u.stats), 'no notebook count in user stats');
+});
+
+test('attachments on Shipped records still work with the Lab notebook withheld; notebook ones do not', async () => {
+  const tom = await as('tom.fletcher');
+  const [s] = await tom.ok('GET', '/api/samples?status=open');
+  const res = await fetch(`${BASE}/api/attachments?entity=samples&id=${s.id}`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'aliquot', Cookie: tom.cookie, 'Content-Type': 'text/plain', 'X-Filename': encodeURIComponent('chain of custody.txt') },
+    body: 'Courier: XYZ, logger 4.2 °C',
+  });
+  assert.equal(res.status, 200);
+  const { id } = await res.json();
+  const list = await tom.ok('GET', `/api/attachments?entity=samples&id=${s.id}`);
+  assert.ok(list.some((a) => a.id === id && a.filename === 'chain of custody.txt'), 'the upload is listed on the sample');
+  const file = await fetch(`${BASE}/api/attachments/${id}/file`, { headers: { Cookie: tom.cookie } });
+  assert.equal(await file.text(), 'Courier: XYZ, logger 4.2 °C');
+
+  assert.equal((await tom.get('/api/attachments?entity=notebook_entries&id=1')).status, 404, 'notebook entry files are not listed');
+  const upload = await fetch(`${BASE}/api/attachments?entity=notebook_entries&id=1`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'aliquot', Cookie: tom.cookie, 'Content-Type': 'text/plain', 'X-Filename': 'x.txt' },
+    body: 'x',
+  });
+  assert.equal(upload.status, 404, 'nothing can be attached to a notebook entry');
+  assert.equal((await tom.get('/api/history/notebook_entries/1')).status, 404, 'notebook entry history is not served');
+});

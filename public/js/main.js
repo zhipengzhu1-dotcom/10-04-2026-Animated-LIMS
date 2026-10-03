@@ -156,7 +156,7 @@ const visible = (item) => shipped(item.key) && (!item.perm || item.perm.some((p)
 function newMenuItems() {
   return [
     can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
-    can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
+    shipped('notebook') && can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
     shipped('investigations') && can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
     can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
     can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },

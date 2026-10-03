@@ -91,7 +91,7 @@ export const RECORD_ACCESS = {
   samples: { view: null, edit: ['samples.edit'] },
   tests: { view: null, edit: ['tests.perform', 'tests.assign'] },
   methods: { view: null, edit: ['methods.edit'] },
-  notebook_entries: { view: null, edit: ['notebook.write'] },
+  notebook_entries: { view: null, edit: ['notebook.write'], module: 'notebook' },
   investigations: { view: null, edit: ['investigations.raise', 'investigations.close'], module: 'investigations' },
   instruments: { view: null, edit: ['instruments.log'] },
   inventory: { view: null, edit: ['inventory.edit'] },
