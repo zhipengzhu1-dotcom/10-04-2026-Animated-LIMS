@@ -476,6 +476,17 @@ test('detail pages embed lists from other modules only while those modules ship'
   }
 });
 
+test('the Client portal inbox cannot create samples or projects while those modules are withheld', async () => {
+  await withModules(['portal'], async (base) => {
+    const priya = await as('priya.raman', base);
+    await priya.ok('GET', '/api/portal-admin/summary');
+    const [submission] = await priya.ok('GET', '/api/portal-admin/submissions?status=all');
+    const [request] = await priya.ok('GET', '/api/portal-admin/requests?status=all');
+    assert.equal((await priya.post(`/api/portal-admin/submissions/${submission.id}/receive`, {})).status, 404, 'no receiving into Samples');
+    assert.equal((await priya.post(`/api/portal-admin/requests/${request.id}/project`, {})).status, 404, 'no opening a Project');
+  });
+});
+
 // Searches broadly enough to hit every result type, and returns the types that came back.
 async function searchTypes(c) {
   const types = new Set();

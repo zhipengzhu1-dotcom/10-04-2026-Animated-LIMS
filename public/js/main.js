@@ -155,16 +155,16 @@ const visible = (item) => shipped(item.key) && (!item.perm || item.perm.some((p)
 
 function newMenuItems() {
   return [
-    can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
+    shipped('samples') && can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
     shipped('notebook') && can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
     shipped('investigations') && can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
-    can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
-    can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },
-    can('clients.edit') && { action: 'client', label: 'Client', icon: 'building' },
-    can('instruments.edit') && { action: 'instrument', label: 'Instrument', icon: 'instrument' },
-    can('inventory.edit') && { action: 'inventory', label: 'Standard / reagent', icon: 'package' },
-    can('billing.edit') && { action: 'invoice', label: 'Invoice', icon: 'receipt' },
-    can('users.manage') && { action: 'user', label: 'Team member', icon: 'user' },
+    shipped('methods') && can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
+    shipped('projects') && can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },
+    shipped('clients') && can('clients.edit') && { action: 'client', label: 'Client', icon: 'building' },
+    shipped('instruments') && can('instruments.edit') && { action: 'instrument', label: 'Instrument', icon: 'instrument' },
+    shipped('inventory') && can('inventory.edit') && { action: 'inventory', label: 'Standard / reagent', icon: 'package' },
+    shipped('invoices') && can('billing.edit') && { action: 'invoice', label: 'Invoice', icon: 'receipt' },
+    shipped('team') && can('users.manage') && { action: 'user', label: 'Team member', icon: 'user' },
   ].filter(Boolean);
 }
 
@@ -203,7 +203,7 @@ function renderShell() {
           <button class="me-btn" data-menu="me" aria-haspopup="true" title="${me.full_name}">${avatar(me.full_name, me.id, { size: 28, initials: me.initials })}<span class="grow"><strong>${me.full_name}</strong><small>${roleLabel(me.role)}</small></span>${icon('chevronUp', { size: 14 })}</button>
           <div class="dropdown-menu up" data-menu-for="me" hidden>
             <a href="/account">${icon('user')}My account</a>
-            <a href="/team/${me.id}">${icon('training')}My training</a>
+            ${shipped('team') ? html`<a href="/team/${me.id}">${icon('training')}My training</a>` : ''}
             <button data-act="theme"><span data-theme-icon>${icon(currentTheme() === 'dark' ? 'sun' : 'moon')}</span>Toggle dark mode</button>
             <button data-act="density">${icon('menu')}<span data-density-label>${densityLabel()}</span></button>
             <hr>

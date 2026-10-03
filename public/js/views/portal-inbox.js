@@ -2,12 +2,12 @@
 // method development / validation requests and the client portal accounts themselves.
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, activeUsers } from '../core/state.js';
+import { state, can, shipped, activeUsers } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery, refreshNav } from '../core/nav.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, badge, fmtDate, fmtDateTime, relTime, emptyState, field, openForm, openModal,
-  confirmDialog, toast, busy, debounce, plural, localDateTimeValue,
+  confirmDialog, toast, busy, debounce, plural, localDateTimeValue, moduleLink,
 } from '../core/ui.js';
 import { stepper } from '../core/components.js';
 
@@ -104,7 +104,7 @@ async function messagesTab(ctx, body, tools) {
   ], unreadOnly ? 'unread' : 'all'));
   const linkFor = (th) => (th.submission_id ? html`<a class="code" href="/portal-inbox/submissions/${th.submission_id}">${th.submission_code}</a>`
     : th.request_id ? html`<a class="code" href="/portal-inbox/requests/${th.request_id}">${th.request_code}</a>`
-      : th.sample_id ? html`<a class="code" href="/samples/${th.sample_id}">${th.sample_code}</a>` : '');
+      : th.sample_id ? moduleLink('samples', `/samples/${th.sample_id}`, th.sample_code, 'code') : '');
   body.innerHTML = String(html`<div class="pi-split ${t ? 'has-open' : ''}">
     <section class="card pi-list">
       ${threads.length ? html`<ul class="list pi-threads">${threads.map((x) => html`<li class="${x.id === openId ? 'active' : ''}"><a href="${setQuery({ thread: x.id })}">
@@ -199,7 +199,7 @@ export async function submission(ctx) {
       actions: html`
         ${s.status === 'Submitted' && can('portal.respond') ? html`<button class="btn" data-act="ack">${icon('check', { size: 15 })}Acknowledge</button>` : ''}
         ${open && can('portal.respond') ? html`<button class="btn" data-act="decline">Decline</button>` : ''}
-        ${open && can('samples.receive') ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
+        ${open && shipped('samples') && can('samples.receive') ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
     })}
     <div class="card stepper-card">${stepper(['Submitted', 'Acknowledged', 'Received'], stopped ? 'Submitted' : s.status, { stopped: stopped ? s.status : undefined })}</div>
     <div class="split-wide" style="margin-top:var(--gap, 12px)">
@@ -221,7 +221,7 @@ export async function submission(ctx) {
         ${card({
           title: 'Details',
           body: kv([
-            ['Project', s.project_code ? html`<a class="code" href="/projects/${s.project_id}">${s.project_code}</a> ${s.project_title}` : null],
+            ['Project', s.project_code ? html`${moduleLink('projects', `/projects/${s.project_id}`, s.project_code, 'code')} ${s.project_title}` : null],
             ['Sample type', s.sample_type],
             ['Storage', s.storage],
             ['Courier', s.courier],
@@ -230,7 +230,7 @@ export async function submission(ctx) {
             ['Notes', s.notes ? html`<span style="white-space:pre-wrap">${s.notes}</span>` : null],
             s.acknowledged_at && ['Acknowledged', `${s.acknowledged_by_name} · ${fmtDateTime(s.acknowledged_at)}`],
             s.received_at && ['Received', `${s.received_by_name} · ${fmtDateTime(s.received_at)}`],
-            s.received_samples.length && ['Samples created', html`${s.received_samples.map((x, i) => html`${i ? ', ' : ''}<a class="code" href="/samples/${x.id}">${x.code}</a>`)}`],
+            s.received_samples.length && ['Samples created', html`${s.received_samples.map((x, i) => html`${i ? ', ' : ''}${moduleLink('samples', `/samples/${x.id}`, x.code, 'code')}`)}`],
             s.status_note && ['Note to client', s.status_note],
           ]),
         })}
@@ -309,7 +309,7 @@ async function requestsTab(ctx, body, tools) {
       { key: 'title', label: 'Request', sort: true, cls: 'title-cell', render: (r) => html`<strong>${r.title}</strong><span class="sub-line">${r.type}${r.technique ? ` · ${r.technique}` : ''}</span>` },
       { key: 'client_name', label: 'Client', sort: true, render: (r) => html`${r.client_name}<span class="sub-line">${r.submitted_by || ''}</span>` },
       { key: 'target_date', label: 'Target', sort: true, render: (r) => html`<span class="nowrap">${fmtDate(r.target_date)}</span>` },
-      { key: 'project_code', label: 'Project', render: (r) => (r.project_code ? html`<a class="code" href="/projects/${r.project_id}">${r.project_code}</a>` : '') },
+      { key: 'project_code', label: 'Project', render: (r) => (r.project_code ? moduleLink('projects', `/projects/${r.project_id}`, r.project_code, 'code') : '') },
       { key: 'status', label: 'Status', sort: (r) => REQUEST_STATUSES.indexOf(r.status), render: (r) => badge(r.status, REQ_TONE[r.status]) },
     ],
   });
@@ -331,7 +331,7 @@ export async function request(ctx) {
       sub: html`<span class="code">${q.code}</span> · ${q.type} · ${q.client_name} · ${q.submitted_by || ''} · ${fmtDateTime(q.created_at)}`,
       actions: html`
         ${open && can('portal.respond') ? html`<button class="btn" data-act="respond">${icon('send', { size: 15 })}Respond / update status</button>` : ''}
-        ${!q.project_id && q.status !== 'Declined' && can('projects.edit') ? html`<button class="btn primary" data-act="project">${icon('folder', { size: 15 })}Open project</button>` : ''}`,
+        ${!q.project_id && q.status !== 'Declined' && shipped('projects') && can('projects.edit') ? html`<button class="btn primary" data-act="project">${icon('folder', { size: 15 })}Open project</button>` : ''}`,
     })}
     <div class="card stepper-card">${stepper(['Submitted', 'Under review', 'Proposal sent', q.status === 'Declined' ? 'Declined' : 'Accepted'], q.status, { stopped: q.status === 'Declined' ? 'Declined' : undefined })}</div>
     <div class="split-wide" style="margin-top:var(--gap, 12px)">
@@ -349,7 +349,7 @@ export async function request(ctx) {
             ['Regulatory', q.regulatory],
             ['Target date', q.target_date ? fmtDate(q.target_date) : null],
             ['Contact', q.submitted_by ? html`${q.submitted_by}<br><span class="muted small">${q.submitted_by_email}</span>` : null],
-            ['Project', q.project_code ? html`<a class="code" href="/projects/${q.project_id}">${q.project_code}</a> ${q.project_title}` : null],
+            ['Project', q.project_code ? html`${moduleLink('projects', `/projects/${q.project_id}`, q.project_code, 'code')} ${q.project_title}` : null],
             q.responded_at && ['Last response', `${q.responded_by_name} · ${fmtDateTime(q.responded_at)}`],
           ]),
         })}
@@ -430,7 +430,7 @@ async function accountsTab(ctx, body, tools) {
     empty: emptyState({ icon: 'users', title: 'No portal accounts yet', text: 'Invite a contact at each client so they can submit samples, download certificates and message the lab.' }),
     columns: [
       { key: 'full_name', label: 'Contact', sort: true, cls: 'title-cell', render: (r) => html`<strong>${r.full_name}</strong><span class="sub-line">${r.email}${r.job_title ? ` · ${r.job_title}` : ''}</span>` },
-      { key: 'client_name', label: 'Client', sort: true, render: (r) => html`<a href="/clients/${r.client_id}">${r.client_name}</a>` },
+      { key: 'client_name', label: 'Client', sort: true, render: (r) => moduleLink('clients', `/clients/${r.client_id}`, r.client_name) },
       { key: 'status', label: 'Status', sort: (r) => (r.active ? (r.locked ? 1 : r.must_change_password ? 2 : 0) : 3), render: (r) => (!r.active ? badge('Deactivated', 'gray') : r.locked ? badge('Locked', 'red') : r.must_change_password ? badge('Invited', 'amber') : badge('Active', 'green')) },
       { key: 'last_login_at', label: 'Last sign-in', sort: true, render: (r) => html`<span class="nowrap">${r.last_login_at ? relTime(r.last_login_at) : '—'}</span>` },
       { key: 'created_at', label: 'Created', sort: true, render: (r) => html`<span class="nowrap">${fmtDate(r.created_at)}</span><span class="sub-line">${r.created_by_name || ''}</span>` },

@@ -106,12 +106,12 @@ export async function detail(ctx) {
     ${m.expired ? html`<div class="notice bad mb">${icon('lock', { size: 16 })}<span><strong>Expired on ${fmtDate(m.expiry_date)}.</strong> It can no longer be selected for tests. Requalify (new expiry date) or dispose of it.</span></div>` : ''}
     <div class="split">
       <div class="stack">
-        ${card({
+        ${shipped('samples') ? card({
           title: 'Used in tests',
           sub: 'Traceability: every test that recorded this lot.',
           flush: true,
           body: d.tests.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.tests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.method_title}</span></td><td><span class="code">${t.sample_code}</span><span class="sub-line">${t.client_name}</span></td><td>${person(t.analyst_name, t.analyst_id, t.analyst_initials)}</td><td>${statusBadge(t.status)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'worklist', title: 'Not used in any test yet' }),
-        })}
+        }) : ''}
         ${card({
           title: 'Stock movements',
           flush: true,

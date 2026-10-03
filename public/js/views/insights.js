@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { can } from '../core/state.js';
+import { can, shipped } from '../core/state.js';
 import { pageHead, card, money, num, emptyState } from '../core/ui.js';
 import { columnChart, lineChart, barList } from '../core/charts.js';
 
@@ -68,9 +68,9 @@ export async function render(ctx) {
     lineChart(el('tat'), { data: d.tatByMonth.map((x) => ({ label: mLabel(x.month), tip: mTip(x.month), value: x.value || null })), format: (v) => `${(+v).toFixed(1)} d`, min: 0, labelHead: 'Month', valueHead: 'Average turnaround' });
     lineChart(el('ontime'), { data: d.onTimeByMonth.map((x) => ({ label: mLabel(x.month), tip: mTip(x.month), value: x.value || null })), format: (v) => `${Math.round(v)}%`, min: 0, max: 100, target: 90, labelHead: 'Month', valueHead: 'On-time %' });
     const tp = d.throughput.filter((t) => t.approved > 0);
-    if (tp.length) barList(el('throughput'), { data: tp.map((t) => ({ label: t.full_name, value: t.approved, href: `/team/${t.id}` })), format: (v) => `${v}`, labelHead: 'Analyst', valueHead: 'Tests approved' });
+    if (tp.length) barList(el('throughput'), { data: tp.map((t) => ({ label: t.full_name, value: t.approved, href: shipped('team') ? `/team/${t.id}` : null })), format: (v) => `${v}`, labelHead: 'Analyst', valueHead: 'Tests approved' });
     else el('throughput').innerHTML = String(emptyState({ icon: 'users', title: 'No approved tests in 90 days' }));
-    if (el('clients')) barList(el('clients'), { data: d.revenueByClient.map((c) => ({ label: c.name, value: c.value, href: `/clients/${c.id}` })), format: (v) => money(v, { compact: true }), labelHead: 'Client', valueHead: 'Revenue' });
+    if (el('clients')) barList(el('clients'), { data: d.revenueByClient.map((c) => ({ label: c.name, value: c.value, href: shipped('clients') ? `/clients/${c.id}` : null })), format: (v) => money(v, { compact: true }), labelHead: 'Client', valueHead: 'Revenue' });
     if (el('technique')) barList(el('technique'), { data: d.valueByTechnique.map((t) => ({ label: t.label, value: t.value })), format: (v) => money(v, { compact: true }), labelHead: 'Technique', valueHead: 'Value' });
   }, { once: true });
 }

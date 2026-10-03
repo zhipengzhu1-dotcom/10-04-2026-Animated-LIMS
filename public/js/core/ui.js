@@ -1,6 +1,6 @@
 import { html, raw, esc, Safe } from './html.js';
 import { icon } from './icons.js';
-import { state } from './state.js';
+import { state, shipped } from './state.js';
 import { Cancelled } from './api.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -147,6 +147,10 @@ export function avatar(name, id, { size = 24, initials } = {}) {
 }
 
 export const person = (name, id, initials) => (name ? html`<span class="person">${avatar(name, id, { initials })}<span>${name}</span></span>` : html`<span class="muted">Unassigned</span>`);
+
+/** A link into another module's screen, or just its content when that module is withheld. */
+export const moduleLink = (module, href, content, cls = '') => (shipped(module) ? html`<a href="${href}" class="${cls}">${content}</a>` : content);
+
 
 export function progress(done, total, { tone: t = 'accent' } = {}) {
   const pct = total ? Math.round((done / total) * 100) : 0;

@@ -6,7 +6,7 @@ import { navigate, setQuery, refreshNav } from '../core/nav.js';
 import { markdown } from '../core/markdown.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, priorityBadge, dueChip, fmtDate, fmtDateTime, money, plural,
-  emptyState, field, openForm, esign, toast, showError, busy, promptReason, specText, resultText, outcomeBadge, person, badge, debounce, todayIso,
+  emptyState, field, openForm, esign, toast, showError, busy, promptReason, specText, resultText, outcomeBadge, person, badge, debounce, todayIso, moduleLink,
 } from '../core/ui.js';
 import { stepper, signatureList, recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -167,7 +167,7 @@ export async function detail(ctx) {
       <button class="btn" data-dd aria-label="More actions">${icon('more', { size: 16 })}</button>
       <div class="dropdown-menu" hidden>
         <a href="/samples/${t.sample_id}">${icon('tube')}Open sample ${t.sample_code}</a>
-        <a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>
+        ${shipped('methods') ? html`<a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>` : ''}
         ${d.can.assign ? html`<button data-act="assign">${icon('users')}${t.analyst_id ? 'Reassign' : 'Assign'}</button>` : ''}
         ${d.can.raise ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
         ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
@@ -182,7 +182,7 @@ export async function detail(ctx) {
       badges: html`${statusBadge(t.status)}${priorityBadge(t.priority)}${t.oos ? badge('OOS', 'red') : ''}`,
       meta: html`
         <span class="code">${t.code}</span>
-        <span>${icon('method', { size: 14 })}<a href="/methods/${t.method_id}">${t.method_code} v${t.method_version}</a></span>
+        <span>${icon('method', { size: 14 })}${moduleLink('methods', `/methods/${t.method_id}`, `${t.method_code} v${t.method_version}`)}</span>
         <span>${icon('tube', { size: 14 })}<a href="/samples/${t.sample_id}">${t.sample_code}</a> · ${t.sample_description}${t.batch_no ? ` · ${t.batch_no}` : ''}</span>
         <span>${icon('building', { size: 14 })}${t.client_name}</span>
         <span>${icon('clock', { size: 14 })}${dueChip(t.due_date, { done: ['Approved', 'Cancelled'].includes(t.status) })}</span>`,
@@ -232,8 +232,8 @@ export async function detail(ctx) {
               </div>
               ${field({ label: 'Comments', name: 'comments', type: 'textarea', rows: 2, value: t.comments, span: 2, placeholder: 'System suitability, observations, deviations from the method…' })}
             </div>` : kv([
-              ['Instrument', t.instrument_code ? html`<a href="/instruments/${t.instrument_id}">${t.instrument_code}</a> — ${t.instrument_name}` : null],
-              ['Materials', d.materials.length ? html`${d.materials.map((m) => html`<div><a href="/inventory/${m.id}" class="code">${m.code}</a> ${m.name}${m.lot_no ? html` <span class="muted">· Lot ${m.lot_no}</span>` : ''}</div>`)}` : null],
+              ['Instrument', t.instrument_code ? html`${moduleLink('instruments', `/instruments/${t.instrument_id}`, t.instrument_code)} — ${t.instrument_name}` : null],
+              ['Materials', d.materials.length ? html`${d.materials.map((m) => html`<div>${moduleLink('inventory', `/inventory/${m.id}`, m.code, 'code')} ${m.name}${m.lot_no ? html` <span class="muted">· Lot ${m.lot_no}</span>` : ''}</div>`)}` : null],
               ['Raw data', t.raw_data_ref],
               ['Comments', t.comments],
             ]),
@@ -262,7 +262,7 @@ export async function detail(ctx) {
           t.submitted_at && ['Submitted', fmtDateTime(t.submitted_at)],
           t.reviewed_at && ['Reviewed', html`${t.reviewer_name}<div class="muted small">${fmtDateTime(t.reviewed_at)}</div>`],
           t.approved_at && ['Approved', html`${t.approver_name}<div class="muted small">${fmtDateTime(t.approved_at)}</div>`],
-          t.invoice_id && can('billing.view') && ['Invoice', html`<a href="/invoices/${t.invoice_id}">View invoice</a>`],
+          t.invoice_id && shipped('invoices') && can('billing.view') && ['Invoice', html`<a href="/invoices/${t.invoice_id}">View invoice</a>`],
         ]) })}
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
         ${d.investigations.map((v) => card({

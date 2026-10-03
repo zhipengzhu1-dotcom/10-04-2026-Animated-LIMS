@@ -6,7 +6,7 @@ import { navigate, setQuery } from '../core/nav.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, priorityBadge, dueChip, fmtDate, fmtDateTime, money, plural,
   emptyState, progress, field, openForm, esign, toast, showError, busy, confirmDialog, promptReason, specText, resultText, outcomeBadge,
-  localDateTimeValue, todayIso, isoDate, person, badge, debounce,
+  localDateTimeValue, todayIso, isoDate, person, badge, debounce, moduleLink,
 } from '../core/ui.js';
 import { stepper, signatureList, recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -372,8 +372,8 @@ export async function detail(ctx) {
       badges: html`${statusBadge(s.status)}${priorityBadge(s.priority)}${s.has_oos ? badge('OOS result', 'red') : ''}`,
       sub: html`${s.description}${s.batch_no ? html` · Batch <strong>${s.batch_no}</strong>` : ''}`,
       meta: html`
-        <span>${icon('building', { size: 14 })}<a href="/clients/${s.client_id}">${s.client_name}</a></span>
-        ${s.project_id ? html`<span>${icon('folder', { size: 14 })}<a href="/projects/${s.project_id}">${s.project_code}</a></span>` : ''}
+        <span>${icon('building', { size: 14 })}${moduleLink('clients', `/clients/${s.client_id}`, s.client_name)}</span>
+        ${s.project_id ? html`<span>${icon('folder', { size: 14 })}${moduleLink('projects', `/projects/${s.project_id}`, s.project_code)}</span>` : ''}
         <span>${icon('calendar', { size: 14 })}Received ${fmtDateTime(s.received_at)}</span>
         <span>${icon('clock', { size: 14 })}${dueChip(s.due_date, { done: ['Reported', 'Cancelled', 'Disposed'].includes(s.status) })}</span>`,
       actions: html`
