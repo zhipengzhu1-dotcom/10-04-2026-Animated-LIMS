@@ -9,7 +9,7 @@ import { getSettings, setSettings, DEFAULTS } from '../settings.js';
 import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
-import { CLOUDFLARE_TUNNEL } from '../config.js';
+import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES } from '../config.js';
 import { portalBadge } from './portal.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
@@ -74,6 +74,7 @@ export default function routes(r) {
     user: publicUser(ctx.user),
     permissions: permissionsFor(ctx.user.role),
     settings: publicSettings(),
+    modules: SHIPPED_MODULES,
   }), { allowPasswordChange: true });
 
   r.post('/api/auth/password', (ctx) => {
@@ -252,7 +253,7 @@ export default function routes(r) {
     const limit = limitParam(q.limit, 300, 2000);
     return all(`SELECT a.*, u.full_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.id DESC LIMIT ${limit}`, ...params);
-  }, { perm: 'audit.view' });
+  }, { perm: 'audit.view', module: 'audit' });
 
   // Per-record history is visible to whoever can see the record; money fields only to billing roles.
   r.get('/api/history/:entity/:id', (ctx) => {
@@ -278,7 +279,7 @@ export default function routes(r) {
     const result = verifyChain();
     audit(ctx, { action: 'VERIFY', entity: 'audit_log', summary: result.ok ? `Audit trail integrity verified (${result.count} entries)` : `Audit trail integrity FAILED at entry #${result.brokenAt}` });
     return result;
-  }, { perm: 'audit.view' });
+  }, { perm: 'audit.view', module: 'audit' });
 
   // ---------- Global search (also handles barcode scans: an exact code match returns `exact`) ----------
   r.get('/api/search', (ctx) => {
