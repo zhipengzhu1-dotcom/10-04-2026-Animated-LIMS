@@ -461,6 +461,13 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
+// Samples list work filters: the same rules as the Worklist's "My tests" badge and the Reviews queue.
+const WORK_FILTERS = {
+  assigned: { perm: 'tests.perform', match: (me) => [`t.analyst_id = ? AND t.status IN ('Pending', 'In Progress')`, me] },
+  review: { perm: 'tests.review', match: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me] },
+  approval: { perm: 'tests.approve', match: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me] },
+};
+
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -477,6 +484,14 @@ export default function routes(r) {
     if (q.project_id) { where.push('s.project_id = ?'); params.push(+q.project_id); }
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
+    if (q.work) {
+      const rule = Object.hasOwn(WORK_FILTERS, q.work) && WORK_FILTERS[q.work];
+      if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
+      assertCan(ctx, rule.perm);
+      const [sql, ...args] = rule.match(ctx.user.id);
+      where.push(`EXISTS (SELECT 1 FROM tests t WHERE t.sample_id = s.id AND ${sql})`);
+      params.push(...args);
+    }
     if (q.q) {
       const t = likeTerm(q.q);
       where.push(`(s.code LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\' OR s.batch_no LIKE ? ESCAPE '\\' OR s.client_ref LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')`);
