@@ -27,11 +27,13 @@ import * as settings from './views/settings.js';
 import * as account from './views/account.js';
 import * as print from './views/print.js';
 
+// The start page: the Dashboard, or the Samples list when the Dashboard is withheld.
+const startPage = (ctx) => (shipped('dashboard') ? dashboard.render(ctx) : samples.list(ctx));
+
 // [path pattern, view function, nav key, module (defaults to the nav key; a Withheld module's routes fall through to not found)]
 // A route whose nav key names a Withheld module highlights its own module instead (the Test page goes under Samples).
 const ROUTES = [
-  ['/', dashboard.render, 'dashboard'],
-  ['/', samples.list, 'samples'], // the start page when the Dashboard is withheld
+  ['/', startPage, 'dashboard', 'samples'],
   ['/samples', samples.list, 'samples'],
   ['/samples/receive', samples.receive, 'samples'],
   ['/samples/:id', samples.detail, 'samples'],
@@ -301,6 +303,12 @@ setInterval(() => { if (document.visibilityState === 'visible') refreshBadges();
 // Router
 // ---------------------------------------------------------------------------------------------
 
+/** The sidebar item a route highlights: its own, or its module's when its own is withheld. */
+function activeNav(route) {
+  if (shipped(route.nav) || !route.module) return route.nav;
+  return route.module;
+}
+
 function match(pathname) {
   for (const r of ROUTES) {
     if (r.module && !shipped(r.module)) continue;
@@ -365,7 +373,7 @@ async function renderRoute({ keepScroll = false } = {}) {
   window.scrollTo(0, keepScroll ? scrollY : 0);
   if (!keepScroll && !isPrint) document.getElementById('content')?.focus({ preventScroll: true });
   if (!isPrint) {
-    const nav = found && (shipped(found.route.nav) || !found.route.module ? found.route.nav : found.route.module);
+    const nav = found && activeNav(found.route);
     if (nav !== currentNav) {
       root.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
       currentNav = nav;
