@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can } from '../core/state.js';
+import { state, can, shipped } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
@@ -27,7 +27,7 @@ const itemFields = (m = {}) => {
     ${field({ label: 'Purity / potency', name: 'potency', value: m.potency, placeholder: 'e.g. 99.8 %' })}
     ${m.id ? '' : field({ label: 'Quantity received', name: 'quantity', type: 'number', min: 0, step: 'any' })}
     ${field({ label: 'Unit', name: 'unit', value: m.unit, placeholder: 'mg, g, mL, L, vials…' })}
-    ${field({ label: 'Reorder level', name: 'min_quantity', type: 'number', value: m.min_quantity, min: 0, step: 'any', hint: 'Flags low stock on the dashboard' })}
+    ${field({ label: 'Reorder level', name: 'min_quantity', type: 'number', value: m.min_quantity, min: 0, step: 'any', hint: shipped('dashboard') ? 'Flags low stock on the dashboard' : 'Flags low stock in the list' })}
     ${field({ label: 'Storage condition', name: 'storage', value: m.storage, placeholder: 'e.g. 2–8 °C, desiccated' })}
     ${field({ label: 'Location', name: 'location', value: m.location, placeholder: 'e.g. Fridge R-02' })}
     ${field({ label: 'Received', name: 'received_date', type: 'date', value: m.received_date || (m.id ? '' : todayIso()) })}

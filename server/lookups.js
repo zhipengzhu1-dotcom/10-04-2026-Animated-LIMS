@@ -86,13 +86,13 @@ export const INVOICE_STATUSES = ['Draft', 'Sent', 'Paid', 'Void'];
 
 export const ATTACHABLE = ['samples', 'tests', 'methods', 'notebook_entries', 'investigations', 'instruments', 'inventory', 'projects', 'clients', 'invoices'];
 
-// Who may see a record type's files/history (null = any signed-in user) and who may add files to it.
+// Who may see a record type's files/history (null = any signed-in user) and who may add files to it; a Withheld `module` hides both.
 export const RECORD_ACCESS = {
   samples: { view: null, edit: ['samples.edit'] },
   tests: { view: null, edit: ['tests.perform', 'tests.assign'] },
   methods: { view: null, edit: ['methods.edit'] },
   notebook_entries: { view: null, edit: ['notebook.write'] },
-  investigations: { view: null, edit: ['investigations.raise', 'investigations.close'] },
+  investigations: { view: null, edit: ['investigations.raise', 'investigations.close'], module: 'investigations' },
   instruments: { view: null, edit: ['instruments.log'] },
   inventory: { view: null, edit: ['inventory.edit'] },
   projects: { view: null, edit: ['projects.edit'] },
