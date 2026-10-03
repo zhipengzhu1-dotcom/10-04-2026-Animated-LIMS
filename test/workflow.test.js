@@ -463,6 +463,38 @@ test('closing an investigation needs the right password on both endpoints, and w
   assert.equal(locked.status, 423, 'locked even with the right password');
 });
 
+test('both close endpoints apply the same rules and sign an OOS closure with the same meaning', async () => {
+  const priya = await as('priya.raman');
+  const daniel = await as('daniel.okafor');
+  const { testId, investigation } = await oosTest('priya.raman');
+  const body = { root_cause: 'Balance drift', conclusion: 'Invalidated — assignable laboratory error', password: PASSWORD };
+  const viaTest = await priya.post(`/api/tests/${testId}/investigation/close`, body);
+  const viaInvestigations = await priya.post(`/api/investigations/${investigation.id}/close`, body);
+  assert.equal(viaInvestigations.status, 403, 'the analyst who performed the test cannot close it from Investigations either');
+  assert.deepEqual(viaInvestigations.data, viaTest.data, 'both endpoints refuse with the same words');
+  for (const missing of [{ root_cause: ' ' }, { conclusion: '' }]) {
+    const a = await daniel.post(`/api/investigations/${investigation.id}/close`, { ...body, ...missing });
+    const b = await daniel.post(`/api/tests/${testId}/investigation/close`, { ...body, ...missing });
+    assert.equal(a.status, 400, `refused without ${Object.keys(missing)[0]}`);
+    assert.deepEqual(a.data, b.data, 'both endpoints refuse with the same words');
+  }
+
+  await daniel.ok('POST', `/api/investigations/${investigation.id}/close`, body);
+  const d = await daniel.ok('GET', `/api/investigations/${investigation.id}`);
+  assert.equal(d.investigation.status, 'Closed');
+  assert.equal(d.investigation.root_cause, body.root_cause, 'the root cause given when closing is recorded');
+  assert.equal(d.investigation.conclusion, body.conclusion);
+  assert.deepEqual(d.signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'OOS investigation closed']]);
+});
+
+test('closing a deviation from Investigations is still signed "Closed"', async () => {
+  const daniel = await as('daniel.okafor');
+  const { id } = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Fridge excursion', description: 'Logged 9 °C overnight' });
+  await daniel.ok('POST', `/api/investigations/${id}/close`, { root_cause: 'Door left ajar', conclusion: 'No product impact', password: PASSWORD });
+  const d = await daniel.ok('GET', `/api/investigations/${id}`);
+  assert.deepEqual(d.signatures.map((s) => s.meaning), ['Closed']);
+});
+
 test('non-text reasons cannot break the audit hash chain', async () => {
   const tom = await as('tom.fletcher');
   const items = await tom.ok('GET', '/api/inventory');

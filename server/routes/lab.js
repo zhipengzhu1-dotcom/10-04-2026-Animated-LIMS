@@ -19,6 +19,7 @@ import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
 import { isShipped } from '../config.js';
+import { closeInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -479,17 +480,10 @@ const WORK_FILTERS = {
 /** Closes the Test's open OOS investigation from the Test page, so it never depends on the Investigations screens. */
 export function closeTestInvestigation(ctx, id, body) {
   assertCan(ctx, 'investigations.close');
-  const t = getTest(id);
-  const inv = get(`SELECT id, code FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
+  getTest(id);
+  const inv = get(`SELECT id FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
   if (!inv) throw bad('There is no open OOS investigation on this test');
-  if (t.analyst_id === ctx.user.id) throw forbidden('You performed this test — someone independent must close its investigation');
-  const b = clean(body, { root_cause: { type: 'text', required: true }, conclusion: { type: 'text', required: true } });
-  verifySignature(ctx, body.password);
-  tx(() => {
-    update(ctx, 'investigations', inv.id, { ...b, status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed from the test' });
-    applySignature(ctx, 'investigations', inv.id, 'OOS investigation closed', { code: inv.code });
-  });
-  return { ok: true };
+  return closeInvestigation(ctx, inv.id, body);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -676,6 +670,8 @@ export default function routes(r) {
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
     const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
       FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
+    // The closure signature is shown here because the Investigations screens may be withheld.
+    for (const v of investigations) v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
     return {
       test,
       method,

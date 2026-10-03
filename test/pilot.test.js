@@ -413,6 +413,17 @@ async function assertWithheld(base, modules) {
   }
 }
 
+test('the Test page shows who signed an OOS investigation’s closure while Investigations is withheld', async () => {
+  const daniel = await as('daniel.okafor');
+  const { testId } = await pilotOosTest('tom.fletcher');
+  const [open] = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(open.signatures, [], 'an open investigation carries no closure signature');
+  await daniel.ok('POST', `/api/tests/${testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid', password: PASSWORD });
+  const [closed] = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(closed.signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'OOS investigation closed']]);
+  assert.ok(closed.signatures[0].signed_at, 'with the time it was signed');
+});
+
 // Searches broadly enough to hit every result type, and returns the types that came back.
 async function searchTypes(c) {
   const types = new Set();

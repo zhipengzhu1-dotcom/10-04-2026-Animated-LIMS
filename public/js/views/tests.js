@@ -274,6 +274,7 @@ export async function detail(ctx) {
             v.status === 'Closed' && ['Root cause', html`<div style="white-space:pre-wrap">${v.root_cause}</div>`],
             v.status === 'Closed' && ['Conclusion', html`<div style="white-space:pre-wrap">${v.conclusion}</div>`],
             v.status === 'Closed' && ['Closed by', html`${v.closed_by_name}<div class="muted small">${fmtDateTime(v.closed_at)}</div>`],
+            v.signatures.length > 0 && ['Signature', signatureList(v.signatures)],
           ]),
         }))}
         ${d.method.procedure ? card({ title: html`Method summary <span class="muted small" style="font-weight:400">· ${d.method.code} v${d.method.version}</span>`, body: html`<div class="md small">${raw(markdown(d.method.procedure))}</div>${d.method.reference ? html`<p class="muted small" style="margin-top:8px">Reference: ${d.method.reference}</p>` : ''}` }) : ''}
