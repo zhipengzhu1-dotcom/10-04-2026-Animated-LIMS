@@ -107,6 +107,8 @@ export default function routes(r) {
     if (can(ctx.user, 'tests.review')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Submitted' AND analyst_id != ?`, me).n;
     if (can(ctx.user, 'tests.approve')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Reviewed' AND analyst_id != ? AND COALESCE(reviewed_by, 0) != ?`, me, me).n;
     if (can(ctx.user, 'notebook.witness')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+    if (!isShipped('worklist')) delete out.myTests;
+    if (!isShipped('reviews')) delete out.reviews;
     out.portal = portalBadge(ctx.user); // unread client messages + new submissions/requests
     return out;
   });

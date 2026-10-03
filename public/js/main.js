@@ -28,6 +28,7 @@ import * as account from './views/account.js';
 import * as print from './views/print.js';
 
 // [path pattern, view function, nav key, module (defaults to the nav key; a Withheld module's routes fall through to not found)]
+// A route whose nav key names a Withheld module highlights its own module instead (the Test page goes under Samples).
 const ROUTES = [
   ['/', dashboard.render, 'dashboard'],
   ['/', samples.list, 'samples'], // the start page when the Dashboard is withheld
@@ -364,7 +365,7 @@ async function renderRoute({ keepScroll = false } = {}) {
   window.scrollTo(0, keepScroll ? scrollY : 0);
   if (!keepScroll && !isPrint) document.getElementById('content')?.focus({ preventScroll: true });
   if (!isPrint) {
-    const nav = found?.route.nav;
+    const nav = found && (shipped(found.route.nav) || !found.route.module ? found.route.nav : found.route.module);
     if (nav !== currentNav) {
       root.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
       currentNav = nav;

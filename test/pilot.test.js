@@ -226,3 +226,65 @@ test('the Withheld Dashboard API answers like a route that does not exist, while
   assert.equal(insights.months.length, 12);
   assert.ok(Array.isArray(insights.revenueByMonth), 'Business & Finance see revenue figures');
 });
+
+// #9
+test('Withheld Reviews & approvals queue answers like a route that does not exist, signed in or not', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  for (const [who, c] of [['QA', await as('daniel.okafor')], ['anonymous', new Client()]]) {
+    const r = await c.get('/api/reviews');
+    assert.equal(r.status, 404, `${who} GET /api/reviews`);
+    assert.deepEqual(r.data, nowhere.data, `${who} GET /api/reviews looks like a missing route`);
+  }
+});
+
+test('badge counts carry no Worklist or Reviews queue', async () => {
+  for (const username of ['tom.fletcher', 'sarah.lindqvist', 'daniel.okafor']) {
+    const nav = await (await as(username)).ok('GET', '/api/nav');
+    assert.ok(!('myTests' in nav), `${username}: no Worklist count`);
+    assert.ok(!('reviews' in nav), `${username}: no Reviews count`);
+  }
+});
+
+test('starting from a sample, a Test is assigned, performed, reviewed, approved and certified without the Worklist or Reviews', async () => {
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  const sarah = await as('sarah.lindqvist');
+  const daniel = await as('daniel.okafor');
+  const [client] = await priya.ok('GET', '/api/clients');
+  const methods = await priya.ok('GET', '/api/methods?usable=1');
+  const kf = methods.find((m) => m.code === 'ATM-0002' && m.status === 'Effective');
+  const ftir = methods.find((m) => m.code === 'ATM-0006' && m.status === 'Effective');
+  const received = await priya.ok('POST', '/api/samples/receive', { client_id: client.id, samples: [{ description: 'Pilot walk' }], method_ids: [kf.id, ftir.id] });
+  const sampleId = received.samples[0].id;
+  const { tests } = await priya.ok('GET', `/api/samples/${sampleId}`);
+  const kfTest = tests.find((t) => t.method_code === 'ATM-0002');
+  const irTest = tests.find((t) => t.method_code === 'ATM-0006');
+
+  // The assign dialog lists the sample's tests and assigns one; the analyst picks up the other.
+  const listed = await priya.ok('GET', `/api/tests?sample_id=${sampleId}`);
+  assert.deepEqual(listed.map((t) => t.id).sort(), [kfTest.id, irTest.id].sort());
+  const tomUser = (await priya.ok('GET', '/api/users')).find((u) => u.username === 'tom.fletcher');
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [kfTest.id], analyst_id: tomUser.id });
+  await tom.ok('POST', `/api/tests/${irTest.id}/claim`);
+
+  for (const id of [kfTest.id, irTest.id]) await tom.ok('POST', `/api/tests/${id}/start`);
+  const kfDetail = await tom.ok('GET', `/api/tests/${kfTest.id}`);
+  await tom.ok('PUT', `/api/tests/${kfTest.id}`, { instrument_id: kfDetail.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: kfDetail.results[0].id, value: '0.21' }] });
+  const irDetail = await tom.ok('GET', `/api/tests/${irTest.id}`);
+  await tom.ok('PUT', `/api/tests/${irTest.id}`, { instrument_id: irDetail.instruments.find((i) => i.code === 'FTIR-01').id, results: [{ id: irDetail.results[0].id, value: 'Conforms to reference', outcome: 'Pass' }] });
+
+  for (const id of [kfTest.id, irTest.id]) {
+    const submitted = await tom.ok('POST', `/api/tests/${id}/submit`, { password: PASSWORD });
+    assert.ok(!submitted.investigation, 'in-spec results open no investigation');
+    assert.equal((await tom.post(`/api/tests/${id}/review`, { decision: 'approve', password: PASSWORD })).status, 403, 'no self-review');
+    assert.ok((await sarah.ok('GET', `/api/tests/${id}`)).can.review);
+    await sarah.ok('POST', `/api/tests/${id}/review`, { decision: 'approve', password: PASSWORD });
+    assert.equal((await sarah.post(`/api/tests/${id}/approve`, { decision: 'approve', password: PASSWORD })).status, 403, 'the reviewer cannot also approve');
+    assert.ok((await daniel.ok('GET', `/api/tests/${id}`)).can.approve);
+    await daniel.ok('POST', `/api/tests/${id}/approve`, { decision: 'approve', password: PASSWORD });
+  }
+
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved');
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
