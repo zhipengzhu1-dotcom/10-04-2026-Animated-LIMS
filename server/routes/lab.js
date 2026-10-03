@@ -725,7 +725,7 @@ export default function routes(r) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }
     return out;
-  });
+  }, { module: 'reviews' });
 
   // Audit helper for reads of sensitive printouts (CoA prints are logged so copies are traceable).
   r.post('/api/samples/:id/coa-printed', (ctx) => {

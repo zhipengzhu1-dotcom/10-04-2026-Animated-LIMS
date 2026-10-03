@@ -9,7 +9,7 @@ import { getSettings, setSettings, DEFAULTS } from '../settings.js';
 import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
-import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES } from '../config.js';
+import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES, isShipped } from '../config.js';
 import { portalBadge } from './portal.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
@@ -107,6 +107,8 @@ export default function routes(r) {
     if (can(ctx.user, 'tests.review')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Submitted' AND analyst_id != ?`, me).n;
     if (can(ctx.user, 'tests.approve')) out.reviews += get(`SELECT COUNT(*) n FROM tests WHERE status = 'Reviewed' AND analyst_id != ? AND COALESCE(reviewed_by, 0) != ?`, me, me).n;
     if (can(ctx.user, 'notebook.witness')) out.reviews += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+    if (!isShipped('worklist')) delete out.myTests;
+    if (!isShipped('reviews')) delete out.reviews;
     out.portal = portalBadge(ctx.user); // unread client messages + new submissions/requests
     return out;
   });
