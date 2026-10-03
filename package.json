@@ -1,0 +1,15 @@
+{
+  "name": "aliquot-lims",
+  "version": "1.0.0",
+  "description": "Aliquot — LIMS + electronic lab notebook for contract analytical laboratories",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "backup": "node scripts/backup.js",
+    "test": "node --test test/*.test.js"
+  }
+}
