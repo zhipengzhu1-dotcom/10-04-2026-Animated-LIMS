@@ -413,6 +413,15 @@ async function assertWithheld(base, modules) {
   }
 }
 
+// Searches broadly enough to hit every result type, and returns the types that came back.
+async function searchTypes(c) {
+  const types = new Set();
+  for (const q of ['ATM', 'S-', 'T-', 'P-', 'INV', 'KF', 'HPLC', 'Pharma', 'an', 'er']) {
+    for (const x of (await c.ok('GET', `/api/search?q=${encodeURIComponent(q)}`)).results) types.add(x.type);
+  }
+  return types;
+}
+
 test('with only Samples shipped, every other module’s APIs answer like missing routes while the shared core still answers', async () => {
   await withModules(['samples'], async (base) => {
     await assertWithheld(base, ['methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings']);
@@ -426,6 +435,7 @@ test('with only Samples shipped, every other module’s APIs answer like missing
     }
     await admin.ok('GET', '/api/history/samples/1');
     await admin.ok('GET', '/api/attachments?entity=tests&id=1');
+    assert.deepEqual([...await searchTypes(admin)].sort(), ['Sample', 'Test'], 'search returns only Samples and Tests');
   });
 });
 
@@ -435,5 +445,7 @@ test('with Samples withheld, the Samples APIs answer like missing routes while t
     const admin = await as('admin', base);
     const [t] = await admin.ok('GET', '/api/tests?limit=1');
     await admin.ok('GET', `/api/tests/${t.id}`);
+    assert.deepEqual([...await searchTypes(admin)].sort(), ['Method', 'Project'], 'search returns only Projects and Methods');
+    assert.equal((await admin.ok('GET', `/api/search?q=${t.code}`)).exact, null, 'a Test code scan opens nothing');
   });
 });

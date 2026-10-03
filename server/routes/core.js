@@ -297,34 +297,33 @@ export default function routes(r) {
     const t = likeTerm(q);
     const L = 6;
     const results = [];
-    const push = (type, rows, map) => rows.forEach((row) => results.push({ type, ...map(row) }));
-    push('Sample', all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, c.name AS client FROM samples s JOIN clients c ON c.id = s.client_id
+    // A result type is searched only while its module ships.
+    const push = (type, module, query, map) => {
+      if (isShipped(module)) query().forEach((row) => results.push({ type, ...map(row) }));
+    };
+    push('Sample', 'samples', () => all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, c.name AS client FROM samples s JOIN clients c ON c.id = s.client_id
       WHERE s.code LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\' OR s.batch_no LIKE ? ESCAPE '\\' OR s.client_ref LIKE ? ESCAPE '\\' ORDER BY s.id DESC LIMIT ${L}`, t, t, t, t),
     (x) => ({ code: x.code, title: x.description, meta: [x.client, x.batch_no && `Batch ${x.batch_no}`, x.status].filter(Boolean).join(' · '), href: `/samples/${x.id}` }));
-    push('Test', all(`SELECT t.id, t.code, t.status, m.title, s.code AS sample FROM tests t JOIN methods m ON m.id = t.method_id JOIN samples s ON s.id = t.sample_id
+    push('Test', 'samples', () => all(`SELECT t.id, t.code, t.status, m.title, s.code AS sample FROM tests t JOIN methods m ON m.id = t.method_id JOIN samples s ON s.id = t.sample_id
       WHERE t.code LIKE ? ESCAPE '\\' ORDER BY t.id DESC LIMIT ${L}`, t),
     (x) => ({ code: x.code, title: x.title, meta: `${x.sample} · ${x.status}`, href: `/tests/${x.id}` }));
-    push('Project', all(`SELECT p.id, p.code, p.title, p.status, c.name AS client FROM projects p JOIN clients c ON c.id = p.client_id
+    push('Project', 'projects', () => all(`SELECT p.id, p.code, p.title, p.status, c.name AS client FROM projects p JOIN clients c ON c.id = p.client_id
       WHERE p.code LIKE ? ESCAPE '\\' OR p.title LIKE ? ESCAPE '\\' OR p.po_number LIKE ? ESCAPE '\\' ORDER BY p.id DESC LIMIT ${L}`, t, t, t),
     (x) => ({ code: x.code, title: x.title, meta: `${x.client} · ${x.status}`, href: `/projects/${x.id}` }));
-    push('Client', all(`SELECT id, code, name FROM clients WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Client', 'clients', () => all(`SELECT id, code, name FROM clients WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: 'Client', href: `/clients/${x.id}` }));
-    push('Method', all(`SELECT id, code, version, title, status FROM methods WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY code, version DESC LIMIT ${L}`, t, t),
+    push('Method', 'methods', () => all(`SELECT id, code, version, title, status FROM methods WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY code, version DESC LIMIT ${L}`, t, t),
       (x) => ({ code: `${x.code} v${x.version}`, title: x.title, meta: x.status, href: `/methods/${x.id}` }));
-    push('Instrument', all(`SELECT id, code, name, status FROM instruments WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR serial_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Instrument', 'instruments', () => all(`SELECT id, code, name, status FROM instruments WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR serial_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: x.status, href: `/instruments/${x.id}` }));
-    push('Inventory', all(`SELECT id, code, name, lot_no, category FROM inventory WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Inventory', 'inventory', () => all(`SELECT id, code, name, lot_no, category FROM inventory WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: [x.category, x.lot_no && `Lot ${x.lot_no}`].filter(Boolean).join(' · '), href: `/inventory/${x.id}` }));
-    if (isShipped('notebook')) {
-      push('Notebook', all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
-        (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
-    }
-    if (isShipped('investigations')) {
-      push('Investigation', all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
-        (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
-    }
+    push('Notebook', 'notebook', () => all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
+      (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
+    push('Investigation', 'investigations', () => all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
+      (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
     if (can(ctx.user, 'billing.view')) {
-      push('Invoice', all(`SELECT i.id, i.code, i.status, c.name AS client FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.code LIKE ? ESCAPE '\\' LIMIT ${L}`, t),
+      push('Invoice', 'invoices', () => all(`SELECT i.id, i.code, i.status, c.name AS client FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.code LIKE ? ESCAPE '\\' LIMIT ${L}`, t),
         (x) => ({ code: x.code, title: x.client, meta: x.status, href: `/invoices/${x.id}` }));
     }
     const exact = results.find((x) => x.code.toLowerCase() === q.toLowerCase());
