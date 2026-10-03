@@ -19,6 +19,7 @@ import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
 import { isShipped } from '../config.js';
+import { closeInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -462,27 +463,27 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Samples list work filters: the same rules as the Worklist's "My tests" badge and the Reviews queue.
+// Tests waiting on a user: assigned to them, awaiting their peer review, awaiting their QA approval.
+// Each gives [SQL condition on tests aliased `t`, ...params]; the badges, the Reviews queue and the Samples work filters share them.
+export const TEST_QUEUES = {
+  assigned: (me) => [`t.analyst_id = ? AND t.status IN ('Pending', 'In Progress')`, me],
+  review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
+  approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
+};
+
 const WORK_FILTERS = {
-  assigned: { perm: 'tests.perform', match: (me) => [`t.analyst_id = ? AND t.status IN ('Pending', 'In Progress')`, me] },
-  review: { perm: 'tests.review', match: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me] },
-  approval: { perm: 'tests.approve', match: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me] },
+  assigned: { perm: 'tests.perform', match: TEST_QUEUES.assigned },
+  review: { perm: 'tests.review', match: TEST_QUEUES.review },
+  approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
 };
 
 /** Closes the Test's open OOS investigation from the Test page, so it never depends on the Investigations screens. */
 export function closeTestInvestigation(ctx, id, body) {
   assertCan(ctx, 'investigations.close');
-  const t = getTest(id);
-  const inv = get(`SELECT id, code FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
+  getTest(id);
+  const inv = get(`SELECT id FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
   if (!inv) throw bad('There is no open OOS investigation on this test');
-  if (t.analyst_id === ctx.user.id) throw forbidden('You performed this test — someone independent must close its investigation');
-  const b = clean(body, { root_cause: { type: 'text', required: true }, conclusion: { type: 'text', required: true } });
-  verifySignature(ctx, body.password);
-  tx(() => {
-    update(ctx, 'investigations', inv.id, { ...b, status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed from the test' });
-    applySignature(ctx, 'investigations', inv.id, 'OOS investigation closed', { code: inv.code });
-  });
-  return { ok: true };
+  return closeInvestigation(ctx, inv.id, body);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -516,16 +517,16 @@ export default function routes(r) {
     }
     const limit = limitParam(q.limit, 500, 2000);
     return all(`${SAMPLE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY s.id DESC LIMIT ${limit}`, ...params);
-  });
+  }, { module: 'samples' });
 
-  r.post('/api/samples/receive', (ctx) => receiveSamples(ctx, ctx.body));
+  r.post('/api/samples/receive', (ctx) => receiveSamples(ctx, ctx.body), { module: 'samples' });
 
   r.get('/api/samples/labels', (ctx) => {
     const ids = idList(ctx.query.ids);
     if (!ids.length) return [];
     return all(`SELECT s.id, s.code, s.description, s.batch_no, s.storage, s.received_at, s.due_date, s.priority, s.location, c.code AS client_code, c.name AS client_name
       FROM samples s JOIN clients c ON c.id = s.client_id WHERE s.id IN (${ph(ids)}) ORDER BY s.id`, ...ids);
-  });
+  }, { module: 'samples' });
 
   r.get('/api/samples/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -550,7 +551,7 @@ export default function routes(r) {
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
-  });
+  }, { module: 'samples' });
 
   r.put('/api/samples/:id', (ctx) => {
     assertCan(ctx, 'samples.edit');
@@ -567,7 +568,7 @@ export default function routes(r) {
     if (s.status !== 'Received' && !reason) throw bad('Testing has started on this sample — give a reason for the change', 'REASON_REQUIRED');
     update(ctx, 'samples', id, b, { summary: 'Sample details edited', reason: reason || null });
     return { ok: true };
-  });
+  }, { module: 'samples' });
 
   r.post('/api/samples/:id/custody', (ctx) => {
     const id = +ctx.params.id;
@@ -588,9 +589,9 @@ export default function routes(r) {
       update(ctx, 'samples', id, patch, { action: 'CUSTODY', summary: `Custody: ${b.action}${b.location ? ` → ${b.location}` : ''}`, reason: b.note, extraChanges: { custody: [null, b.action] } });
     });
     return { ok: true };
-  });
+  }, { module: 'samples' });
 
-  r.post('/api/samples/:id/tests', (ctx) => addTestsToSample(ctx, +ctx.params.id, ctx.body.method_ids));
+  r.post('/api/samples/:id/tests', (ctx) => addTestsToSample(ctx, +ctx.params.id, ctx.body.method_ids), { module: 'samples' });
 
   r.post('/api/samples/:id/cancel', (ctx) => {
     assertCan(ctx, 'tests.cancel');
@@ -606,9 +607,9 @@ export default function routes(r) {
       update(ctx, 'samples', id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Sample cancelled', reason });
     });
     return { ok: true };
-  });
+  }, { module: 'samples' });
 
-  r.post('/api/samples/:id/report', (ctx) => issueReport(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/samples/:id/report', (ctx) => issueReport(ctx, +ctx.params.id, ctx.body), { module: 'samples' });
 
   r.get('/api/samples/:id/coa', (ctx) => {
     const id = +ctx.params.id;
@@ -632,7 +633,7 @@ export default function routes(r) {
       complies: all_results.length > 0 && all_results.every((x) => ['Pass', 'Report'].includes(x.outcome)),
       final: sample.status === 'Reported',
     };
-  });
+  }, { module: 'samples' });
 
   // ----- Tests -----
   r.get('/api/tests', (ctx) => {
@@ -669,6 +670,8 @@ export default function routes(r) {
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
     const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
       FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
+    // The closure signature is shown here because the Investigations screens may be withheld.
+    for (const v of investigations) v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
     return {
       test,
       method,
@@ -714,8 +717,12 @@ export default function routes(r) {
   r.get('/api/reviews', (ctx) => {
     const me = ctx.user.id;
     const out = { toReview: [], toApprove: [], toWitness: [], toIssue: [] };
-    if (can(ctx.user, 'tests.review')) out.toReview = all(`${TEST_SELECT} WHERE t.status = 'Submitted' AND t.analyst_id != ? ORDER BY t.submitted_at`, me);
-    if (can(ctx.user, 'tests.approve')) out.toApprove = all(`${TEST_SELECT} WHERE t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ? ORDER BY t.reviewed_at`, me, me);
+    const queue = (name, order) => {
+      const [sql, ...params] = TEST_QUEUES[name](me);
+      return all(`${TEST_SELECT} WHERE ${sql} ORDER BY ${order}`, ...params);
+    };
+    if (can(ctx.user, 'tests.review')) out.toReview = queue('review', 't.submitted_at');
+    if (can(ctx.user, 'tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
     if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) {
       out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
@@ -733,5 +740,5 @@ export default function routes(r) {
     const s = mustGet('SELECT id, code FROM samples WHERE id = ?', +ctx.params.id, 'Sample');
     audit(ctx, { action: 'PRINT', entity: 'samples', entity_id: s.id, entity_code: s.code, summary: 'Certificate of Analysis printed / exported' });
     return { ok: true };
-  });
+  }, { module: 'samples' });
 }

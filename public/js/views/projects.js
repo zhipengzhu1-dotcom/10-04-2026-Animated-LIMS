@@ -4,7 +4,7 @@ import { state, can, shipped, activeUsers } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
-  pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, fmtDate, money, emptyState, field, openForm, toast, progress, person, dueChip, plural, debounce,
+  pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, fmtDate, money, emptyState, field, openForm, toast, progress, person, dueChip, plural, debounce, moduleLink,
 } from '../core/ui.js';
 import { recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -80,10 +80,10 @@ export async function detail(ctx) {
       back: { href: '/projects', label: 'Projects' },
       title: p.title,
       badges: statusBadge(p.status),
-      meta: html`<span class="code">${p.code}</span><span>${icon('building', { size: 14 })}<a href="/clients/${p.client_id}">${p.client_name}</a></span><span>${p.type}</span>${p.po_number ? html`<span>PO ${p.po_number}</span>` : ''}<span>${icon('clock', { size: 14 })}${dueChip(p.due_date, { done: ['Completed', 'Cancelled'].includes(p.status) })}</span>`,
+      meta: html`<span class="code">${p.code}</span><span>${icon('building', { size: 14 })}${moduleLink('clients', `/clients/${p.client_id}`, p.client_name)}</span><span>${p.type}</span>${p.po_number ? html`<span>PO ${p.po_number}</span>` : ''}<span>${icon('clock', { size: 14 })}${dueChip(p.due_date, { done: ['Completed', 'Cancelled'].includes(p.status) })}</span>`,
       actions: html`
-        ${d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
-        ${d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
+        ${shipped('samples') && d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
+        ${shipped('invoices') && d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
         ${shipped('notebook') && can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
         ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
     })}
@@ -96,7 +96,7 @@ export async function detail(ctx) {
     </div>
     <div class="split">
       <div class="stack">
-        ${card({
+        ${shipped('samples') ? card({
           title: 'Samples',
           sub: plural(d.samples.length, 'sample'),
           flush: true,
@@ -104,7 +104,7 @@ export async function detail(ctx) {
             <td><a class="code" href="/samples/${s.id}">${s.code}</a></td><td class="title-cell">${s.description}<span class="sub-line">${s.batch_no || ''}</span></td>
             <td><span class="row nowrap">${progress(s.tests_approved, s.test_count)}<span class="muted small num">${s.tests_approved}/${s.test_count}</span></span></td>
             <td>${statusBadge(s.status)}</td><td>${dueChip(s.due_date, { done: ['Reported', 'Cancelled', 'Disposed'].includes(s.status) })}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'tube', title: 'No samples yet', action: d.can.receive ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">Receive samples</a>` : '' }),
-        })}
+        }) : ''}
         ${shipped('notebook') ? card({
           title: 'Notebook entries',
           flush: true,
@@ -114,13 +114,13 @@ export async function detail(ctx) {
       </div>
       <div class="stack">
         ${card({ title: 'Project details', body: kv([
-          ['Client', html`<a href="/clients/${p.client_id}">${p.client_name}</a>`], ['Type', p.type], ['Lead', person(p.lead_name, p.lead_id)], ['PO number', p.po_number],
+          ['Client', moduleLink('clients', `/clients/${p.client_id}`, p.client_name)], ['Type', p.type], ['Lead', person(p.lead_name, p.lead_id)], ['PO number', p.po_number],
           money_ && ['Budget', p.budget ? money(p.budget) : null], ['Start', fmtDate(p.start_date)], ['Due', fmtDate(p.due_date)], ['Scope', p.description],
         ]) })}
         ${card({ title: 'Tests by status', body: kv(['Pending', 'In Progress', 'Submitted', 'Reviewed', 'Approved', 'Cancelled'].filter((s) => byStatus[s]).map((s) => [statusBadge(s), html`<span class="num">${byStatus[s]}</span>`])) })}
         ${budgetPct != null && money_ ? card({ title: 'Budget', body: html`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span>${money(p.invoiced)} invoiced</span><span class="muted">${money(p.budget)}</span></div><span class="progress wide ${budgetPct > 90 ? '' : 'green'}"><span style="width:${Math.min(100, budgetPct)}%"></span></span>${budgetPct > 90 ? html`<p class="small warn-text" style="margin:8px 0 0">${budgetPct}% of the budget is invoiced — talk to the client about a change order.</p>` : ''}` }) : ''}
         ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
-        ${d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal)}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'Not invoiced yet' }) }) : ''}
+        ${shipped('invoices') && d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal)}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'Not invoiced yet' }) }) : ''}
       </div>
     </div>`);
   wireRecordFooter(ctx.el, 'projects', p.id, { locked: !d.can.edit });

@@ -248,8 +248,8 @@ export default function routes(r) {
       method,
       analytes: all('SELECT * FROM method_analytes WHERE method_id = ? ORDER BY sort_order, id', id),
       versions: all(`SELECT m.id, m.version, m.status, m.effective_date, m.created_at, u.full_name AS approved_by_name FROM methods m LEFT JOIN users u ON u.id = m.approved_by WHERE m.code = ? ORDER BY m.version DESC`, method.code),
-      qualified: all(`SELECT q.*, u.full_name, u.initials, u.role FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.method_code = ? AND q.revoked = 0 ORDER BY u.full_name`, method.code),
-      recentTests: all(`${TEST_SELECT} WHERE t.method_id = ? ORDER BY t.id DESC LIMIT 15`, id),
+      ...(isShipped('team') && { qualified: all(`SELECT q.*, u.full_name, u.initials, u.role FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.method_code = ? AND q.revoked = 0 ORDER BY u.full_name`, method.code) }),
+      ...(isShipped('samples') && { recentTests: all(`${TEST_SELECT} WHERE t.method_id = ? ORDER BY t.id DESC LIMIT 15`, id) }),
       ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.method_id = ? ORDER BY n.id DESC`, id) }),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'methods' AND entity_id = ? ORDER BY id`, id),
       stats,
@@ -261,9 +261,9 @@ export default function routes(r) {
         newVersion: can(ctx.user, 'methods.edit') && method.version === Math.max(...all('SELECT version FROM methods WHERE code = ?', method.code).map((x) => x.version)),
       },
     };
-  });
+  }, { module: 'methods' });
 
-  r.post('/api/methods', (ctx) => createMethod(ctx, ctx.body));
+  r.post('/api/methods', (ctx) => createMethod(ctx, ctx.body), { module: 'methods' });
 
   r.put('/api/methods/:id', (ctx) => {
     assertCan(ctx, 'methods.edit');
@@ -285,11 +285,11 @@ export default function routes(r) {
       update(ctx, 'methods', id, b, { summary: 'Method edited', extraChanges: extra, reason: ctx.body.reason || null });
     });
     return { ok: true };
-  });
+  }, { module: 'methods' });
 
-  r.post('/api/methods/:id/status', (ctx) => setMethodStatus(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/methods/:id/status', (ctx) => setMethodStatus(ctx, +ctx.params.id, ctx.body), { module: 'methods' });
 
-  r.post('/api/methods/:id/new-version', (ctx) => newMethodVersion(ctx, +ctx.params.id));
+  r.post('/api/methods/:id/new-version', (ctx) => newMethodVersion(ctx, +ctx.params.id), { module: 'methods' });
 
   // ----- Instruments -----
   r.get('/api/instruments', () => all(`
@@ -305,13 +305,13 @@ export default function routes(r) {
     return {
       instrument,
       logs: all('SELECT l.*, u.full_name FROM instrument_logs l LEFT JOIN users u ON u.id = l.user_id WHERE l.instrument_id = ? ORDER BY l.performed_at DESC, l.id DESC', id),
-      recentTests: all(`${TEST_SELECT} WHERE t.instrument_id = ? ORDER BY t.id DESC LIMIT 20`, id),
+      ...(isShipped('samples') && { recentTests: all(`${TEST_SELECT} WHERE t.instrument_id = ? ORDER BY t.id DESC LIMIT 20`, id) }),
       ...(isShipped('investigations') && { investigations: all('SELECT id, code, title, status FROM investigations WHERE instrument_id = ? ORDER BY id DESC', id) }),
       can: { edit: can(ctx.user, 'instruments.edit'), log: can(ctx.user, 'instruments.log') },
     };
-  });
+  }, { module: 'instruments' });
 
-  r.post('/api/instruments', (ctx) => createInstrument(ctx, ctx.body));
+  r.post('/api/instruments', (ctx) => createInstrument(ctx, ctx.body), { module: 'instruments' });
 
   r.put('/api/instruments/:id', (ctx) => {
     assertCan(ctx, 'instruments.edit');
@@ -319,9 +319,9 @@ export default function routes(r) {
     const b = clean(ctx.body, schema, { partial: true });
     update(ctx, 'instruments', +ctx.params.id, b, { summary: 'Instrument details edited', reason: ctx.body.reason || null });
     return { ok: true };
-  });
+  }, { module: 'instruments' });
 
-  r.post('/api/instruments/:id/logs', (ctx) => logInstrument(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/instruments/:id/logs', (ctx) => logInstrument(ctx, +ctx.params.id, ctx.body), { module: 'instruments' });
 
   // ----- Inventory -----
   r.get('/api/inventory', (ctx) => {
@@ -333,7 +333,7 @@ export default function routes(r) {
     if (q.q) { const t = likeTerm(q.q); where.push(`(code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' OR supplier LIKE ? ESCAPE '\\')`); params.push(t, t, t, t); }
     return all(`SELECT *, ${INVENTORY_FLAGS} FROM inventory ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY status != 'Active', expiry_date IS NULL, expiry_date, code`, ...flagParams(), ...params);
-  });
+  }, { module: 'inventory' });
 
   r.get('/api/inventory/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -342,12 +342,12 @@ export default function routes(r) {
     return {
       item,
       txns: all('SELECT x.*, u.full_name FROM inventory_txns x LEFT JOIN users u ON u.id = x.user_id WHERE x.inventory_id = ? ORDER BY x.at DESC, x.id DESC', id),
-      tests: all(`${TEST_SELECT} WHERE t.id IN (SELECT test_id FROM test_materials WHERE inventory_id = ?) ORDER BY t.id DESC LIMIT 50`, id),
+      ...(isShipped('samples') && { tests: all(`${TEST_SELECT} WHERE t.id IN (SELECT test_id FROM test_materials WHERE inventory_id = ?) ORDER BY t.id DESC LIMIT 50`, id) }),
       can: { edit: can(ctx.user, 'inventory.edit') || can(ctx.user, 'inventory.release'), stock: can(ctx.user, 'inventory.edit') },
     };
-  });
+  }, { module: 'inventory' });
 
-  r.post('/api/inventory', (ctx) => createInventory(ctx, ctx.body));
+  r.post('/api/inventory', (ctx) => createInventory(ctx, ctx.body), { module: 'inventory' });
 
   r.put('/api/inventory/:id', (ctx) => {
     if (!can(ctx.user, 'inventory.edit') && !can(ctx.user, 'inventory.release')) throw forbidden();
@@ -366,7 +366,7 @@ export default function routes(r) {
     if ((statusChange || expiryChange) && !reason) throw bad('Give a reason for changing the status or expiry', 'REASON_REQUIRED');
     update(ctx, 'inventory', id, b, { summary: 'Inventory item edited', reason: reason || null });
     return { ok: true };
-  });
+  }, { module: 'inventory' });
 
   r.post('/api/inventory/:id/adjust', (ctx) => {
     assertCan(ctx, 'inventory.edit');
@@ -385,5 +385,5 @@ export default function routes(r) {
       update(ctx, 'inventory', id, patch, { summary: `Stock ${b.delta > 0 ? 'added' : 'used'}: ${b.delta > 0 ? '+' : ''}${b.delta} ${item.unit || ''}`, reason: b.reason });
     });
     return { ok: true, balance };
-  });
+  }, { module: 'inventory' });
 }

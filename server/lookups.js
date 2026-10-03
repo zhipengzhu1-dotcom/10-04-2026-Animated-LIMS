@@ -1,5 +1,8 @@
 // Controlled vocabularies shared by the API and the UI (served at /api/lookups).
 
+import { isShipped } from './config.js';
+import { notFound } from './http.js';
+
 export const ROLES = {
   admin: { label: 'Administrator', description: 'User accounts and system settings. Does not sign lab data.' },
   manager: { label: 'Lab Manager', description: 'Runs the lab: assigns work, reviews and approves, billing.' },
@@ -88,20 +91,27 @@ export const ATTACHABLE = ['samples', 'tests', 'methods', 'notebook_entries', 'i
 
 // Who may see a record type's files/history (null = any signed-in user) and who may add files to it; a Withheld `module` hides both.
 export const RECORD_ACCESS = {
-  samples: { view: null, edit: ['samples.edit'] },
-  tests: { view: null, edit: ['tests.perform', 'tests.assign'] },
-  methods: { view: null, edit: ['methods.edit'] },
+  samples: { view: null, edit: ['samples.edit'], module: 'samples' },
+  tests: { view: null, edit: ['tests.perform', 'tests.assign'], module: 'samples' },
+  methods: { view: null, edit: ['methods.edit'], module: 'methods' },
   notebook_entries: { view: null, edit: ['notebook.write'], module: 'notebook' },
   investigations: { view: null, edit: ['investigations.raise', 'investigations.close'], module: 'investigations' },
-  instruments: { view: null, edit: ['instruments.log'] },
-  inventory: { view: null, edit: ['inventory.edit'] },
-  projects: { view: null, edit: ['projects.edit'] },
-  clients: { view: null, edit: ['clients.edit'] },
-  invoices: { view: ['billing.view'], edit: ['billing.edit'] },
+  instruments: { view: null, edit: ['instruments.log'], module: 'instruments' },
+  inventory: { view: null, edit: ['inventory.edit'], module: 'inventory' },
+  projects: { view: null, edit: ['projects.edit'], module: 'projects' },
+  clients: { view: null, edit: ['clients.edit'], module: 'clients' },
+  invoices: { view: ['billing.view'], edit: ['billing.edit'], module: 'invoices' },
   users: { view: ['audit.view', 'users.manage'], edit: [] },
   qualifications: { view: ['audit.view', 'qualifications.manage'], edit: [] },
   attachments: { view: null, edit: [] },
 };
+
+/** The access rule for a record type's files and history; a Withheld module's records answer like missing ones. */
+export function recordAccess(entity) {
+  const rule = RECORD_ACCESS[entity];
+  if (rule?.module && !isShipped(rule.module)) throw notFound();
+  return rule;
+}
 
 // Money fields hidden from history for people without billing access.
 export const MONEY_FIELDS = ['budget', 'price', 'unit_price', 'lines', 'tax_rate', 'invoice_id'];

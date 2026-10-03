@@ -111,11 +111,11 @@ export async function detail(ctx) {
             ${l.next_due ? html`<div class="muted small">Next due ${fmtDate(l.next_due)}</div>` : ''}
           </div></li>`)}</ol>` : emptyState({ icon: 'wrench', title: 'No log entries yet' }),
         })}
-        ${card({
+        ${shipped('samples') ? card({
           title: 'Recent tests on this instrument',
           flush: true,
           body: d.recentTests.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.recentTests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.sample_code}</span></td><td>${person(t.analyst_name, t.analyst_id, t.analyst_initials)}</td><td>${statusBadge(t.status)}</td><td class="muted small nowrap">${fmtDateTime(t.started_at)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'worklist', title: 'No tests recorded yet' }),
-        })}
+        }) : ''}
         ${recordFooter()}
       </div>
       <div class="stack">

@@ -1,5 +1,5 @@
 // Sign-in, first-run setup and forced password change (full-screen, outside the app shell).
-import { html } from '../core/html.js';
+import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
 import { icon, LOGO } from '../core/icons.js';
 import { field, formData, avatar } from '../core/ui.js';
@@ -100,11 +100,11 @@ export function renderSetup(root, onDone, { demoAllowed = true } = {}) {
           <h2>Welcome to Aliquot</h2>
           <p class="sub">Let's get your laboratory set up. This takes a minute.</p>
           <form novalidate>
-            <div class="setup-choice" ${demoAllowed ? '' : 'hidden'}>
-              <label><input type="radio" name="mode" value="demo" ${demoAllowed ? 'checked' : ''}><span><strong>Explore with demo data</strong><small>A fictional lab with 22 people, 5 clients and 5 months of samples, tests, investigations and invoices. Best for trying everything out.</small></span></label>
-              <label><input type="radio" name="mode" value="real" ${demoAllowed ? '' : 'checked'}><span><strong>Set up my laboratory</strong><small>Start empty and create the first administrator account.</small></span></label>
+            <div class="setup-choice" ${demoAllowed ? '' : raw('hidden')}>
+              <label><input type="radio" name="mode" value="demo" ${demoAllowed ? raw('checked') : ''}><span><strong>Explore with demo data</strong><small>A fictional lab with 22 people, 5 clients and 5 months of samples, tests, investigations and invoices. Best for trying everything out.</small></span></label>
+              <label><input type="radio" name="mode" value="real" ${demoAllowed ? '' : raw('checked')}><span><strong>Set up my laboratory</strong><small>Start empty and create the first administrator account.</small></span></label>
             </div>
-            <div class="real-fields" ${demoAllowed ? 'hidden' : ''}>
+            <div class="real-fields" ${demoAllowed ? raw('hidden') : ''}>
               <div style="display:grid;gap:14px">
                 ${field({ label: 'Laboratory name', name: 'lab_name', placeholder: 'e.g. Northside Analytical Ltd.' })}
                 ${field({ label: 'Your full name', name: 'full_name' })}

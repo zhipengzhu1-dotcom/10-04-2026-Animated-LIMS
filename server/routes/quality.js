@@ -8,9 +8,9 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad, forbidden, notFound } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
-import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, RECORD_ACCESS } from '../lookups.js';
+import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, recordAccess } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
-import { DATA_DIR, MAX_UPLOAD_BYTES, isShipped } from '../config.js';
+import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -131,19 +131,25 @@ export function updateInvestigation(ctx, id, body) {
   return { ok: true };
 }
 
+/**
+ * Closes an investigation with an e-signature, from the Investigations screen or the Test page. A root cause and
+ * conclusion given here are recorded with the closure; otherwise the ones already recorded must be filled in.
+ */
 export function closeInvestigation(ctx, id, body) {
   assertCan(ctx, 'investigations.close');
   const v = mustGet('SELECT * FROM investigations WHERE id = ?', id, 'Investigation');
   if (v.status === 'Closed') throw bad('Already closed');
-  if (!v.root_cause?.trim()) throw bad('Record the root cause before closing');
-  if (!v.conclusion?.trim()) throw bad('Record a conclusion before closing');
   if (v.test_id && get('SELECT analyst_id FROM tests WHERE id = ?', v.test_id)?.analyst_id === ctx.user.id) {
     throw forbidden('You performed the test under investigation — someone independent must close it');
   }
+  const given = clean(body, { root_cause: { type: 'text' }, conclusion: { type: 'text' } }, { partial: true });
+  const findings = Object.fromEntries(Object.entries(given).filter(([, text]) => text));
+  if (!(findings.root_cause ?? v.root_cause)?.trim()) throw bad('Record the root cause before closing');
+  if (!(findings.conclusion ?? v.conclusion)?.trim()) throw bad('Record a conclusion before closing');
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'investigations', id, 'Closed', { comment: body.comment || null, code: v.code });
-    update(ctx, 'investigations', id, { status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed' });
+    update(ctx, 'investigations', id, { ...findings, status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed' });
+    applySignature(ctx, 'investigations', id, v.type === 'OOS' ? 'OOS investigation closed' : 'Closed', { comment: body.comment || null, code: v.code });
   });
   return { ok: true };
 }
@@ -156,8 +162,7 @@ const canAny = (user, perms) => perms === null || perms.some((p) => can(user, p)
 
 function assertAttachmentAccess(ctx, entity, id, mode) {
   if (!ATTACHABLE.includes(entity)) throw bad('Unknown record type');
-  const rule = RECORD_ACCESS[entity];
-  if (rule.module && !isShipped(rule.module)) throw notFound();
+  const rule = recordAccess(entity);
   if (!canAny(ctx.user, rule.view)) throw forbidden();
   if (mode === 'edit') {
     if (!canAny(ctx.user, rule.edit)) throw forbidden('You cannot add or remove files on this record');

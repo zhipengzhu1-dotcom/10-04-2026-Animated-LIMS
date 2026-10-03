@@ -151,10 +151,11 @@ async function serveStatic(req, res, url) {
 const server = http.createServer((req, res) => {
   securityHeaders(res);
   const url = new URL(req.url, 'http://localhost');
+  const dav = url.pathname === '/dav' || url.pathname.startsWith('/dav/');
   if (url.pathname.startsWith('/api/')) handleApi(req, res, url);
   // Desktop Word/Excel open and save notebook documents over WebDAV (see server/routes/documents.js).
-  else if (url.pathname.startsWith('/dav/') && !isShipped('notebook')) res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
-  else if (url.pathname.startsWith('/dav/') || req.method === 'OPTIONS') handleDav(req, res, url);
+  else if (dav && !isShipped('notebook')) res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+  else if (dav || req.method === 'OPTIONS') handleDav(req, res, url);
   else serveStatic(req, res, url).catch((e) => {
     console.error(e);
     if (!res.headersSent) res.writeHead(500).end();

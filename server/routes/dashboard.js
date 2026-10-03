@@ -134,5 +134,5 @@ export default function routes(r) {
         WHERE u.active = 1 AND u.role IN ('analyst','scientist') GROUP BY u.id ORDER BY approved DESC`, new Date(`${addDays(today(), -90)}T00:00:00`).toISOString()),
       generatedAt: localDate(now()),
     };
-  }, { perm: 'insights.view' });
+  }, { perm: 'insights.view', module: 'insights' });
 }

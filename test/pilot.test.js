@@ -17,12 +17,11 @@ const PASSWORD = 'demo1234';
 const PILOT_MODULES = ['samples', 'methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings'];
 const MODULES_ALL = 'dashboard,samples,worklist,reviews,notebook,methods,instruments,inventory,investigations,audit,clients,projects,invoices,portal,insights,team,settings';
 let server;
-let dataDir;
 
 class Client {
-  constructor() { this.cookie = ''; }
+  constructor(base = BASE) { this.base = base; this.cookie = ''; }
   async req(method, url, body) {
-    const res = await fetch(BASE + url, {
+    const res = await fetch(this.base + url, {
       method,
       headers: { 'X-Requested-With': 'aliquot', ...(body ? { 'Content-Type': 'application/json' } : {}), ...(this.cookie ? { Cookie: this.cookie } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -42,32 +41,49 @@ class Client {
   }
 }
 
-async function as(username) {
-  const c = new Client();
+async function as(username, base = BASE) {
+  const c = new Client(base);
   await c.ok('POST', '/api/auth/login', { username, password: PASSWORD });
   return c;
 }
 
-before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-pilot-test-'));
-  server = spawn(process.execPath, ['server.js'], {
+/** Starts a server with the demo lab and the given Shipped modules on `port`. */
+async function startServer(port, modules) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-pilot-test-'));
+  const proc = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, SHIPPED_MODULES: PILOT_MODULES.join(',') },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ALIQUOT_DATA: dir, SHIPPED_MODULES: modules.join(',') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
-  server.stderr.on('data', (d) => { log += d; });
+  proc.stderr.on('data', (d) => { log += d; });
+  const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 50; i++) {
-    try { if ((await fetch(`${BASE}/api/setup`)).ok) break; } catch { /* not up yet */ }
+    try { if ((await fetch(`${base}/api/setup`)).ok) break; } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
-  const setup = await new Client().post('/api/setup', { mode: 'demo' });
+  const setup = await new Client(base).post('/api/setup', { mode: 'demo' });
   assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${log}`);
+  return { base, proc, dir };
+}
+
+const stopServer = ({ proc, dir }) => {
+  proc.kill();
+  fs.rmSync(dir, { recursive: true, force: true });
+};
+
+/** Runs `fn(base)` against a second server that ships only `modules`. */
+async function withModules(modules, fn) {
+  const s = await startServer(PORT + 200 + Math.floor(Math.random() * 90), modules);
+  try { await fn(s.base); } finally { stopServer(s); }
+}
+
+before(async () => {
+  server = await startServer(PORT, PILOT_MODULES);
 });
 
 after(() => {
-  server?.kill();
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  if (server) stopServer(server);
 });
 
 test('the current-user response lists exactly the Shipped modules', async () => {
@@ -366,4 +382,144 @@ test('attachments on Shipped records still work with the Lab notebook withheld; 
   });
   assert.equal(upload.status, 404, 'nothing can be attached to a notebook entry');
   assert.equal((await tom.get('/api/history/notebook_entries/1')).status, 404, 'notebook entry history is not served');
+});
+
+// Review fixes
+// The APIs that belong to a single module. No route uses DELETE, so DELETE on the same address shows what a missing route answers.
+const MODULE_APIS = {
+  methods: [['GET', '/api/methods/1'], ['POST', '/api/methods'], ['PUT', '/api/methods/1'], ['POST', '/api/methods/1/status'], ['POST', '/api/methods/1/new-version']],
+  instruments: [['GET', '/api/instruments/1'], ['POST', '/api/instruments'], ['PUT', '/api/instruments/1'], ['POST', '/api/instruments/1/logs']],
+  inventory: [['GET', '/api/inventory'], ['GET', '/api/inventory/1'], ['POST', '/api/inventory'], ['PUT', '/api/inventory/1'], ['POST', '/api/inventory/1/adjust']],
+  clients: [['GET', '/api/clients/1'], ['POST', '/api/clients'], ['PUT', '/api/clients/1']],
+  projects: [['GET', '/api/projects/1'], ['POST', '/api/projects'], ['PUT', '/api/projects/1']],
+  invoices: [['GET', '/api/invoices'], ['GET', '/api/invoices/unbilled'], ['GET', '/api/invoices/1'], ['POST', '/api/invoices'], ['PUT', '/api/invoices/1'], ['POST', '/api/invoices/1/add-unbilled'], ['POST', '/api/invoices/1/issue'], ['POST', '/api/invoices/1/paid'], ['POST', '/api/invoices/1/void']],
+  portal: [['GET', '/api/portal-admin/summary'], ['GET', '/api/portal-admin/threads'], ['GET', '/api/portal-admin/submissions/1'], ['POST', '/api/portal-admin/accounts'], ['GET', '/api/portal/info'], ['POST', '/api/portal/login'], ['GET', '/api/portal/me'], ['GET', '/api/portal/samples']],
+  insights: [['GET', '/api/insights']],
+  team: [['GET', '/api/users'], ['GET', '/api/users/1'], ['POST', '/api/users'], ['PUT', '/api/users/1'], ['POST', '/api/users/1/reset-password'], ['POST', '/api/qualifications'], ['POST', '/api/qualifications/1/revoke']],
+  settings: [['PUT', '/api/settings']],
+  samples: [['GET', '/api/samples'], ['POST', '/api/samples/receive'], ['GET', '/api/samples/labels?ids=1'], ['GET', '/api/samples/1'], ['PUT', '/api/samples/1'], ['POST', '/api/samples/1/custody'], ['POST', '/api/samples/1/tests'], ['POST', '/api/samples/1/cancel'], ['POST', '/api/samples/1/report'], ['GET', '/api/samples/1/coa'], ['POST', '/api/samples/1/coa-printed']],
+};
+
+async function assertWithheld(base, modules) {
+  for (const [who, c] of [['Administrator', await as('admin', base)], ['anonymous', new Client(base)]]) {
+    for (const module of modules) {
+      for (const [method, url] of MODULE_APIS[module]) {
+        const r = await c.req(method, url, method === 'GET' ? undefined : {});
+        const missing = await c.req('DELETE', url);
+        assert.ok([404, 405].includes(r.status), `${who} ${method} ${url} (${module}) → ${r.status}`);
+        assert.deepEqual([r.status, r.data], [missing.status, missing.data], `${who} ${method} ${url} (${module}) looks like a missing route`);
+      }
+    }
+  }
+}
+
+test('the Test page shows who signed an OOS investigation’s closure while Investigations is withheld', async () => {
+  const daniel = await as('daniel.okafor');
+  const { testId } = await pilotOosTest('tom.fletcher');
+  const [open] = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(open.signatures, [], 'an open investigation carries no closure signature');
+  await daniel.ok('POST', `/api/tests/${testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid', password: PASSWORD });
+  const [closed] = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(closed.signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'OOS investigation closed']]);
+  assert.ok(closed.signatures[0].signed_at, 'with the time it was signed');
+});
+
+test('WebDAV option probes on the document folder find nothing with the Lab notebook withheld', async () => {
+  for (const url of ['/dav', '/dav/', '/dav/any-token/', '/dav/any-token']) {
+    const r = await fetch(`${BASE}${url}`, { method: 'OPTIONS' });
+    assert.equal(r.status, 404, `OPTIONS ${url}`);
+    assert.equal(r.headers.get('dav'), null, `OPTIONS ${url} does not advertise WebDAV`);
+  }
+});
+
+// Each detail page's own module, and the lists it embeds from other modules.
+const EMBEDDED = {
+  client: ['clients', { projects: 'projects', samples: 'samples', methods: 'methods', invoices: 'invoices' }],
+  project: ['projects', { samples: 'samples', invoices: 'invoices' }],
+  method: ['methods', { recentTests: 'samples', qualified: 'team' }],
+  instrument: ['instruments', { recentTests: 'samples' }],
+  item: ['inventory', { tests: 'samples' }],
+  user: ['team', { openTests: 'samples' }],
+};
+
+async function detailKeys(c) {
+  const first = async (list) => (await c.get(list)).data[0];
+  const keys = {};
+  const client = await first('/api/clients');
+  if (client) keys.client = (await c.get(`/api/clients/${client.id}`)).data;
+  const project = await first('/api/projects?status=all');
+  if (project) keys.project = (await c.get(`/api/projects/${project.id}`)).data;
+  const method = await first('/api/methods');
+  if (method) keys.method = (await c.get(`/api/methods/${method.id}`)).data;
+  const instrument = await first('/api/instruments');
+  if (instrument) keys.instrument = (await c.get(`/api/instruments/${instrument.id}`)).data;
+  keys.item = (await c.get('/api/inventory/1')).data;
+  keys.user = (await c.get('/api/users/2')).data;
+  return keys;
+}
+
+test('detail pages embed lists from other modules only while those modules ship', async () => {
+  const shippedEverywhere = await detailKeys(await as('oliver.grant'));
+  for (const [page, [, lists]] of Object.entries(EMBEDDED)) {
+    for (const key of Object.keys(lists)) assert.ok(key in shippedEverywhere[page], `${page} detail has ${key} while its module ships`);
+  }
+  for (const modules of [['clients', 'instruments', 'inventory', 'team'], ['projects', 'methods']]) {
+    await withModules(modules, async (base) => {
+      const details = await detailKeys(await as('oliver.grant', base));
+      for (const [page, [own, lists]] of Object.entries(EMBEDDED)) {
+        if (!modules.includes(own)) continue;
+        for (const [key, module] of Object.entries(lists)) {
+          assert.equal(key in details[page], modules.includes(module), `${page} detail ${modules.includes(module) ? 'has' : 'omits'} ${key} with ${module} ${modules.includes(module) ? 'shipped' : 'withheld'}`);
+        }
+      }
+    });
+  }
+});
+
+test('the Client portal inbox cannot create samples or projects while those modules are withheld', async () => {
+  await withModules(['portal'], async (base) => {
+    const priya = await as('priya.raman', base);
+    await priya.ok('GET', '/api/portal-admin/summary');
+    const [submission] = await priya.ok('GET', '/api/portal-admin/submissions?status=all');
+    const [request] = await priya.ok('GET', '/api/portal-admin/requests?status=all');
+    assert.equal((await priya.post(`/api/portal-admin/submissions/${submission.id}/receive`, {})).status, 404, 'no receiving into Samples');
+    assert.equal((await priya.post(`/api/portal-admin/requests/${request.id}/project`, {})).status, 404, 'no opening a Project');
+  });
+});
+
+// Searches broadly enough to hit every result type, and returns the types that came back.
+async function searchTypes(c) {
+  const types = new Set();
+  for (const q of ['ATM', 'S-', 'T-', 'P-', 'INV', 'KF', 'HPLC', 'Pharma', 'an', 'er']) {
+    for (const x of (await c.ok('GET', `/api/search?q=${encodeURIComponent(q)}`)).results) types.add(x.type);
+  }
+  return types;
+}
+
+test('with only Samples shipped, every other module’s APIs answer like missing routes while the shared core still answers', async () => {
+  await withModules(['samples'], async (base) => {
+    await assertWithheld(base, ['methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings']);
+    const admin = await as('admin', base);
+    for (const url of ['/api/clients', '/api/projects', '/api/methods?usable=1', '/api/instruments', '/api/qualifications', '/api/lookups', '/api/settings', '/api/tests', '/api/samples']) await admin.ok('GET', url);
+    const nav = await admin.ok('GET', '/api/nav');
+    assert.ok(!('portal' in nav), 'no Client portal badge count');
+    for (const entity of ['clients', 'projects', 'methods', 'instruments', 'inventory', 'invoices']) {
+      assert.equal((await admin.get(`/api/history/${entity}/1`)).status, 404, `no ${entity} history`);
+      assert.equal((await admin.get(`/api/attachments?entity=${entity}&id=1`)).status, 404, `no ${entity} files`);
+    }
+    await admin.ok('GET', '/api/history/samples/1');
+    await admin.ok('GET', '/api/attachments?entity=tests&id=1');
+    assert.deepEqual([...await searchTypes(admin)].sort(), ['Sample', 'Test'], 'search returns only Samples and Tests');
+  });
+});
+
+test('with Samples withheld, the Samples APIs answer like missing routes while the Test page endpoints stay', async () => {
+  await withModules(['projects', 'methods'], async (base) => {
+    await assertWithheld(base, ['samples', 'clients', 'invoices', 'team']);
+    const admin = await as('admin', base);
+    const [t] = await admin.ok('GET', '/api/tests?limit=1');
+    await admin.ok('GET', `/api/tests/${t.id}`);
+    assert.deepEqual([...await searchTypes(admin)].sort(), ['Method', 'Project'], 'search returns only Projects and Methods');
+    assert.equal((await admin.ok('GET', `/api/search?q=${t.code}`)).exact, null, 'a Test code scan opens nothing');
+  });
 });

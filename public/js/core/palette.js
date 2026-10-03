@@ -6,21 +6,33 @@ import { openModal, debounce } from './ui.js';
 import { can, shipped } from './state.js';
 import { navigate } from './nav.js';
 
-// [label, href, icon, module (null: always offered), permission]
+// `module` null: always offered; `perm`: also needs that permission.
 const PAGES = [
-  ['Dashboard', '/', 'dashboard', 'dashboard'], ['Samples', '/samples', 'tube', 'samples'], ['Worklist', '/worklist', 'worklist', 'worklist'], ['My tests', '/worklist?view=mine', 'worklist', 'worklist'],
-  ['Reviews & approvals', '/reviews', 'review', 'reviews'], ['Lab notebook', '/notebook', 'book', 'notebook'], ['Methods', '/methods', 'method', 'methods'],
-  ['Instruments', '/instruments', 'instrument', 'instruments'], ['Standards & reagents', '/inventory', 'package', 'inventory'], ['Investigations', '/investigations', 'alert', 'investigations'],
-  ['Clients', '/clients', 'building', 'clients'], ['Projects', '/projects', 'folder', 'projects'], ['Team & training', '/team', 'users', 'team'], ['Training matrix', '/team/training', 'training', 'team'],
-  ['My account', '/account', 'user', null],
-  ['Invoices', '/invoices', 'receipt', 'invoices', 'billing.view'], ['Insights', '/insights', 'chart', 'insights', 'insights.view'],
-  ['Audit trail', '/audit', 'shield', 'audit', 'audit.view'], ['Settings', '/settings', 'settings', 'settings', 'settings.edit'],
+  { label: 'Dashboard', href: '/', icon: 'dashboard', module: 'dashboard' },
+  { label: 'Samples', href: '/samples', icon: 'tube', module: 'samples' },
+  { label: 'Worklist', href: '/worklist', icon: 'worklist', module: 'worklist' },
+  { label: 'My tests', href: '/worklist?view=mine', icon: 'worklist', module: 'worklist' },
+  { label: 'Reviews & approvals', href: '/reviews', icon: 'review', module: 'reviews' },
+  { label: 'Lab notebook', href: '/notebook', icon: 'book', module: 'notebook' },
+  { label: 'Methods', href: '/methods', icon: 'method', module: 'methods' },
+  { label: 'Instruments', href: '/instruments', icon: 'instrument', module: 'instruments' },
+  { label: 'Standards & reagents', href: '/inventory', icon: 'package', module: 'inventory' },
+  { label: 'Investigations', href: '/investigations', icon: 'alert', module: 'investigations' },
+  { label: 'Clients', href: '/clients', icon: 'building', module: 'clients' },
+  { label: 'Projects', href: '/projects', icon: 'folder', module: 'projects' },
+  { label: 'Team & training', href: '/team', icon: 'users', module: 'team' },
+  { label: 'Training matrix', href: '/team/training', icon: 'training', module: 'team' },
+  { label: 'My account', href: '/account', icon: 'user', module: null },
+  { label: 'Invoices', href: '/invoices', icon: 'receipt', module: 'invoices', perm: 'billing.view' },
+  { label: 'Insights', href: '/insights', icon: 'chart', module: 'insights', perm: 'insights.view' },
+  { label: 'Audit trail', href: '/audit', icon: 'shield', module: 'audit', perm: 'audit.view' },
+  { label: 'Settings', href: '/settings', icon: 'settings', module: 'settings', perm: 'settings.edit' },
 ];
 
 const TYPE_ICON = { Sample: 'tube', Test: 'worklist', Project: 'folder', Client: 'building', Method: 'method', Instrument: 'instrument', Inventory: 'package', Notebook: 'book', Investigation: 'alert', Invoice: 'receipt' };
 
 export function openPalette({ newItems, runNewAction }) {
-  const pages = PAGES.filter(([, , , module, perm]) => (!module || shipped(module)) && (!perm || can(perm)));
+  const pages = PAGES.filter((p) => (!p.module || shipped(p.module)) && (!p.perm || can(p.perm)));
   const m = openModal({
     title: 'Search',
     cls: 'palette',
@@ -53,7 +65,7 @@ export function openPalette({ newItems, runNewAction }) {
   const baseGroups = (q) => {
     const ql = q.toLowerCase();
     const create = newItems.filter((n) => !q || n.label.toLowerCase().includes(ql)).map((n) => ({ title: `New ${n.label.toLowerCase()}`, icon: 'plus', href: n.href, action: n.action }));
-    const nav = pages.filter(([label]) => !q || label.toLowerCase().includes(ql)).map(([title, href, ic]) => ({ title, href, icon: ic, meta: 'Go to' }));
+    const nav = pages.filter((p) => !q || p.label.toLowerCase().includes(ql)).map((p) => ({ title: p.label, href: p.href, icon: p.icon, meta: 'Go to' }));
     return { create, nav };
   };
 

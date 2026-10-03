@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { can } from '../core/state.js';
+import { can, shipped } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/nav.js';
 import {
@@ -64,8 +64,8 @@ export async function detail(ctx) {
       badges: c.active ? '' : badge('Inactive', 'gray'),
       meta: html`<span class="code">${c.code}</span>${c.contact_name ? html`<span>${icon('user', { size: 14 })}${c.contact_name}</span>` : ''}${c.contact_email ? html`<span><a href="mailto:${c.contact_email}">${c.contact_email}</a></span>` : ''}${c.phone ? html`<span>${c.phone}</span>` : ''}`,
       actions: html`
-        ${can('samples.receive') ? html`<a class="btn primary" href="/samples/receive?client=${c.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
-        ${can('projects.edit') ? html`<button class="btn" data-act="project">${icon('folder', { size: 15 })}New project</button>` : ''}
+        ${shipped('samples') && can('samples.receive') ? html`<a class="btn primary" href="/samples/receive?client=${c.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
+        ${shipped('projects') && can('projects.edit') ? html`<button class="btn" data-act="project">${icon('folder', { size: 15 })}New project</button>` : ''}
         ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
     })}
     ${d.money ? html`<div class="kpis">
@@ -76,7 +76,7 @@ export async function detail(ctx) {
     </div>` : ''}
     <div class="split">
       <div class="stack">
-        ${card({
+        ${shipped('projects') ? card({
           title: 'Projects',
           flush: true,
           body: d.projects.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>Project</th><th>Type</th><th>Progress</th><th>Due</th><th>Status</th></tr></thead><tbody>${d.projects.map((p) => html`<tr class="link" data-href="/projects/${p.id}">
@@ -84,19 +84,19 @@ export async function detail(ctx) {
             <td class="muted">${p.type}</td>
             <td><span class="row nowrap">${progress(p.tests_done, p.test_count)}<span class="muted small num">${p.tests_done}/${p.test_count}</span></span></td>
             <td class="nowrap">${fmtDate(p.due_date)}</td><td>${statusBadge(p.status)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'folder', title: 'No projects yet' }),
-        })}
-        ${card({
+        }) : ''}
+        ${shipped('samples') ? card({
           title: 'Recent samples',
           flush: true,
           actions: html`<a class="btn sm ghost" href="/samples?client=${c.id}&status=all">All samples</a>`,
           body: d.samples.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.samples.map((s) => html`<tr class="link" data-href="/samples/${s.id}"><td><a class="code" href="/samples/${s.id}">${s.code}</a></td><td>${s.description}<span class="sub-line">${s.batch_no || ''}</span></td><td>${statusBadge(s.status)}</td><td class="muted nowrap">${fmtDate(s.received_at)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'tube', title: 'No samples yet' }),
-        })}
+        }) : ''}
         ${recordFooter()}
       </div>
       <div class="stack">
         ${card({ title: 'Client details', body: kv([['Code', c.code], ['Contact', c.contact_name], ['Email', c.contact_email], ['Phone', c.phone], ['Address', c.address], ['Payment terms', `${c.payment_terms_days} days`], ['Notes', c.notes]]) })}
-        ${d.methods.length ? card({ title: 'Client-specific methods', flush: true, body: html`<ul class="list">${d.methods.map((m) => html`<li class="link" data-href="/methods/${m.id}"><div class="grow"><div class="title">${m.title}</div><div class="meta">${m.code} v${m.version}</div></div>${statusBadge(m.status)}</li>`)}</ul>` }) : ''}
-        ${d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.slice(0, 8).map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal * (1 + i.tax_rate / 100))}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'No invoices yet' }) }) : ''}
+        ${shipped('methods') && d.methods.length ? card({ title: 'Client-specific methods', flush: true, body: html`<ul class="list">${d.methods.map((m) => html`<li class="link" data-href="/methods/${m.id}"><div class="grow"><div class="title">${m.title}</div><div class="meta">${m.code} v${m.version}</div></div>${statusBadge(m.status)}</li>`)}</ul>` }) : ''}
+        ${shipped('invoices') && d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.slice(0, 8).map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal * (1 + i.tax_rate / 100))}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'No invoices yet' }) }) : ''}
       </div>
     </div>`);
   wireRecordFooter(ctx.el, 'clients', c.id, { locked: !d.can.edit });

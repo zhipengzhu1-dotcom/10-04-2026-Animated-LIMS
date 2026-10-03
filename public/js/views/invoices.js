@@ -5,7 +5,7 @@ import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, fmtDate, money, emptyState, field, openForm, toast, busy, confirmDialog,
-  promptReason, showError, plural, debounce, todayIso, relTime,
+  promptReason, showError, plural, debounce, todayIso, relTime, moduleLink,
 } from '../core/ui.js';
 import { recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -60,7 +60,7 @@ export async function list(ctx) {
       sub: 'Grouped by project. Creating an invoice pulls in every approved test automatically.',
       flush: true,
       body: unbilled.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>Project</th><th>Client</th><th class="right">Tests</th><th>Oldest approval</th><th class="right">Value</th><th></th></tr></thead><tbody>${unbilled.map((u) => html`<tr>
-        <td class="title-cell"><a href="/projects/${u.id}"><strong>${u.title}</strong></a><span class="sub-line">${u.code}${u.po_number ? ` · PO ${u.po_number}` : ''}</span></td>
+        <td class="title-cell">${moduleLink('projects', `/projects/${u.id}`, html`<strong>${u.title}</strong>`)}<span class="sub-line">${u.code}${u.po_number ? ` · PO ${u.po_number}` : ''}</span></td>
         <td>${u.client_name}</td><td class="right num">${u.tests}</td><td class="muted">${relTime(u.oldest)}</td><td class="right num"><strong>${money(u.value)}</strong></td>
         <td class="right">${can('billing.edit') ? html`<button class="btn sm primary" data-bill="${u.id}">${icon('receipt', { size: 13 })}Create invoice</button>` : ''}</td>
       </tr>`)}</tbody></table></div>` : emptyState({ icon: 'check', title: 'Everything approved has been invoiced' }),
@@ -117,7 +117,7 @@ export async function detail(ctx) {
       back: { href: '/invoices', label: 'Invoices' },
       title: html`<span class="mono">${inv.code}</span>`,
       badges: statusBadge(displayStatus(inv)),
-      meta: html`<span>${icon('building', { size: 14 })}<a href="/clients/${inv.client_id}">${inv.client_name}</a></span>${inv.project_id ? html`<span>${icon('folder', { size: 14 })}<a href="/projects/${inv.project_id}">${inv.project_code}</a></span>` : ''}${inv.po_number ? html`<span>PO ${inv.po_number}</span>` : ''}${inv.issued_date ? html`<span>Issued ${fmtDate(inv.issued_date)} · due ${fmtDate(inv.due_date)}</span>` : ''}`,
+      meta: html`<span>${icon('building', { size: 14 })}${moduleLink('clients', `/clients/${inv.client_id}`, inv.client_name)}</span>${inv.project_id ? html`<span>${icon('folder', { size: 14 })}${moduleLink('projects', `/projects/${inv.project_id}`, inv.project_code)}</span>` : ''}${inv.po_number ? html`<span>PO ${inv.po_number}</span>` : ''}${inv.issued_date ? html`<span>Issued ${fmtDate(inv.issued_date)} · due ${fmtDate(inv.due_date)}</span>` : ''}`,
       actions: html`
         <a class="btn" href="/print/invoice/${inv.id}" target="_blank">${icon('printer', { size: 15 })}Print / PDF</a>
         ${editable && d.unbilledAvailable ? html`<button class="btn" data-act="pull">${icon('plus', { size: 15 })}Add ${plural(d.unbilledAvailable, 'completed test')}</button>` : ''}
@@ -139,7 +139,7 @@ export async function detail(ctx) {
           title: 'Tests on this invoice',
           sub: plural(d.tests.length, 'approved test'),
           flush: true,
-          body: html`<details><summary class="card-body" style="cursor:pointer">Show tests</summary><div class="table-wrap"><table class="table compact"><tbody>${d.tests.map((t) => html`<tr><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}</td><td><a href="/samples/${t.sample_id}" class="code">${t.sample_code}</a></td><td class="muted">${t.sample_description}</td><td class="right num">${money(t.price)}</td></tr>`)}</tbody></table></div></details>`,
+          body: html`<details><summary class="card-body" style="cursor:pointer">Show tests</summary><div class="table-wrap"><table class="table compact"><tbody>${d.tests.map((t) => html`<tr><td>${moduleLink('samples', `/tests/${t.id}`, t.code, 'code')}</td><td>${t.method_code}</td><td>${moduleLink('samples', `/samples/${t.sample_id}`, t.sample_code, 'code')}</td><td class="muted">${t.sample_description}</td><td class="right num">${money(t.price)}</td></tr>`)}</tbody></table></div></details>`,
         }) : ''}
         ${recordFooter()}
       </div>
@@ -147,7 +147,7 @@ export async function detail(ctx) {
         ${card({ title: 'Bill to', body: html`<strong>${inv.client_name}</strong>${inv.contact_name ? html`<div>Attn: ${inv.contact_name}</div>` : ''}<div class="muted" style="white-space:pre-line">${inv.client_address || ''}</div>${inv.contact_email ? html`<div><a href="mailto:${inv.contact_email}">${inv.contact_email}</a></div>` : ''}` })}
         ${card({ title: 'Details', body: kv([
           ['Status', statusBadge(displayStatus(inv))], ['Created', `${fmtDate(inv.created_at)} by ${inv.created_by_name || '—'}`], ['Issued', fmtDate(inv.issued_date)], ['Due', fmtDate(inv.due_date)],
-          ['Paid', inv.paid_date ? fmtDate(inv.paid_date) : null], ['Project', inv.project_id ? html`<a href="/projects/${inv.project_id}">${inv.project_code}</a>` : null], ['Notes', inv.notes],
+          ['Paid', inv.paid_date ? fmtDate(inv.paid_date) : null], ['Project', inv.project_id ? moduleLink('projects', `/projects/${inv.project_id}`, inv.project_code) : null], ['Notes', inv.notes],
         ]) })}
       </div>
     </div>`);
