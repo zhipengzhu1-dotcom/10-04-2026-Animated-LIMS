@@ -127,3 +127,15 @@ test('an unknown module key stops start-up with a message naming it', async () =
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+// #8
+test('the Withheld Dashboard API answers like a route that does not exist, while Insights still works', async () => {
+  const nowhere = await new Client().get('/api/no-such-route');
+  for (const [who, c] of [['Analyst', await as('tom.fletcher')], ['anonymous', new Client()]]) {
+    const r = await c.get('/api/dashboard');
+    assert.equal(r.status, 404, `${who} GET /api/dashboard`);
+    assert.deepEqual(r.data, nowhere.data, `${who} GET /api/dashboard looks like a missing route`);
+  }
+  const insights = await (await as('oliver.grant')).ok('GET', '/api/insights');
+  assert.equal(insights.months.length, 12);
+  assert.ok(Array.isArray(insights.revenueByMonth), 'Business & Finance see revenue figures');
+});
