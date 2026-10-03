@@ -3,23 +3,24 @@ import { html } from './html.js';
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { openModal, debounce } from './ui.js';
-import { can } from './state.js';
+import { can, shipped } from './state.js';
 import { navigate } from './nav.js';
 
+// [label, href, icon, module (null: always offered), permission]
 const PAGES = [
-  ['Dashboard', '/', 'dashboard'], ['Samples', '/samples', 'tube'], ['Worklist', '/worklist', 'worklist'], ['My tests', '/worklist?view=mine', 'worklist'],
-  ['Reviews & approvals', '/reviews', 'review'], ['Lab notebook', '/notebook', 'book'], ['Methods', '/methods', 'method'],
-  ['Instruments', '/instruments', 'instrument'], ['Standards & reagents', '/inventory', 'package'], ['Investigations', '/investigations', 'alert'],
-  ['Clients', '/clients', 'building'], ['Projects', '/projects', 'folder'], ['Team & training', '/team', 'users'], ['Training matrix', '/team/training', 'training'],
-  ['My account', '/account', 'user'],
+  ['Dashboard', '/', 'dashboard', 'dashboard'], ['Samples', '/samples', 'tube', 'samples'], ['Worklist', '/worklist', 'worklist', 'worklist'], ['My tests', '/worklist?view=mine', 'worklist', 'worklist'],
+  ['Reviews & approvals', '/reviews', 'review', 'reviews'], ['Lab notebook', '/notebook', 'book', 'notebook'], ['Methods', '/methods', 'method', 'methods'],
+  ['Instruments', '/instruments', 'instrument', 'instruments'], ['Standards & reagents', '/inventory', 'package', 'inventory'], ['Investigations', '/investigations', 'alert', 'investigations'],
+  ['Clients', '/clients', 'building', 'clients'], ['Projects', '/projects', 'folder', 'projects'], ['Team & training', '/team', 'users', 'team'], ['Training matrix', '/team/training', 'training', 'team'],
+  ['My account', '/account', 'user', null],
+  ['Invoices', '/invoices', 'receipt', 'invoices', 'billing.view'], ['Insights', '/insights', 'chart', 'insights', 'insights.view'],
+  ['Audit trail', '/audit', 'shield', 'audit', 'audit.view'], ['Settings', '/settings', 'settings', 'settings', 'settings.edit'],
 ];
-const GATED = { '/invoices': 'billing.view', '/insights': 'insights.view', '/audit': 'audit.view', '/settings': 'settings.edit' };
-const EXTRA = [['Invoices', '/invoices', 'receipt'], ['Insights', '/insights', 'chart'], ['Audit trail', '/audit', 'shield'], ['Settings', '/settings', 'settings']];
 
 const TYPE_ICON = { Sample: 'tube', Test: 'worklist', Project: 'folder', Client: 'building', Method: 'method', Instrument: 'instrument', Inventory: 'package', Notebook: 'book', Investigation: 'alert', Invoice: 'receipt' };
 
 export function openPalette({ newItems, runNewAction }) {
-  const pages = [...PAGES, ...EXTRA.filter(([, href]) => can(GATED[href]))];
+  const pages = PAGES.filter(([, , , module, perm]) => (!module || shipped(module)) && (!perm || can(perm)));
   const m = openModal({
     title: 'Search',
     cls: 'palette',

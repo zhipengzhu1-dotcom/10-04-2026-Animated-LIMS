@@ -1,7 +1,7 @@
 // App shell: boot, routing, sidebar, top bar, command palette.
 import { html } from './core/html.js';
 import { api, setApiHooks } from './core/api.js';
-import { state, can, roleLabel } from './core/state.js';
+import { state, can, shipped, roleLabel } from './core/state.js';
 import { icon, LOGO } from './core/icons.js';
 import { avatar, emptyState, promptReason, modalOpen } from './core/ui.js';
 import { openPalette } from './core/palette.js';
@@ -27,14 +27,14 @@ import * as settings from './views/settings.js';
 import * as account from './views/account.js';
 import * as print from './views/print.js';
 
-// [path pattern, view function, nav key]
+// [path pattern, view function, nav key, module (defaults to the nav key; a Withheld module's routes fall through to not found)]
 const ROUTES = [
   ['/', dashboard.render, 'dashboard'],
   ['/samples', samples.list, 'samples'],
   ['/samples/receive', samples.receive, 'samples'],
   ['/samples/:id', samples.detail, 'samples'],
   ['/worklist', tests.worklist, 'worklist'],
-  ['/tests/:id', tests.detail, 'worklist'],
+  ['/tests/:id', tests.detail, 'worklist', 'samples'],
   ['/reviews', reviews.render, 'reviews'],
   ['/notebook', notebook.list, 'notebook'],
   ['/notebook/:id', notebook.detail, 'notebook'],
@@ -63,16 +63,17 @@ const ROUTES = [
   ['/team/:id', team.detail, 'team'],
   ['/audit', audit.render, 'audit'],
   ['/settings', settings.render, 'settings'],
-  ['/account', account.render, 'account'],
+  ['/account', account.render, 'account', null],
   ['/print/coa/:id', print.coa, null],
   ['/print/labels', print.labels, null],
   ['/print/invoice/:id', print.invoice, null],
-].map(([pattern, view, nav]) => {
+].map(([pattern, view, nav, module = nav]) => {
   const keys = [];
   const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}/?$`);
-  return { pattern, re, keys, view, nav };
+  return { pattern, re, keys, view, nav, module };
 });
 
+// Each item's `key` is its module key: a Withheld module's item is left out.
 const NAV = [
   { group: null, items: [
     { key: 'dashboard', href: '/', label: 'Dashboard', icon: 'dashboard' },
@@ -148,7 +149,7 @@ function toggleRail() {
 // Shell
 // ---------------------------------------------------------------------------------------------
 
-const visible = (item) => !item.perm || item.perm.some((p) => can(p));
+const visible = (item) => shipped(item.key) && (!item.perm || item.perm.some((p) => can(p)));
 
 function newMenuItems() {
   return [
@@ -300,6 +301,7 @@ setInterval(() => { if (document.visibilityState === 'visible') refreshBadges();
 
 function match(pathname) {
   for (const r of ROUTES) {
+    if (r.module && !shipped(r.module)) continue;
     const m = r.re.exec(pathname);
     if (m) {
       const params = {};
@@ -411,6 +413,7 @@ async function loadSession() {
   const me = await api.get('/api/auth/me');
   state.me = me.user;
   state.permissions = new Set(me.permissions);
+  state.modules = new Set(me.modules);
   state.settings = me.settings;
   if (me.user.must_change_password) return 'password';
   state.lookups = await api.get('/api/lookups');

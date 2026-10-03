@@ -1,3 +1,5 @@
+import { MODULES, isShipped } from './config.js';
+
 export class HttpError extends Error {
   constructor(status, message, code) {
     super(message);
@@ -16,7 +18,10 @@ export class Router {
     this.routes = [];
   }
 
+  /** `opts.module` tags a route with the module it belongs to; a Withheld module's routes are never registered. */
   add(method, pattern, handler, opts = {}) {
+    if (opts.module && !MODULES.includes(opts.module)) throw new Error(`Route ${method} ${pattern} is tagged with unknown module "${opts.module}"`);
+    if (opts.module && !isShipped(opts.module)) return;
     const keys = [];
     const source = pattern.replace(/\/:(\w+)/g, (_, key) => {
       keys.push(key);

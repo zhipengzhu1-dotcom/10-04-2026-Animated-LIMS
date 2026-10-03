@@ -160,6 +160,7 @@ Built in:
 | `HOST` | `0.0.0.0` | Interface to listen on (`127.0.0.1` means this computer only) |
 | `ALIQUOT_DATA` | `./data` | Where the database, files and backups are kept |
 | `SECURE_COOKIES` | off | Set to `1` when served over HTTPS |
+| `SHIPPED_MODULES` | every module | Comma-separated module keys to ship, e.g. `samples,methods,invoices`. Other modules are withheld: gone from the app and their APIs answer "not found". Keys: `dashboard`, `samples`, `worklist`, `reviews`, `notebook`, `methods`, `instruments`, `inventory`, `investigations`, `audit`, `clients`, `projects`, `invoices`, `portal`, `insights`, `team`, `settings`. An unknown key stops start-up |
 
 ---
 

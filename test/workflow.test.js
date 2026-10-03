@@ -75,6 +75,7 @@ test('sign-in, sessions and CSRF protection', async () => {
   const me = await tom.ok('GET', '/api/auth/me');
   assert.equal(me.user.username, 'tom.fletcher');
   assert.ok(!('password_hash' in me.user), 'password hash must never be sent to the browser');
+  assert.equal(me.modules.length, 17, 'with no module configuration every module ships');
   // A mutating request without the custom header (as a cross-site form would send) is refused.
   const res = await fetch(`${BASE}/api/auth/logout`, { method: 'POST', headers: { Cookie: tom.cookie } });
   assert.equal(res.status, 403);
