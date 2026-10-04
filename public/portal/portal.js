@@ -3,7 +3,9 @@
 // escapes every interpolated value.
 
 import { html, raw } from '/js/core/html.js';
-import { icon } from '/js/core/icons.js';
+import { icon, LOGO } from '/js/core/icons.js';
+import { snapshot, settle } from '/js/core/motion.js';
+import { lockFrame, mountLock, lockFlow, lockError, SILHOUETTE, stamp, z } from '/js/core/lock.js';
 
 // ---------------------------------------------------------------------------------------------
 // Small helpers
@@ -23,7 +25,7 @@ const ic = (name, size = 18) => (EXTRA_ICONS[name]
   ? raw(`<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${EXTRA_ICONS[name]}</svg>`)
   : icon(name, { size }));
 
-const MARK = (size = 32) => raw(`<svg class="mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path class="ink" d="M12 7h8M13.5 7v11.5a2.5 2.5 0 0 0 5 0V7" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path class="fill" d="M13.5 15h5v3.5a2.5 2.5 0 0 1-5 0z"/><circle class="fill" cx="16" cy="25.5" r="1.6"/></svg>`);
+const MARK = (size = 32) => raw(`<svg class="mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><rect class="sq" width="32" height="32" rx="1"/><path class="ink" d="M12 6.5h8M13.5 6.5v12a2.5 2.5 0 0 0 5 0v-12" fill="none" stroke-width="2.2" stroke-linecap="square"/><path class="fill" d="M13.5 14.5h5v4a2.5 2.5 0 0 1-5 0z"/><rect class="fill" x="14.6" y="24.4" width="2.8" height="2.8"/></svg>`);
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function fmtDate(v) {
@@ -50,6 +52,8 @@ function relTime(v) {
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const initials = (name = '') => name.replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
 // Per-browser preferences only (theme, remembered lab name for the splash). Never anything sensitive.
@@ -85,13 +89,13 @@ function formData(form) {
   return out;
 }
 
-/** Disables a form's buttons while a request runs and shows any error in the form's .form-error slot. */
-async function submitting(form, fn) {
+/** Disables a form's buttons while a request runs (labelled `busyText` if given) and shows any error in the form's .form-error slot. */
+async function submitting(form, fn, busyText) {
   const btn = $('button[type=submit]', form) || $('.js-submit', form.closest('.card') || form);
   const errBox = $('.form-error', form);
   if (errBox) errBox.innerHTML = '';
   const label = btn?.innerHTML;
-  if (btn) { btn.disabled = true; btn.innerHTML = String(html`<span class="spinner"></span>${btn.textContent.trim()}`); }
+  if (btn) { btn.disabled = true; btn.innerHTML = String(html`<span class="spinner"></span>${busyText || btn.textContent.trim()}`); }
   try {
     return await fn();
   } catch (e) {
@@ -181,61 +185,117 @@ const trustFooter = () => html`<div class="foot-trust">
 // Sign-in and password change
 // ---------------------------------------------------------------------------------------------
 
-function authFrame(content) {
-  const lab = state.info?.lab_name || 'Client portal';
-  return html`<div class="auth view">
-    <aside class="auth-aside">
-      <div class="auth-brand">${MARK(36)}<div><div class="name">${lab}</div><div class="sub">Client portal</div></div></div>
-      <div class="pitch">
-        <h2>Your samples, results and conversations with the lab — in one secure place.</h2>
-        <p>Follow every sample from arrival to certificate, and work with the scientists behind your results.</p>
-        <ul class="points">
-          <li><span class="ic">${ic('tube', 18)}</span><div><b>Track every sample</b><span>Live status from receipt to report, with expected completion dates.</span></div></li>
-          <li><span class="ic">${ic('certificate', 18)}</span><div><b>Certificates you can rely on</b><span>Issued Certificates of Analysis, electronically signed by Quality Assurance.</span></div></li>
-          <li><span class="ic">${ic('message', 18)}</span><div><b>Talk to your scientists</b><span>Submit samples, request method work and get answers in one thread.</span></div></li>
-        </ul>
-      </div>
-      <div class="auth-foot" style="justify-content:flex-start"><span class="row">${ic('shield', 13)} Every sign-in and action is recorded in a 21 CFR Part 11 audit trail</span></div>
-    </aside>
-    <main class="auth-main">
-      <div class="auth-brand">${MARK(36)}<div><div class="name">${lab}</div><div class="sub">Client portal</div></div></div>
-      <div class="auth-form">${content}</div>
-      <div class="auth-foot">
-        <span class="row">${ic('lock', 13)} ${location.protocol === 'https:' ? 'Encrypted connection' : 'Access-controlled'}</span>
-        <span>© ${new Date().getFullYear()} ${lab}</span>
-      </div>
-    </main>
-  </div>`;
+// The same lock screen as the laboratory's own sign-in (core/lock.js), in the client's words.
+// Set once sign-in is granted, so the shell grows out of the sculpture's depth instead of simply appearing.
+let arriving = false;
+const LOCKED = { message: 'Your session is locked. Present your authorization key.', sub: 'Your authorization key is your portal password' };
+
+function portalLock(panel, { ghost = 'Access', message = LOCKED.message, sub = LOCKED.sub } = {}) {
+  app.innerHTML = String(lockFrame({
+    labName: state.info?.lab_name || 'Client portal',
+    ghost, panel, message, sub,
+    variant: 'portal',
+    os: raw('Client <b>portal</b>'),
+    tagline: ['Track every sample', 'Signed certificates', 'Talk to the lab'],
+    chips: [location.protocol === 'https:' ? 'Encrypted connection' : 'Access-controlled', 'Audit trail on', 'Your records only'],
+  }));
+  hideSplash();
+  const ctl = mountLock(app);
+  return { ctl, flow: lockFlow(ctl, { idle: message, idleSub: sub }) };
 }
 
 function showSignIn(message) {
   state.me = null;
-  document.title = `Sign in · ${state.info?.lab_name || 'Client portal'}`;
   const info = state.info || {};
+  const lab = info.lab_name || 'Client portal';
+  document.title = `Sign in · ${lab}`;
   const contact = [info.lab_email, info.lab_phone].filter(Boolean);
-  app.innerHTML = String(authFrame(html`
-    <h1>Sign in</h1>
-    <p class="lede">Welcome. Use the email address your laboratory contact registered for you.</p>
-    <form id="signin" novalidate>
-      <div class="form-error">${message ? html`<div class="alert alert-info" role="status">${ic('info', 16)}<span>${message}</span></div>` : ''}</div>
-      <label class="field" style="margin-top:${message ? '16px' : '0'}"><span class="label">Email</span><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required autofocus></label>
-      <label class="field"><span class="label">Password</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
-      <button class="btn btn-primary btn-block" type="submit" style="margin-top:24px">Sign in</button>
+  const demo = info.demo ? info.demo_accounts || [] : [];
+  const { ctl, flow } = portalLock(html`
+    <div class="lp-head"><span class="micro">■ Client sign-in</span><span class="lp-org">${info.demo ? 'Demo data' : 'Client portal'}</span></div>
+    <form class="lp-form" id="signin" novalidate>
+      <div class="operator">
+        <div class="op-photo" data-photo>${SILHOUETTE}<span class="op-initials" data-initials hidden></span><em>Classified</em></div>
+        <div class="op-main">
+          <div class="op-tags"><span class="op-tag">Client</span><span class="micro">Registered email</span><span class="lp-lights" aria-hidden="true"><i></i><i></i><i></i></span></div>
+          <label class="op-name"><span class="sr">Email</span><input name="email" type="email" inputmode="email" required autofocus autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Email"></label>
+          <div class="op-loaded">${LOGO}<span class="micro"><b data-loaded>Awaiting client</b><br>Identity unverified</span></div>
+        </div>
+      </div>
+      <dl class="op-profile">
+        <dt>Laboratory</dt><dd>${lab}</dd>
+        <dt>Portal</dt><dd>${location.host}</dd>
+        <dt>Locked at</dt><dd>${stamp()}</dd>
+        <dt>Keymap</dt><dd>${(navigator.language || 'en').toUpperCase()}</dd>
+      </dl>
+      ${message ? html`<div class="lp-notice">${ic('info', 15)}<span>${message}</span></div>` : ''}
+      <div class="lp-keyhead"><span class="micro">▬ Authorization key</span><span class="micro" data-attempts>Your password</span></div>
+      <label class="auth-key"><span class="sr">Password</span><input type="password" name="password" required autocomplete="current-password" placeholder="Enter password"><button class="ak-btn" type="submit"><span>Request</span>${ic('arrowRight', 14)}</button></label>
+      <div class="lp-dots" aria-hidden="true" data-dots></div>
+      <div class="form-error" role="alert" hidden></div>
     </form>
-    ${contact.length ? html`<p class="hint" style="margin-top:18px">Trouble signing in or need an account? Contact us at ${contact.map((c, i) => html`${i ? ' · ' : ''}${c.includes('@') ? html`<a href="${`mailto:${c}`}">${c}</a>` : c}`)}.</p>` : ''}
-    ${info.demo && info.demo_accounts?.length ? html`<div class="demo-accounts">
-      <div class="tiny">Demo accounts · password demo1234</div>
-      <div class="demo-list">${info.demo_accounts.map((a) => html`<button type="button" data-demo="${a.email}"><span class="avatar" style="width:30px;height:30px;font-size:11px">${initials(a.full_name)}</span><span class="grow"><b class="small" style="display:block">${a.full_name}</b><span class="tiny muted">${a.client_name}</span></span>${ic('chevronRight', 15)}</button>`)}</div>
-    </div>` : ''}
-  `));
-  hideSplash();
+    ${contact.length ? html`<p class="lp-help">Need access or help? ${contact.map((c, i) => html`${i ? ' · ' : ''}${c.includes('@') ? html`<a href="${`mailto:${c}`}">${c}</a>` : c}`)}</p>` : ''}
+    ${demo.length ? html`<div class="demo-ops">
+      <div class="lp-keyhead"><span class="micro">▬ Demo clients</span><span class="micro">One click · key demo1234</span></div>
+      <div class="demo-grid">${demo.map((a) => html`<button type="button" data-demo="${a.email}" data-name="${a.full_name}"><span class="dg-ini">${initials(a.full_name)}</span><span><strong>${a.full_name}</strong><small>${a.client_name}</small></span></button>`)}</div>
+    </div>` : ''}`);
   const form = $('#signin');
-  const go = async (email, password) => {
-    const res = await submitting(form, () => post('/login', { email, password }));
-    if (res) await boot();
+  const email = form.email;
+  const pass = form.password;
+  const attempts = $('[data-attempts]', form);
+  const showClient = (name) => {
+    const i = initials(name);
+    const ini = $('[data-initials]', form);
+    ini.textContent = i;
+    ini.hidden = !i;
+    $('[data-photo]', form).classList.toggle('known', !!i);
+    $('[data-loaded]', form).textContent = i ? 'Client record loaded ●' : 'Awaiting client';
   };
-  form.addEventListener('submit', (e) => { e.preventDefault(); const d = formData(form); go(d.email, d.password); });
-  $$('[data-demo]').forEach((b) => b.addEventListener('click', () => { form.email.value = b.dataset.demo; form.password.value = 'demo1234'; go(b.dataset.demo, 'demo1234'); }));
+  email.addEventListener('input', () => {
+    const v = email.value.trim();
+    showClient(demo.find((a) => a.email === v)?.full_name || v.split('@')[0].replace(/[._-]+/g, ' '));
+  });
+  let tries = 0;
+  let busy = false;
+  const submit = async () => {
+    if (busy) return;
+    const d = formData(form);
+    if (!d.email || !d.password) {
+      lockError(form, 'Enter your email and password');
+      (d.email ? pass : email).focus();
+      return;
+    }
+    lockError(form, '');
+    busy = true;
+    attempts.textContent = `Attempt ${z(++tries)} · recorded`;
+    try {
+      await flow.run(() => post('/login', { email: d.email, password: d.password }));
+      arriving = true;
+      await boot();
+    } catch (e) {
+      if (e.handled) return;
+      lockError(form, e.message);
+      $('[data-dots]', form).innerHTML = String(raw('<i></i>'.repeat(Math.min(tries, 8))));
+      pass.select();
+    } finally {
+      busy = false;
+    }
+  };
+  form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
+  // A demo client "types" their key: each character pulses the sculpture, then the request goes out.
+  $$('[data-demo]').forEach((b) => b.addEventListener('click', async () => {
+    if (busy) return;
+    flow.endLockdown();
+    email.value = b.dataset.demo;
+    showClient(b.dataset.name);
+    pass.value = '';
+    for (const ch of 'demo1234') {
+      pass.value += ch;
+      ctl.ribbon.pulse(0.8);
+      if (!reducedMotion()) await sleep(38);
+    }
+    submit();
+  }));
 }
 
 function passwordFields(firstTime) {
@@ -252,21 +312,31 @@ async function changePassword(form) {
 }
 
 function showPasswordChange() {
-  app.innerHTML = String(authFrame(html`
-    <h1>Choose your password</h1>
-    <p class="lede">For your security, replace the temporary password you were given with one only you know.</p>
-    <form id="pw" novalidate>
-      <div class="form-error"></div>
+  document.title = `Choose your password · ${state.info?.lab_name || 'Client portal'}`;
+  const { flow } = portalLock(html`
+    <div class="lp-head"><span class="micro">■ Credential rotation</span><span class="lp-org">Required</span></div>
+    <h1 class="lp-title">Choose your password</h1>
+    <p class="lp-sub">For your security, replace the temporary password you were given with one only you know.</p>
+    <form class="lp-form" id="pw" novalidate>
+      <div class="form-error" role="alert" hidden></div>
       ${passwordFields(true)}
-      <button class="btn btn-primary btn-block" type="submit" style="margin-top:24px">Save and continue</button>
-      <button class="btn btn-quiet btn-block js-signout" type="button" style="margin-top:8px">Sign out</button>
-    </form>`));
-  hideSplash();
+      <button class="btn btn-primary btn-block" type="submit">Save and continue</button>
+      <button class="btn btn-quiet btn-block js-signout" type="button">Sign out</button>
+    </form>`, { ghost: 'Rotate', message: 'Credential rotation required before the session unseals.', sub: 'Choose a password only you know' });
   const form = $('#pw');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const ok = await submitting(form, async () => { await changePassword(form); return true; });
-    if (ok) { toast('Password saved'); await boot(); }
+    const d = formData(form);
+    if (d.next !== d.again) { lockError(form, 'The two new passwords do not match'); return; }
+    lockError(form, '');
+    try {
+      await flow.run(() => post('/password', { current: d.current, next: d.next }));
+      toast('Password saved');
+      arriving = true;
+      await boot();
+    } catch (err) {
+      if (!err.handled) lockError(form, err.message);
+    }
   });
   $('.js-signout', form).addEventListener('click', signOut);
 }
@@ -292,6 +362,11 @@ const NAV = [
 ];
 
 function renderShell() {
+  if (arriving) {
+    arriving = false;
+    app.classList.add('arrive');
+    app.addEventListener('animationend', function done(e) { if (e.target === app) { app.classList.remove('arrive'); app.removeEventListener('animationend', done); } });
+  }
   const { me, info } = state;
   app.innerHTML = String(html`
     <header class="top">
@@ -344,6 +419,7 @@ function parseHash() {
 }
 
 let routeSeq = 0;
+let lastRoute = null;
 async function route() {
   if (!state.me) return;
   const { parts, query } = parseHash();
@@ -352,7 +428,15 @@ async function route() {
   const main = $('#main');
   const navKey = { samples: 'samples', coa: 'samples', submissions: 'samples', submit: 'submit', requests: 'requests', messages: 'messages' }[a] || (a ? '' : 'overview');
   $$('[data-nav]').forEach((el) => (el.dataset.nav === navKey ? el.setAttribute('aria-current', 'page') : el.removeAttribute('aria-current')));
-  main.innerHTML = String(html`<div class="skeleton" style="height:28px;width:220px"></div><div class="skeleton" style="height:120px;margin-top:24px"></div><div class="skeleton" style="height:240px;margin-top:16px"></div>`);
+  // Same screen (a tab, a thread, a refresh): no entrance and no jump to the top. Either way the current screen stays
+  // until the next is ready; only a wait long enough to notice brings skeletons (new screen) or a dim (same screen).
+  const screen = a === 'messages' ? a : `${a || ''}/${b || ''}`;
+  const stay = screen === lastRoute && !!main.querySelector(':scope > .view');
+  const wait = setTimeout(() => {
+    if (seq !== routeSeq) return;
+    if (stay) main.querySelector(':scope > .view')?.classList.add('pending');
+    else main.innerHTML = String(html`<div class="skeleton" style="height:28px;width:220px"></div><div class="skeleton" style="height:120px;margin-top:24px"></div><div class="skeleton" style="height:240px;margin-top:16px"></div>`);
+  }, 162);
   let view;
   try {
     if (!a) view = await overview();
@@ -369,14 +453,18 @@ async function route() {
     else if (a === 'account') view = accountView();
     else view = { html: empty('info', 'This page does not exist.', html`<a class="btn" href="#/">Go to overview</a>`) };
   } catch (e) {
-    if (e.handled) return;
+    if (e.handled) { clearTimeout(wait); return; }
     view = { html: html`<div class="card card-pad">${empty('alert', e.status === 404 ? 'We could not find that record.' : e.message, html`<a class="btn" href="#/">Back to overview</a>`)}</div>` };
   }
   if (seq !== routeSeq) return;
+  clearTimeout(wait);
+  const before = snapshot(main.querySelector(':scope > .view'));
   main.innerHTML = String(html`<div class="view">${view.html}${a === 'coa' ? '' : trustFooter()}</div>`);
+  lastRoute = screen;
+  settle(main.querySelector(':scope > .view'), before, { still: stay });
   document.title = `${view.title ? `${view.title} · ` : ''}${state.info.lab_name}`;
   view.mount?.(main);
-  if (!view.keepScroll) window.scrollTo(0, 0);
+  if (!view.keepScroll && !stay) window.scrollTo(0, 0);
   hideSplash();
   if (a !== 'messages') refreshUnread();
 }
@@ -424,7 +512,7 @@ async function overview() {
             <section class="card">
               <div class="card-head"><h2>Recently issued certificates</h2><a class="small" href="#/samples?tab=reported">All certificates</a></div>
               ${o.recentCoas.length ? html`<ul class="list">${o.recentCoas.map((s) => html`<li><a class="item" href="${`#/coa/${s.id}`}">
-                <span class="quick" style="display:contents"><span class="ic" style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--ok-soft);color:var(--ok)">${ic('certificate', 18)}</span></span>
+                <span class="coa-ic">${ic('certificate', 18)}</span>
                 <div class="grow"><div class="t ellipsis">${s.description}</div><div class="s ellipsis"><span class="mono">${s.code}</span>${s.batch_no ? ` · Batch ${s.batch_no}` : ''}</div></div>
                 <div class="end small muted">${fmtDate(s.reported_at)}</div>
               </a></li>`)}</ul>` : empty('certificate', 'Certificates appear here as soon as QA issues them.')}
@@ -476,7 +564,7 @@ async function samplesList(tab) {
   return {
     title: 'Samples',
     html: html`
-      <div class="page-head"><div><h1>Samples</h1><p class="sub">Status of everything we hold for you, and every certificate we have issued.</p></div><a class="btn btn-primary" href="#/submit">${ic('plus', 16)} Submit samples</a></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Samples</h1><p class="sub">Status of everything we hold for you, and every certificate we have issued.</p></div><a class="btn btn-primary" href="#/submit">${ic('plus', 16)} Submit samples</a></div>
       <div class="seg" role="tablist" style="margin-bottom:16px;max-width:100%;overflow-x:auto">${tabs.map(([k, l]) => html`<a href="${`#/samples?tab=${k}`}" aria-current="${String(k === tab)}">${l}</a>`)}</div>
       <section class="card">${table}</section>`,
     mount(root) { $$('tr[data-href]', root).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('a')) location.hash = tr.dataset.href; })); },
@@ -590,7 +678,7 @@ async function submitForm() {
   return {
     title: 'Submit samples',
     html: html`
-      <div class="page-head"><div><h1>Submit samples</h1><p class="sub">Tell us what you are sending before it ships. We confirm every submission and let you know the moment it arrives.</p></div></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Submit samples</h1><p class="sub">Tell us what you are sending before it ships. We confirm every submission and let you know the moment it arrives.</p></div></div>
       <form class="card" id="submission" novalidate>
         <div class="form-section">
           <div class="about"><h2><span class="step-n"></span>Samples</h2><p>One line per container or batch. Up to 200 at a time.</p></div>
@@ -738,7 +826,7 @@ async function requestsList() {
   return {
     title: 'Requests',
     html: html`
-      <div class="page-head"><div><h1>Method requests</h1><p class="sub">Method development, validation and transfer — from first scope to an agreed project.</p></div><a class="btn btn-primary" href="#/requests/new">${ic('plus', 16)} New request</a></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Method requests</h1><p class="sub">Method development, validation and transfer — from first scope to an agreed project.</p></div><a class="btn btn-primary" href="#/requests/new">${ic('plus', 16)} New request</a></div>
       <div class="stack">
         <section class="card">
           ${reqs.length ? html`<ul class="list">${reqs.map((r) => html`<li><a class="item" href="${`#/requests/${r.id}`}">
@@ -763,7 +851,7 @@ async function requestForm() {
     title: 'New method request',
     html: html`
       <a class="back" href="#/requests">${ic('arrowLeft', 15)} Method requests</a>
-      <div class="page-head"><div><h1>Request method work</h1><p class="sub">Give us the essentials. A scientist reviews every request and replies with questions or a proposal, usually within two working days.</p></div></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Request method work</h1><p class="sub">Give us the essentials. A scientist reviews every request and replies with questions or a proposal, usually within two working days.</p></div></div>
       <form class="card" id="request" novalidate>
         <div class="form-section">
           <div class="about"><h2><span class="step-n"></span>Type of work</h2></div>
@@ -905,7 +993,7 @@ async function messagesView(threadId, query) {
   return {
     title: t ? t.thread.subject : 'Messages',
     html: html`
-      <div class="page-head"><div><h1>Messages</h1><p class="sub">Talk directly with the scientists and coordinators working on your samples.</p></div></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Messages</h1><p class="sub">Talk directly with the scientists and coordinators working on your samples.</p></div></div>
       <div class="inbox ${phoneShowsPane ? 'has-pane' : ''}">
         <div class="list-pane">${list}</div>
         <div class="thread-pane">${pane}</div>
@@ -953,7 +1041,7 @@ function accountView() {
   return {
     title: 'Account',
     html: html`
-      <div class="page-head"><div><h1>Account & security</h1><p class="sub">Your sign-in details for the ${state.info.lab_name} client portal.</p></div></div>
+      <div class="page-head"><div><div class="eyebrow">${state.me.client.name}</div><h1>Account & security</h1><p class="sub">Your sign-in details for the ${state.info.lab_name} client portal.</p></div></div>
       <div class="cols">
         <section class="card">
           <div class="card-head"><h2>Change password</h2></div>

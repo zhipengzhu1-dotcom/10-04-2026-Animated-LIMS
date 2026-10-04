@@ -68,7 +68,7 @@ The sign-in page has one-click buttons for these accounts while demo mode is on.
 
 **Finding things:** press **⌘K** (or Ctrl+K, or `/`) anywhere to search. A USB barcode scanner works too: scan a sample label into the search box and the sample opens.
 
-**Fitting more on screen:** the layout is compact by default. Switch to **Comfortable** in the user menu (bottom-left) if you prefer more space, and press `[` or the ☰ button to collapse the sidebar to icons. Both settings are remembered on each computer.
+**Fitting more on screen:** the layout is compact by default. Switch to **Comfortable** in the user menu (bottom-left) if you prefer more space, and press `[` or the ☰ button to collapse the sidebar to icons. The **Tuned / Full HUD** switch in the top bar (or the user menu on a phone) changes how much the interface puts on show: Tuned keeps work screens calm, Full HUD adds the ambient sculpture, corner brackets and a live readout strip. These settings are remembered on each computer.
 
 ### Word and Excel in the notebook
 

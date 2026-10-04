@@ -75,8 +75,8 @@ export function icon(name, { size = 16, cls = '' } = {}) {
 }
 
 export const LOGO = raw(`<svg class="logo" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
-  <rect width="32" height="32" rx="8" fill="var(--accent)"/>
-  <path d="M12 7h8M13.5 7v11.5a2.5 2.5 0 0 0 5 0V7" fill="none" stroke="var(--accent-contrast)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M13.5 15h5v3.5a2.5 2.5 0 0 1-5 0z" fill="var(--accent-contrast)"/>
-  <circle cx="16" cy="25.5" r="1.6" fill="var(--accent-contrast)"/>
+  <rect width="32" height="32" rx="1" fill="var(--slab)"/>
+  <path d="M12 6.5h8M13.5 6.5v12a2.5 2.5 0 0 0 5 0v-12" fill="none" stroke="var(--slab-text)" stroke-width="2.2" stroke-linecap="square"/>
+  <path d="M13.5 14.5h5v4a2.5 2.5 0 0 1-5 0z" fill="#c4f135"/>
+  <rect x="14.6" y="24.4" width="2.8" height="2.8" fill="#c4f135"/>
 </svg>`);
