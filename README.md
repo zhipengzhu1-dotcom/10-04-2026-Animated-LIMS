@@ -4,6 +4,8 @@ Aliquot replaces the paper side of a contract analytical laboratory: sample logi
 
 It was built for a lab that develops methods and tests samples for pharmaceutical clients, with 20+ people in different roles: analysts, scientists, QA, lab management and business/finance.
 
+**Try it online:** [animated.nitrolims-demo.com](https://animated.nitrolims-demo.com) runs the fictional demo lab. Click a demo person on the sign-in screen (password `demo1234`). The client portal is at [/portal/](https://animated.nitrolims-demo.com/portal/). Anyone can change the demo data, and it resets to fresh demo data every night.
+
 ---
 
 ## Start it in 2 minutes
