@@ -2,13 +2,14 @@
 // Styles live in /assets/lock.css, which both apps load.
 import { html, raw } from './html.js';
 import { icon, LOGO } from './icons.js';
-import { createRibbon } from './ribbon.js';
-import { flyIn } from './motion.js';
+import { createHelix, noHelix } from './helix.js';
 
 export const z = (n) => String(n).padStart(2, '0');
 export const stamp = (d = new Date()) => `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** The custom properties every helix reads its colours from: ink is the text colour, lime verifies, orange denies. */
+export const HELIX_TOKENS = { ink: '--text', signal: '--lime', alarm: '--signal' };
 export const initials = (name) => String(name || '').split(/[\s._-]+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 // A head-and-shoulders silhouette filled with a halftone, as on a sealed personnel file.
@@ -40,7 +41,7 @@ export function lockFrame({
 }) {
   return html`
     <div class="lock" data-state="idle" data-variant="${variant}">
-      <canvas class="lock-ribbon" aria-hidden="true"></canvas>
+      <canvas class="lock-helix" aria-hidden="true"></canvas>
       <div class="lock-grain" aria-hidden="true"></div>
       <div class="lock-rule" aria-hidden="true"></div>
       <header class="lock-brand">
@@ -71,17 +72,21 @@ export function lockFrame({
     </div>`;
 }
 
-/** Wires the live parts of a mounted frame: clock, ribbon, event log. Returns controls; stops itself when removed. */
+/** Wires the live parts of a mounted frame: clock, helix, event log. Returns controls; stops itself when removed. */
 export function mountLock(root) {
   const lock = root.querySelector('.lock');
-  const ribbon = createRibbon(lock.querySelector('.lock-ribbon'), { cx: 0.4, cy: 0.5, scale: 0.4 });
+  // three.js arrives asynchronously; until it does, the helix controls go to a stand-in that does nothing.
+  let live = noHelix;
+  const pending = createHelix(lock.querySelector('.lock-helix'), { cx: 0.42, cy: 0.5, span: 0.95, colours: HELIX_TOKENS });
+  pending.then((h) => { live = h; h.setMode(lock.dataset.state); });
+  const helix = { pulse: () => live.pulse(), flyIn: () => live.flyIn() };
   const hm = lock.querySelector('[data-hm]');
   const ss = lock.querySelector('[data-ss]');
   const date = lock.querySelector('[data-date]');
   const log = lock.querySelector('[data-log]');
   const dateFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   const tick = () => {
-    if (!lock.isConnected) { clearInterval(timer); ribbon.destroy(); return; }
+    if (!lock.isConnected) { clearInterval(timer); pending.then((h) => h.destroy()); return; }
     const d = new Date();
     hm.textContent = `${z(d.getHours())}:${z(d.getMinutes())}`;
     ss.textContent = z(d.getSeconds());
@@ -99,9 +104,9 @@ export function mountLock(root) {
   addLog('Lock engaged');
   const setState = (s) => {
     lock.dataset.state = s;
-    ribbon.setMode(s === 'verify' ? 'verify' : s === 'denied' ? 'denied' : 'idle');
+    live.setMode(s);
   };
-  return { lock, ribbon, addLog, setState };
+  return { lock, helix, addLog, setState };
 }
 
 /** Shows `message` in the form's alert slot, or hides the slot when it is empty. */
@@ -129,7 +134,7 @@ export function lockFlow(ctl, msg) {
     ctl.setState('idle');
     setMsg(msg.idle, msg.idleSub);
   };
-  ctl.lock.addEventListener('input', () => { endLockdown(); ctl.ribbon.pulse(); });
+  ctl.lock.addEventListener('input', () => { endLockdown(); ctl.helix.pulse(); });
   return {
     endLockdown,
     async run(request) {
@@ -152,8 +157,7 @@ export function lockFlow(ctl, msg) {
       ctl.addLog('Granted', 'ok');
       ctl.setState('granted');
       setMsg('Access granted.', 'Session unsealed · loading workspace');
-      if (!still()) flyIn(ctl.lock, ctl.ribbon.focus(), '.lock-ribbon, .lock-grain, .lock-verify, .lock-warning');
-      await ctl.ribbon.dissolve();
+      await Promise.all([ctl.helix.flyIn(), sleep(still() ? 0 : 900)]);
     },
   };
 }

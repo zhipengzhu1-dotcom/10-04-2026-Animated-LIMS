@@ -7,11 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKIP = new Set(['node_modules', 'data', 'data-dev']);
+// Vendored third-party browser libraries are not ours to check.
+const SKIP_PATHS = new Set([path.join(ROOT, 'public', 'vendor')]);
 
 function* jsFiles(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || SKIP.has(entry.name)) continue;
     const file = path.join(dir, entry.name);
+    if (SKIP_PATHS.has(file)) continue;
     if (entry.isDirectory()) yield* jsFiles(file);
     else if (entry.name.endsWith('.js')) yield file;
   }

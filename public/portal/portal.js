@@ -282,7 +282,7 @@ function showSignIn(message) {
     }
   };
   form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
-  // A demo client "types" their key: each character pulses the sculpture, then the request goes out.
+  // A demo client "types" their key: each character ripples the helix, then the request goes out.
   $$('[data-demo]').forEach((b) => b.addEventListener('click', async () => {
     if (busy) return;
     flow.endLockdown();
@@ -291,7 +291,7 @@ function showSignIn(message) {
     pass.value = '';
     for (const ch of 'demo1234') {
       pass.value += ch;
-      ctl.ribbon.pulse(0.8);
+      ctl.helix.pulse();
       if (!reducedMotion()) await sleep(38);
     }
     submit();

@@ -49,7 +49,8 @@
   --ease-snap: cubic-bezier(.7, 0, .2, 1);
   --gutter: 16px;
   --tabbar: 64px;
-  --ribbon-tone: paper;
+  /* The lock screen's helix reads its ink from --text, the staff app's name for the text colour (HELIX_TOKENS). */
+  --text: var(--ink);
   color-scheme: light;
 }
 
@@ -75,7 +76,6 @@
     --bad: #ff7a3d; --bad-soft: rgba(255, 91, 20, .16); --info: #a9c6dc; --info-soft: rgba(140, 180, 210, .15);
     --focus: rgba(196, 241, 53, .4);
     --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, .85), 0 0 0 1px rgba(255, 255, 255, .03);
-    --ribbon-tone: night;
     color-scheme: dark;
   }
 }
@@ -88,7 +88,6 @@
   --bad: #ff7a3d; --bad-soft: rgba(255, 91, 20, .16); --info: #a9c6dc; --info-soft: rgba(140, 180, 210, .15);
   --focus: rgba(196, 241, 53, .4);
   --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, .85), 0 0 0 1px rgba(255, 255, 255, .03);
-  --ribbon-tone: night;
   color-scheme: dark;
 }
 

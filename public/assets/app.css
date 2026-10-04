@@ -995,8 +995,7 @@ html[data-density="comfortable"] .editor, html[data-density="comfortable"] .edit
 .hud-strip { display: none; }
 html[data-hud="full"] .hud-ambient { display: block; position: fixed; top: 0; right: 0; bottom: 0; left: var(--sidebar); z-index: 0; pointer-events: none; opacity: 0.85; mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 80%, transparent); }
 html[data-hud="full"] .hud-ambient canvas { width: 100%; height: 100%; display: block; }
-:root[data-theme="dark"] .hud-ambient canvas { --ribbon-tone: night; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hud-ambient canvas { --ribbon-tone: night; } }
+.hud-ambient .helix-static { width: 100%; height: 100%; display: block; color: var(--text); opacity: 0.3; padding: 14vh 6% 14vh 24%; box-sizing: border-box; }
 html[data-hud="full"] .main { z-index: 1; }
 html[data-hud="full"] body { background: radial-gradient(120% 90% at 60% 40%, color-mix(in srgb, var(--surface) 70%, var(--bg)) 0%, var(--bg) 60%); background-attachment: fixed; }
 html[data-hud="full"] .topbar { background: color-mix(in srgb, var(--bg) 70%, transparent); }
