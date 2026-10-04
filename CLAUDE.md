@@ -10,7 +10,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 
 ## Coding standards
 
-- **Zero dependencies, no build step.** Node built-ins only (`http`, `crypto`, `node:sqlite`) on the server; plain ES modules in the browser. Don't add packages, bundlers or transpilers.
+- **Zero dependencies, no build step.** Node built-ins only (`http`, `crypto`, `node:sqlite`) on the server; plain ES modules in the browser. Don't add packages, bundlers or transpilers. The one exception is a vendored browser library, copied as a file into `public/vendor/<name>/` with its licence and served by our own server (never from a CDN, because labs run Aliquot without internet access): today only three.js, loaded lazily by `public/js/core/helix.js`.
 - **Match the house style.** 2-space indent, single quotes, semicolons, trailing commas in multi-line literals, arrow functions for small helpers, early returns over nesting. Keep lines readable; long `html` template lines are tolerated, long logic lines are not.
 - **Comments are rare and say why.** A one-line `/** … */` above an exported function when its contract isn't obvious from the name. No comments that restate the code.
 - **The server enforces every rule.** Permissions, workflow states and GxP controls live on the server; the browser only hides what the server would refuse. A screen-only check is a bug.
