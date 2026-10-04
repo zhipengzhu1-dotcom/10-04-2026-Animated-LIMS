@@ -6,6 +6,10 @@ A LIMS and electronic lab notebook for contract analytical laboratories: samples
 
 ### Release
 
+**Release**:
+The set of Shipped modules a deployment of Aliquot offers. The Operator chooses it; anything outside it is a Withheld module.
+_Avoid_: Edition, plan, tier
+
 **Module**:
 A top-level area of Aliquot that a lab sees as one thing, such as Samples, Methods or Invoices.
 _Avoid_: Feature, section, page
@@ -41,7 +45,7 @@ A defined analytical procedure, with its analytes, specifications and price, tha
 _Avoid_: Procedure, assay, SOP
 
 **Test**:
-One application of a Method to one Sample, carried from assignment through performed, reviewed and approved.
+One application of a Method to one Sample, carried from assignment through performed, reviewed and approved. Belongs to the Samples module: Worklist and Reviews & approvals are queues of Tests, not their owners, so withholding them leaves Tests in place.
 _Avoid_: Analysis, job
 
 **OOS investigation**:
