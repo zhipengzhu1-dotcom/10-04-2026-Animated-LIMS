@@ -385,6 +385,7 @@ test('an OOS cannot be hidden by cancelling the test, and blocks the certificate
   const cancel = await priya.post(`/api/tests/${testId}/cancel`, { reason: 'retest' });
   assert.equal(cancel.status, 400);
   assert.match(cancel.data.error, /open on this test/);
+  assert.equal((await priya.ok('GET', `/api/tests/${testId}`)).can.cancel, false, 'the Test page offers no cancel the server would refuse');
   const report = await priya.post(`/api/samples/${sampleId}/report`, { password: PASSWORD });
   assert.equal(report.status, 400);
 });
@@ -615,6 +616,7 @@ test('submission re-checks training and materials', async () => {
   await daniel.ok('PUT', `/api/inventory/${mat.id}`, { status: 'Active', reason: 'Released after investigation' });
   const q = (await priya.ok('GET', '/api/qualifications')).qualifications.find((x) => x.method_code === 'ATM-0006' && x.user_id === again.test.analyst_id);
   await priya.ok('POST', `/api/qualifications/${q.id}/revoke`, { reason: 'Retraining required' });
+  assert.equal((await tom.ok('GET', `/api/tests/${testId}`)).can.submit, false, 'the Test page offers no submit the server would refuse');
   assert.equal((await tom.post(`/api/tests/${testId}/submit`, { password: PASSWORD })).status, 403);
   await priya.ok('POST', '/api/qualifications', { user_id: again.test.analyst_id, method_code: 'ATM-0006' });
 });
