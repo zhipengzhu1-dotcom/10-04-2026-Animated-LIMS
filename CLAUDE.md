@@ -26,7 +26,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 
 ### Issue tracker
 
-GitHub Issues in `zhipengzhu1-dotcom/10-03-2026-Initial-Launch`, not this clone's `origin`; always pass `--repo`. See `docs/agents/issue-tracker.md`.
+GitHub Issues in `zhipengzhu1-dotcom/10-04-2026-Animated-LIMS`, this clone's `origin`; always pass `--repo`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
