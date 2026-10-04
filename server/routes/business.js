@@ -99,10 +99,18 @@ function unbilledLines(projectId) {
   });
 }
 
-function addWorkLine(invoiceId, line, order) {
+function addWorkLine(ctx, invoiceId, line, order) {
   run('INSERT INTO invoice_lines (invoice_id, description, quantity, unit_price, sort_order, test_ids) VALUES (?, ?, ?, ?, ?, ?)',
     invoiceId, line.description, line.quantity, line.unit_price, order, JSON.stringify(line.testIds));
-  for (const tid of line.testIds) run('UPDATE tests SET invoice_id = ? WHERE id = ?', invoiceId, tid);
+  for (const tid of line.testIds) update(ctx, 'tests', tid, { invoice_id: invoiceId }, { summary: 'Added to an invoice' });
+}
+
+function releaseTests(ctx, invoiceId, summary, testIds = null) {
+  const tests = testIds
+    ? all(`SELECT id FROM tests WHERE invoice_id = ? AND id IN (${testIds.map(() => '?').join(',')})`, invoiceId, ...testIds)
+    : all('SELECT id FROM tests WHERE invoice_id = ?', invoiceId);
+  for (const t of tests) update(ctx, 'tests', t.id, { invoice_id: null }, { summary });
+  return tests.length;
 }
 
 export function createInvoice(ctx, body) {
@@ -127,7 +135,7 @@ export function createInvoice(ctx, body) {
       po_number: project?.po_number ?? null, notes: b.notes, created_by: ctx.user.id, created_at: nowIso(),
     }, { summary: 'Draft invoice created' });
     if (project && b.include_unbilled) {
-      unbilledLines(project.id).forEach((line, i) => addWorkLine(id, line, i));
+      unbilledLines(project.id).forEach((line, i) => addWorkLine(ctx, id, line, i));
     }
     return { id, code };
   });
@@ -149,7 +157,7 @@ export function setInvoiceStatus(ctx, id, action, body = {}) {
     } else if (action === 'void') {
       if (!['Draft', 'Sent'].includes(inv.status)) throw bad(`A ${inv.status.toLowerCase()} invoice can't be voided`);
       if (!String(body.reason || '').trim()) throw bad('A reason is required to void an invoice', 'REASON_REQUIRED');
-      run('UPDATE tests SET invoice_id = NULL WHERE invoice_id = ?', id);
+      releaseTests(ctx, id, 'Invoice voided — billable again');
       update(ctx, 'invoices', id, { status: 'Void' }, { action: 'STATUS', summary: 'Invoice voided — its tests are billable again', reason: body.reason });
     } else {
       throw bad('Unknown action');
@@ -310,7 +318,7 @@ export default function routes(r) {
         for (const prev of existing) {
           if (!prev.test_ids || kept.has(prev.id)) continue;
           const ids = JSON.parse(prev.test_ids);
-          if (ids.length) released += Number(run(`UPDATE tests SET invoice_id = NULL WHERE invoice_id = ? AND id IN (${ids.map(() => '?').join(',')})`, id, ...ids).changes);
+          if (ids.length) released += releaseTests(ctx, id, 'Released from a draft invoice', ids);
         }
         if (before !== fmt(lines) || released) {
           extra.lines = [before, fmt(lines)];
@@ -334,7 +342,7 @@ export default function routes(r) {
     tx(() => {
       let order = get('SELECT COALESCE(MAX(sort_order), -1) m FROM invoice_lines WHERE invoice_id = ?', id).m;
       const lines = unbilledLines(inv.project_id);
-      for (const line of lines) addWorkLine(id, line, ++order);
+      for (const line of lines) addWorkLine(ctx, id, line, ++order);
       update(ctx, 'invoices', id, {}, { summary: 'Completed work added to invoice', extraChanges: { lines: [null, lines.map((l) => `${l.quantity} × ${l.description}`).join(' | ')] } });
     });
     return { ok: true };

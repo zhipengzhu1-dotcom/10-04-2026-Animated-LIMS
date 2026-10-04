@@ -641,6 +641,44 @@ test('removing an invoice line releases its tests for billing; nothing is lost',
   assert.ok(after.some((p) => p.id === project.id), 'the work is ready to bill again');
 });
 
+test('a Test\'s history shows it invoiced, released and voided; analysts see the invoice link removed', async () => {
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  const sarah = await as('sarah.lindqvist');
+  const daniel = await as('daniel.okafor');
+  const oliver = await as('oliver.grant');
+  const clients = await oliver.ok('GET', '/api/clients');
+  const project = await oliver.ok('POST', '/api/projects', { client_id: clients[0].id, title: 'Billing history', type: 'Routine / Release Testing' });
+  const kf = (await priya.ok('GET', '/api/methods?usable=1')).find((m) => m.code === 'ATM-0002' && m.status === 'Effective');
+  const received = await priya.ok('POST', '/api/samples/receive', { client_id: clients[0].id, project_id: project.id, samples: [{ description: 'Billing history' }], method_ids: [kf.id] });
+  const testId = (await priya.ok('GET', `/api/samples/${received.samples[0].id}`)).tests[0].id;
+  const tomUser = (await priya.ok('GET', '/api/users')).find((u) => u.username === 'tom.fletcher');
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [testId], analyst_id: tomUser.id });
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await sarah.ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  const links = async (c) => (await c.ok('GET', `/api/history/tests/${testId}`)).reverse()
+    .filter((h) => h.changes && 'invoice_id' in JSON.parse(h.changes)).map((h) => JSON.parse(h.changes).invoice_id);
+
+  const first = await oliver.ok('POST', '/api/invoices', { project_id: project.id, include_unbilled: true });
+  assert.deepEqual(await links(oliver), [[null, first.id]], 'creating the invoice links the Test');
+  await oliver.ok('PUT', `/api/invoices/${first.id}`, { lines: [{ description: 'Consulting', quantity: 1, unit_price: 1 }] });
+  assert.deepEqual((await links(oliver)).at(-1), [first.id, null], 'removing the line releases it');
+  await oliver.ok('POST', `/api/invoices/${first.id}/add-unbilled`);
+  assert.deepEqual((await links(oliver)).at(-1), [null, first.id], 'adding unbilled work links it again');
+  await oliver.ok('POST', `/api/invoices/${first.id}/issue`);
+  await oliver.ok('POST', `/api/invoices/${first.id}/void`, { reason: 'Wrong PO' });
+  assert.deepEqual(await links(oliver), [[null, first.id], [first.id, null], [null, first.id], [first.id, null]], 'voiding releases it');
+
+  const hidden = await tom.ok('GET', `/api/history/tests/${testId}`);
+  assert.ok(hidden.length >= 4, 'the analyst still sees the Test\'s history');
+  assert.deepEqual(await links(tom), [], 'the invoice link is removed for people without billing access');
+  assert.equal((await daniel.ok('GET', '/api/audit/verify')).ok, true, 'the audit trail\'s hash chain still verifies');
+});
+
 test('password change counts wrong attempts and bad input gets 400s, not 500s', async () => {
   const c = await as('jonas.becker');
   for (let i = 0; i < 5; i++) await c.post('/api/auth/password', { current: 'wrong', next: 'whatever123' });
