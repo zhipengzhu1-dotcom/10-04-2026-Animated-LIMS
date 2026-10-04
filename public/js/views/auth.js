@@ -97,7 +97,7 @@ export async function renderLogin(root, { message, onSuccess } = {}) {
     }
   };
   form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
-  // A demo operator "types" their key: each character pulses the sculpture, then the request goes out.
+  // A demo operator "types" their key: each character ripples the helix, then the request goes out.
   root.querySelectorAll('[data-demo]').forEach((b) => b.addEventListener('click', async () => {
     if (busy) return;
     flow.endLockdown();
@@ -106,7 +106,7 @@ export async function renderLogin(root, { message, onSuccess } = {}) {
     pass.value = '';
     for (const ch of 'demo1234') {
       pass.value += ch;
-      ctl.ribbon.pulse(0.8);
+      ctl.helix.pulse();
       if (!still()) await sleep(38);
     }
     submit();

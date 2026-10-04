@@ -16,11 +16,11 @@
 }
 :root[data-theme="dark"] .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-veil: rgba(17, 17, 15, 0.28); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-veil: rgba(17, 17, 15, 0.28); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); } }
-:root[data-theme="dark"] .lock-ribbon { --ribbon-tone: night; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lock-ribbon { --ribbon-tone: night; } }
 .lock .micro { font: 500 10px/1.3 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--lk-3); }
 .lock kbd { display: inline-block; border: 1px solid color-mix(in srgb, var(--lk-ink) 32%, transparent); border-radius: 1px; padding: 0 5px; color: var(--lk-2); }
-.lock-ribbon { --ribbon-inset: 261px; position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; animation: lk-fade var(--t-6) ease both; }
+/* The helix (core/helix.js) fills the area beside the brand rail; without WebGL it is swapped for a still SVG. */
+.lock-helix, .lock .helix-static { position: absolute; top: 0; bottom: 0; left: 261px; width: calc(100% - 261px); height: 100%; z-index: -1; pointer-events: none; transition: opacity var(--t-5), filter var(--t-5); }
+.lock .helix-static { color: var(--lk-ink); opacity: 0.32; padding: 12vh 30% 12vh 4%; box-sizing: border-box; }
 .lock-grain { position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5; background-image: radial-gradient(var(--lk-line) 0.6px, transparent 0.7px); background-size: 3px 3px; mask-image: radial-gradient(80% 70% at 50% 50%, transparent 40%, #000 100%); }
 .lock::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 260px; background: var(--lk-veil); backdrop-filter: blur(3px) saturate(1.05); pointer-events: none; }
 .lock-rule { position: absolute; left: 260px; top: 0; bottom: 0; width: 1px; background: var(--lk-line); animation: lk-draw-y var(--t-5) var(--ease) both; transform-origin: top; }
@@ -183,7 +183,6 @@
 .lock-warning ul li:empty { display: none; }
 .lock-warning ul li::before { content: "▪ "; color: var(--signal); }
 .lock[data-state="denied"] { --lk-bg: #0b0b0a; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(255, 91, 20, 0.22); --lk-glass: rgba(18, 16, 14, 0.7); --lk-veil: rgba(11, 11, 10, 0.32); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: #0b0b0a; box-shadow: inset 0 0 0 2px var(--signal); }
-.lock[data-state="denied"] .lock-ribbon { --ribbon-tone: night; }
 .lock[data-state="denied"] .lock-warning { display: block; animation: lk-glitch 0.32s steps(2) both; }
 .lock[data-state="denied"] .lock-panel { filter: saturate(0.7); }
 .lock[data-state="denied"] .lp-ghost { --lk-ghost: var(--signal); }
@@ -204,8 +203,14 @@
 @keyframes lk-glitch { 0% { opacity: 0; transform: translate(-48%, -50%) skewX(-8deg); clip-path: inset(40% 0 30% 0); } 50% { opacity: 1; transform: translate(-51%, -50%); clip-path: inset(0 0 60% 0); } 100% { opacity: 1; transform: translate(-50%, -50%); clip-path: inset(0); } }
 
 
-/* Granted: the camera flies into the sculpture (auth.js flyIn); the frosted column clears as it goes. */
+/* Granted: the camera dives into the helix (lockFlow) while the card blurs away and the frame fades. These run as
+   animations, not transitions, because each element's entrance animation holds its opacity with fill-mode both. */
+@keyframes lk-unseal { to { opacity: 0; filter: blur(10px); scale: 1.04; } }
+@keyframes lk-out { to { opacity: 0; } }
 .lock[data-state="granted"]::before { opacity: 0; transition: opacity var(--t-4); }
+.lock[data-state="granted"] .lock-panel { animation: lk-unseal var(--t-4) var(--ease) forwards; }
+.lock[data-state="granted"] :is(.lock-brand, .lock-side, .lock-rule, .lock-seal, .lock-clock, .lock-foot) { animation: lk-out var(--t-4) var(--ease) forwards; }
+.lock[data-state="granted"] .lock-helix { filter: blur(0.5px); }
 .lock[data-state="granted"] .auth-key { box-shadow: inset 0 -3px 0 var(--lime); }
 
 @media (max-height: 860px) {
@@ -237,7 +242,7 @@
   .lock-panel { order: 3; animation: lk-rise var(--t-5) var(--ease) both var(--t-2); }
   .lp-body { max-height: none; overflow: visible; }
   .lock-msg { order: 4; right: auto; }
-  .lock-ribbon { --ribbon-inset: 0px; position: fixed; inset: 0; width: 100%; opacity: 0.55; }
+  .lock-helix, .lock .helix-static { position: fixed; left: 0; width: 100%; opacity: 0.5; --helix-cx: 0.5; --helix-cy: 0.42; --helix-span: 1.3; }
   .lock-verify, .lock-warning { position: fixed; left: 50%; top: 42%; }
   .lock-verify { margin-left: -100px; }
   .operator { grid-template-columns: 88px minmax(0, 1fr); }
