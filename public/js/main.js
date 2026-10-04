@@ -6,7 +6,8 @@ import { icon, LOGO } from './core/icons.js';
 import { avatar, emptyState, promptReason, modalOpen } from './core/ui.js';
 import { openPalette } from './core/palette.js';
 import { renderLogin, renderSetup, renderForcedPasswordChange } from './views/auth.js';
-import { createRibbon } from './core/ribbon.js';
+import { createHelix } from './core/helix.js';
+import { HELIX_TOKENS } from './core/lock.js';
 import { snapshot, settle } from './core/motion.js';
 
 import * as dashboard from './views/dashboard.js';
@@ -148,11 +149,23 @@ function toggleDensity() {
 // Interface intensity: "tuned" (default) keeps the work screens calm; "full" adds the HUD theatre
 // (ambient sculpture, corner brackets, ghost type, readout strip). Remembered per computer like density.
 const hudMode = () => (document.documentElement.getAttribute('data-hud') === 'full' ? 'full' : 'tuned');
-let ambient = null;
+// The backdrop helix plays its intro, then holds a still frame: a WebGL loop running all day behind work screens would
+// cost GPU on lab PCs. It belongs to one shell; when the shell re-renders or goes away, that helix is destroyed.
+let ambient = null; // { host, helix: Promise of the controller }
 function syncAmbient() {
-  const host = root.querySelector('.hud-ambient');
-  if (hudMode() === 'full' && host && !ambient) ambient = createRibbon(host.querySelector('canvas'), { cx: 0.6, cy: 0.52, scale: 0.4, slats: 260, fps: 30 });
-  if ((hudMode() !== 'full' || !host) && ambient) { ambient.destroy(); ambient = null; }
+  const host = hudMode() === 'full' ? root.querySelector('.hud-ambient') : null;
+  if (ambient && ambient.host !== host) {
+    ambient.helix.then((h) => h.destroy());
+    ambient = null;
+  }
+  if (host && !ambient) {
+    // Each helix gets a fresh canvas: destroy() loses the old one's WebGL context for good.
+    const canvas = document.createElement('canvas');
+    host.replaceChildren(canvas);
+    const helix = createHelix(canvas, { cx: 0.6, cy: 0.52, span: 0.8, colours: HELIX_TOKENS });
+    helix.then((h) => setTimeout(() => h.settle(), 2600));
+    ambient = { host, helix };
+  }
 }
 function setHud(mode) {
   if (mode === 'full') document.documentElement.setAttribute('data-hud', 'full');
@@ -260,11 +273,9 @@ function renderShell() {
         ${state.settings.demo_mode ? html`<div class="demo-banner">${icon('sparkle', { size: 14 })}<span>Demo data — explore freely. Everyone's password is <strong>demo1234</strong>. Switch accounts from the menu at bottom-left (Sign out).</span></div>` : ''}
         <main class="content" id="content" tabindex="-1"></main>
       </div>
-      <div class="hud-ambient" aria-hidden="true"><canvas></canvas></div>
+      <div class="hud-ambient" aria-hidden="true"></div>
       <div class="hud-strip" aria-hidden="true"><span class="hs-live">Session active</span><span>Operator <b>${me.username}</b></span><span>${roleLabel(me.role)}</span><span>Route <b data-strip-route></b></span><span class="hs-ruler"></span><span data-strip-alerts></span><span>${state.settings.lab_name}</span><b data-strip-clock></b><span>Aliquot OS</span></div>
     </div>`);
-  ambient?.destroy();
-  ambient = null;
   syncAmbient();
   tickClock();
 
@@ -470,7 +481,6 @@ async function renderRoute({ keepScroll = false } = {}) {
       content.classList.remove('sweep');
       void content.offsetWidth;
       content.classList.add('sweep');
-      ambient?.pulse(1.2);
     }
   }
   // Views may register post-insert hooks (charts and editors need layout).
@@ -546,6 +556,7 @@ function signedOut(message) {
   state.me = null;
   document.querySelectorAll('.modal-backdrop, .viz-tip').forEach((el) => el.remove());
   renderLogin(root, { message, onSuccess: () => startApp({ arrive: true }) });
+  syncAmbient();
 }
 
 // Shared bench computers: sign out an idle browser so results aren't left on screen (mirrors the server-side timeout).
@@ -565,7 +576,10 @@ setApiHooks({
     if (!state.me) return;
     signedOut(message);
   },
-  onPasswordChange: () => renderForcedPasswordChange(root, startApp),
+  onPasswordChange: () => {
+    renderForcedPasswordChange(root, startApp);
+    syncAmbient();
+  },
   onReasonRequired: (message) => promptReason(message),
 });
 
