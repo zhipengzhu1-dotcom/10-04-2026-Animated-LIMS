@@ -10,13 +10,14 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / Node ${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
+    name: Linux / Node ${{ matrix.node }}
+    # Jobs run in Docker on the owner's Mac (docs/ci-runner.md), so CI tests Linux only, not Windows or macOS.
+    runs-on: [self-hosted, animated]
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        # Labs run Aliquot on Windows, macOS or Linux; 22.13 is the oldest Node version the README supports.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # 22.13 is the oldest Node version the README supports.
         node: ['22.13.0', '24']
     steps:
       - uses: actions/checkout@v5
