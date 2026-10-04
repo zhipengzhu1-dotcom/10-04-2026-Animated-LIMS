@@ -535,7 +535,7 @@ stage "Tunnel and DNS record"
 say "A named tunnel carries $PUBLIC_URL to Aliquot on this Mac, with no port opened."
 tunnel_id() {
   "$CLOUDFLARED_BIN" tunnel list --name "$TUNNEL_NAME" --output json 2>/dev/null \
-    | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const t=JSON.parse(s||"[]")[0];if(t)console.log(t.id)})'
+    | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const t=(JSON.parse(s||"[]")||[])[0];if(t)console.log(t.id)})'
 }
 if (( DRY_RUN )); then
   TUNNEL_ID=00000000-0000-0000-0000-000000000000
