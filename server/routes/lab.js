@@ -216,7 +216,7 @@ export function issueReport(ctx, sampleId, body) {
   if (inv) throw bad(`${inv.code} is still open for this sample — close it before issuing the certificate`);
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'samples', s.id, 'Certificate of Analysis issued', { comment: body.comment || null, code: s.code });
+    applySignature(ctx, 'samples', s.id, 'sample.coa.issue', { comment: body.comment || null, code: s.code });
     update(ctx, 'samples', s.id, { status: 'Reported', reported_at: nowIso() }, { action: 'STATUS', summary: 'Certificate of Analysis issued' });
   });
   return { ok: true };
@@ -399,7 +399,7 @@ export function submitTest(ctx, id, body) {
   verifySignature(ctx, body.password);
   const fails = results.filter((r) => r.outcome === 'Fail');
   return tx(() => {
-    applySignature(ctx, 'tests', id, 'Performed', { comment: body.comment || null, code: t.code });
+    applySignature(ctx, 'tests', id, 'test.submit', { comment: body.comment || null, code: t.code });
     update(ctx, 'tests', id, { status: 'Submitted', submitted_at: nowIso(), oos: fails.length ? 1 : 0 }, { action: 'STATUS', summary: 'Submitted for review' });
     const investigation = fails.length && !openInvestigation(id) ? raiseOos(ctx, t, fails) : null;
     refreshSampleStatus(ctx, t.sample_id);
@@ -417,7 +417,7 @@ export function reviewTest(ctx, id, body) {
   if (!accept && !comment) throw bad('Explain why the test is being returned to the analyst', 'REASON_REQUIRED');
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'tests', id, accept ? 'Reviewed' : 'Returned by reviewer', { comment, code: t.code });
+    applySignature(ctx, 'tests', id, accept ? 'test.review.accept' : 'test.review.return', { comment, code: t.code });
     if (accept) update(ctx, 'tests', id, { status: 'Reviewed', reviewed_by: ctx.user.id, reviewed_at: nowIso() }, { action: 'STATUS', summary: 'Peer review passed' });
     else update(ctx, 'tests', id, { status: 'In Progress', submitted_at: null }, { action: 'STATUS', summary: 'Returned to analyst by reviewer', reason: comment });
     refreshSampleStatus(ctx, t.sample_id);
@@ -440,7 +440,7 @@ export function approveTest(ctx, id, body) {
   }
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'tests', id, accept ? 'Approved' : 'Rejected at approval', { comment, code: t.code });
+    applySignature(ctx, 'tests', id, accept ? 'test.approve.accept' : 'test.approve.reject', { comment, code: t.code });
     if (accept) update(ctx, 'tests', id, { status: 'Approved', approved_by: ctx.user.id, approved_at: nowIso() }, { action: 'STATUS', summary: 'Result approved' });
     else update(ctx, 'tests', id, { status: 'In Progress', submitted_at: null, reviewed_by: null, reviewed_at: null }, { action: 'STATUS', summary: 'Returned to analyst at approval', reason: comment });
     refreshSampleStatus(ctx, t.sample_id);

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { get, run } from './db.js';
 import { audit } from './audit.js';
 import { HttpError, forbidden, parseCookies } from './http.js';
-import { PERMISSIONS } from './lookups.js';
+import { PERMISSIONS, SIGNATURE_MEANINGS } from './lookups.js';
 import { getNumber } from './settings.js';
 import { nowIso } from './util.js';
 import { SECURE_COOKIES, SESSION_MAX_HOURS } from './config.js';
@@ -143,7 +143,9 @@ export function verifySignature(ctx, password) {
   if (user.failed_logins) run('UPDATE users SET failed_logins = 0 WHERE id = ?', user.id);
 }
 
-export function applySignature(ctx, entity, entityId, meaning, { comment = null, code = null } = {}) {
+/** Records the signature for a signed action; the stored meaning comes from SIGNATURE_MEANINGS[action]. */
+export function applySignature(ctx, entity, entityId, action, { comment = null, code = null } = {}) {
+  const { meaning } = SIGNATURE_MEANINGS[action];
   run(
     'INSERT INTO signatures (entity, entity_id, user_id, full_name, meaning, comment, signed_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     entity, entityId, ctx.user.id, ctx.user.full_name, meaning, comment == null || comment === '' ? null : String(comment), nowIso(),

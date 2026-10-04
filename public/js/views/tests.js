@@ -336,7 +336,7 @@ export async function detail(ctx) {
     const isReview = kind === 'review';
     return esign({
       title: accept ? (isReview ? 'Sign peer review' : 'Approve result') : 'Return to analyst',
-      meaning: accept ? (isReview ? 'Reviewed — results verified against raw data' : 'Approved for release') : isReview ? 'Returned by reviewer' : 'Rejected at approval',
+      action: accept ? (isReview ? 'test.review.accept' : 'test.approve.accept') : isReview ? 'test.review.return' : 'test.approve.reject',
       description: accept
         ? html`${t.code} · ${t.method_code} on ${t.sample_code}${fails.length ? html` — <strong class="bad-text">${plural(fails.length, 'result')} out of specification</strong>` : ''}`
         : html`The test goes back to ${t.analyst_name} to correct and resubmit. Your reason is shown to them and kept in the audit trail.`,
@@ -376,7 +376,7 @@ export async function detail(ctx) {
       const oos = fresh.results.filter((r) => r.outcome === 'Fail');
       const signed = await esign({
         title: 'Submit for review',
-        meaning: 'Performed by — results are complete and accurate',
+        action: 'test.submit',
         description: html`<p style="margin:0 0 8px">You confirm that ${t.code} was performed according to <strong>${t.method_code} v${t.method_version}</strong> and the results below are complete and traceable to the raw data.</p>
           <table class="table compact"><tbody>${fresh.results.map((r) => html`<tr><td>${r.analyte}</td><td class="right num mono">${resultText(r)}</td><td>${outcomeBadge(r.outcome)}</td></tr>`)}</tbody></table>
           ${oos.length ? html`<p class="notice bad" style="margin-top:10px">${icon('alert', { size: 15 })}<span>${plural(oos.length, 'result')} out of specification. An OOS investigation will be opened automatically when you submit.</span></p>` : ''}`,
@@ -397,7 +397,7 @@ export async function detail(ctx) {
     assign: async () => { if (await assignDialog([t.id], [t])) ctx.refresh(); },
     'close-investigation': () => esign({
       title: `Close ${openInv.find((v) => v.type === 'OOS').code}`,
-      meaning: 'OOS investigation closed',
+      action: 'investigation.close.oos',
       description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked and the result can go to approval.`,
       fields: html`
         ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true })}

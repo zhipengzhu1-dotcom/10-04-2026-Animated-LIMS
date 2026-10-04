@@ -137,7 +137,7 @@ export async function detail(ctx) {
       if (['Effective', 'Retired'].includes(target)) {
         const ok = await esign({
           title: target === 'Effective' ? `Approve ${m.code} v${m.version}` : `Retire ${m.code} v${m.version}`,
-          meaning: target === 'Effective' ? 'Method approved for GMP use' : 'Method retired',
+          action: target === 'Effective' ? 'method.approve' : 'method.retire',
           description: target === 'Effective'
             ? html`The method becomes the controlled version for testing. ${d.versions.some((v) => v.status === 'Effective' && v.id !== m.id) ? 'The current effective version will be retired automatically.' : ''}`
             : 'Retired methods can no longer be used for new tests.',

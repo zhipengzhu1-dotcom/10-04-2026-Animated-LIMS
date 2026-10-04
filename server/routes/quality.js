@@ -53,7 +53,7 @@ export function signEntry(ctx, id, body) {
   if (!n.body.trim()) throw bad('The entry is empty');
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'notebook_entries', id, 'Authored', { comment: body.comment || null, code: n.code });
+    applySignature(ctx, 'notebook_entries', id, 'notebook.author', { comment: body.comment || null, code: n.code });
     freezeDocuments(ctx, n);
     update(ctx, 'notebook_entries', id, { status: 'Signed', signed_at: nowIso() }, { action: 'STATUS', summary: 'Signed by author — entry locked' });
   });
@@ -67,7 +67,7 @@ export function witnessEntry(ctx, id, body) {
   if (n.status !== 'Signed') throw bad('Only signed entries can be witnessed');
   verifySignature(ctx, body.password);
   tx(() => {
-    applySignature(ctx, 'notebook_entries', id, 'Witnessed', { comment: body.comment || null, code: n.code });
+    applySignature(ctx, 'notebook_entries', id, 'notebook.witness', { comment: body.comment || null, code: n.code });
     update(ctx, 'notebook_entries', id, { status: 'Witnessed', witness_id: ctx.user.id, witnessed_at: nowIso() }, { action: 'STATUS', summary: 'Witnessed' });
   });
   return { ok: true };
@@ -149,7 +149,7 @@ export function closeInvestigation(ctx, id, body) {
   verifySignature(ctx, body.password);
   tx(() => {
     update(ctx, 'investigations', id, { ...findings, status: 'Closed', closed_by: ctx.user.id, closed_at: nowIso() }, { action: 'STATUS', summary: 'Investigation closed' });
-    applySignature(ctx, 'investigations', id, v.type === 'OOS' ? 'OOS investigation closed' : 'Closed', { comment: body.comment || null, code: v.code });
+    applySignature(ctx, 'investigations', id, v.type === 'OOS' ? 'investigation.close.oos' : 'investigation.close', { comment: body.comment || null, code: v.code });
   });
   return { ok: true };
 }

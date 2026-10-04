@@ -231,7 +231,7 @@ export async function detail(ctx) {
       const signedDocs = docs.docs().filter((x) => !x.removed);
       const ok = await esign({
         title: 'Sign notebook entry',
-        meaning: 'Authored — entry is complete and accurate',
+        action: 'notebook.author',
         description: html`<p style="margin:0">Signing locks the entry permanently. Corrections afterwards can only be made as dated addenda.</p>
           ${signedDocs.length ? html`<div class="notice warn" style="margin-top:10px">${icon('lock', { size: 14 })}<span>These document versions are signed with it: ${signedDocs.map((x, i) => html`${i ? ', ' : ''}<strong>${x.filename}</strong> v${x.version}`)}. Save and close them in Word/Excel first — unsaved changes there are not included.</span></div>` : ''}`,
         confirmLabel: 'Sign & lock',
@@ -242,7 +242,7 @@ export async function detail(ctx) {
     if (act === 'witness') {
       const ok = await esign({
         title: 'Witness notebook entry',
-        meaning: 'Witnessed — I have read and understood this entry',
+        action: 'notebook.witness',
         description: html`You confirm you have read <strong>${n.code}</strong> by ${n.author_name} and that it is understandable and complete.`,
         confirmLabel: 'Sign as witness',
         comment: { label: 'Comment (optional)' },

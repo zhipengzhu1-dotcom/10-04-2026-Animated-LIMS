@@ -413,10 +413,12 @@ export function promptReason(message = 'Give a reason for this change') {
 }
 
 /**
- * Electronic signature dialog (21 CFR Part 11): the signer re-enters their password and states the meaning.
- * onSign({ password, comment }) performs the signed action; errors (e.g. wrong password) stay in the dialog.
+ * Electronic signature dialog (21 CFR Part 11): the signer re-enters their password and sees the meaning the server
+ * stores for `action` (a key of the lookups' signatureMeanings). onSign({ password, comment }) performs the signed
+ * action; errors (e.g. wrong password) stay in the dialog.
  */
-export function esign({ title, meaning, description, confirmLabel = 'Sign', danger = false, comment = null, fields = null, onSign }) {
+export function esign({ title, action, description, confirmLabel = 'Sign', danger = false, comment = null, fields = null, onSign }) {
+  const { meaning, explanation } = state.lookups.signatureMeanings[action];
   return openForm({
     title,
     size: 'sm',
@@ -426,7 +428,7 @@ export function esign({ title, meaning, description, confirmLabel = 'Sign', dang
       ${description ? html`<div class="span-2 esign-desc">${description}</div>` : ''}
       <div class="span-2 esign-card">
         <div class="esign-who">${avatar(state.me.full_name, state.me.id, { size: 32 })}<div><strong>${state.me.full_name}</strong><small>${state.me.title || ''}</small></div></div>
-        <div class="esign-meaning"><span>Meaning of signature</span><strong>${meaning}</strong></div>
+        <div class="esign-meaning"><span>Meaning of signature</span><strong>${meaning}</strong><small>${explanation}</small></div>
       </div>
       ${fields || ''}
       ${comment ? field({ label: comment.label || 'Comment', name: 'comment', type: 'textarea', rows: 2, required: comment.required, span: 2, placeholder: comment.placeholder }) : ''}

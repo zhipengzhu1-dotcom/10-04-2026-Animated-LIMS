@@ -100,10 +100,10 @@ export function setMethodStatus(ctx, id, body) {
       for (const old of all(`SELECT id FROM methods WHERE code = ? AND status = 'Effective' AND id != ?`, m.code, id)) {
         update(ctx, 'methods', old.id, { status: 'Retired' }, { action: 'STATUS', summary: `Superseded by ${m.code} v${m.version}` });
       }
-      applySignature(ctx, 'methods', id, 'Approved for use', { comment: body.comment || null, code: m.code });
+      applySignature(ctx, 'methods', id, 'method.approve', { comment: body.comment || null, code: m.code });
       update(ctx, 'methods', id, { status: target, effective_date: today(), approved_by: ctx.user.id }, { action: 'STATUS', summary: `Method → ${target}` });
     } else {
-      if (target === 'Retired') applySignature(ctx, 'methods', id, 'Retired', { comment: body.comment || null, code: m.code });
+      if (target === 'Retired') applySignature(ctx, 'methods', id, 'method.retire', { comment: body.comment || null, code: m.code });
       update(ctx, 'methods', id, { status: target }, { action: 'STATUS', summary: `Method → ${target}`, reason: body.comment || null });
     }
   });

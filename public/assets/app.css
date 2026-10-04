@@ -583,9 +583,10 @@ input[type=checkbox], input[type=radio] { accent-color: var(--text); width: 15px
 .esign-card::after { content: "E-SIGNATURE · 21 CFR 11"; position: absolute; right: 10px; top: -7px; padding: 0 6px; background: var(--lime); color: #121211; font: 600 8.5px/14px var(--mono); letter-spacing: 0.14em; }
 .esign-who { display: flex; gap: 10px; align-items: center; }
 .esign-who small { display: block; color: var(--slab-text-2); font: 500 9px/1.5 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; }
-.esign-meaning { text-align: right; }
+.esign-meaning { text-align: right; flex: 1 1 160px; }
 .esign-meaning span { display: block; font: 500 9px/1.5 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--slab-text-2); }
 .esign-meaning strong { color: var(--slab-accent); font-size: 14px; }
+.esign-meaning small { display: block; color: var(--slab-text-2); font-size: 12px; margin-top: 2px; }
 .esign-desc { color: var(--text-2); font-size: var(--fs-ui); }
 .legal { color: var(--text-3); font-size: 11.5px; margin: 0; display: flex; gap: 6px; align-items: flex-start; }
 .legal .icon { margin-top: 3px; }

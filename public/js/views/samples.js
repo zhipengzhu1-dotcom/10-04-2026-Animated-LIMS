@@ -456,7 +456,7 @@ export async function detail(ctx) {
     },
     issue: () => esign({
       title: 'Issue Certificate of Analysis',
-      meaning: 'Certificate of Analysis issued',
+      action: 'sample.coa.issue',
       description: html`All ${plural(d.tests.filter((t) => t.status === 'Approved').length, 'test')} on <strong>${s.code}</strong> are approved${fails ? html` — <strong class="bad-text">including ${plural(fails, 'OOS result')}</strong>` : ''}. Issuing locks the sample and releases the certificate to the client.`,
       confirmLabel: 'Sign & issue',
       comment: { label: 'Comment (optional)' },

@@ -87,6 +87,23 @@ export const OOS_CONCLUSIONS = ['Confirmed OOS â€” result valid', 'Invalidated â
 
 export const INVOICE_STATUSES = ['Draft', 'Sent', 'Paid', 'Void'];
 
+// Every e-signature's meaning, keyed by the signed action. `meaning` is what the signature row stores (never change
+// one: signed records and exact-string queries depend on it); `explanation` is shown beneath it in the signing dialog.
+export const SIGNATURE_MEANINGS = {
+  'test.submit': { meaning: 'Performed', explanation: 'Results are complete and accurate' },
+  'test.review.accept': { meaning: 'Reviewed', explanation: 'Results verified against raw data' },
+  'test.review.return': { meaning: 'Returned by reviewer', explanation: 'Results are not accepted and go back to the analyst to correct and resubmit' },
+  'test.approve.accept': { meaning: 'Approved', explanation: 'Approved for release' },
+  'test.approve.reject': { meaning: 'Rejected at approval', explanation: 'Results are not approved for release and go back to the analyst to correct and resubmit' },
+  'sample.coa.issue': { meaning: 'Certificate of Analysis issued', explanation: 'The certificate is released to the client and the sample is locked' },
+  'notebook.author': { meaning: 'Authored', explanation: 'Entry is complete and accurate' },
+  'notebook.witness': { meaning: 'Witnessed', explanation: 'I have read and understood this entry' },
+  'method.approve': { meaning: 'Approved for use', explanation: 'Method approved for GMP use' },
+  'method.retire': { meaning: 'Retired', explanation: 'Method retired; it can no longer be used for new tests' },
+  'investigation.close.oos': { meaning: 'OOS investigation closed', explanation: 'Investigation reviewed and closed' },
+  'investigation.close': { meaning: 'Closed', explanation: 'Investigation reviewed and closed' },
+};
+
 export const ATTACHABLE = ['samples', 'tests', 'methods', 'notebook_entries', 'investigations', 'instruments', 'inventory', 'projects', 'clients', 'invoices'];
 
 // Who may see a record type's files/history (null = any signed-in user) and who may add files to it; a Withheld `module` hides both.
@@ -140,5 +157,6 @@ export function lookups() {
     severities: SEVERITIES,
     oosConclusions: OOS_CONCLUSIONS,
     invoiceStatuses: INVOICE_STATUSES,
+    signatureMeanings: SIGNATURE_MEANINGS,
   };
 }

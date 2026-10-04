@@ -162,7 +162,7 @@ export async function detail(ctx) {
     try { await api.put(`/api/investigations/${v.id}`, { ...data, title: v.title, owner_id: data.owner_id || null }); } catch (e) { toast(e.message, 'error'); return; }
     const ok = await esign({
       title: `Close ${v.code}`,
-      meaning: 'Investigation reviewed and closed',
+      action: v.type === 'OOS' ? 'investigation.close.oos' : 'investigation.close',
       description: html`Conclusion: <strong>${form.conclusion?.value || v.conclusion}</strong>. Closing locks the record${v.test_id ? ' and allows the related result to be approved or returned for repeat analysis' : ''}.`,
       confirmLabel: 'Sign & close',
       comment: { label: 'Closure comment (optional)' },

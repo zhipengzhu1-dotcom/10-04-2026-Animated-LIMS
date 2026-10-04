@@ -117,7 +117,7 @@ export async function render(ctx) {
       let done = 0;
       const ok = await esign({
         title: kind === 'review' ? `Sign review for ${plural(ids.length, 'test')}` : `Approve ${plural(ids.length, 'test')}`,
-        meaning: kind === 'review' ? 'Reviewed — results verified against raw data' : 'Approved for release',
+        action: kind === 'review' ? 'test.review.accept' : 'test.approve.accept',
         description: html`<p style="margin:0 0 6px">Your signature is applied to each of these records:</p><ul style="margin:0;padding-left:18px">${list.map((t) => html`<li><span class="code">${t.code}</span> ${t.method_code} · ${t.sample_code}</li>`)}</ul>`,
         confirmLabel: kind === 'review' ? 'Sign all' : 'Approve all',
         onSign: async (sig) => {
@@ -138,7 +138,7 @@ export async function render(ctx) {
     if (issue) {
       const ok = await esign({
         title: `Issue certificate for ${issue.dataset.code}`,
-        meaning: 'Certificate of Analysis issued',
+        action: 'sample.coa.issue',
         confirmLabel: 'Sign & issue',
         onSign: (sig) => api.post(`/api/samples/${issue.dataset.issue}/report`, sig),
       });

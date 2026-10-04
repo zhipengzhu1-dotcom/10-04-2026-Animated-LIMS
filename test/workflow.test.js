@@ -495,6 +495,70 @@ test('closing a deviation from Investigations is still signed "Closed"', async (
   assert.deepEqual(d.signatures.map((s) => s.meaning), ['Closed']);
 });
 
+test('every signed action stores exactly the meaning the lookups serve for it', async () => {
+  const tom = await as('tom.fletcher');
+  const sarah = await as('sarah.lindqvist');
+  const daniel = await as('daniel.okafor');
+  const priya = await as('priya.raman');
+  const { signatureMeanings } = await tom.ok('GET', '/api/lookups');
+  // The stored strings predate the table; anything that reads meanings by exact string relies on them.
+  assert.deepEqual(Object.fromEntries(Object.entries(signatureMeanings).map(([key, m]) => [key, m.meaning])), {
+    'test.submit': 'Performed',
+    'test.review.accept': 'Reviewed',
+    'test.review.return': 'Returned by reviewer',
+    'test.approve.accept': 'Approved',
+    'test.approve.reject': 'Rejected at approval',
+    'sample.coa.issue': 'Certificate of Analysis issued',
+    'notebook.author': 'Authored',
+    'notebook.witness': 'Witnessed',
+    'method.approve': 'Approved for use',
+    'method.retire': 'Retired',
+    'investigation.close.oos': 'OOS investigation closed',
+    'investigation.close': 'Closed',
+  });
+  for (const m of Object.values(signatureMeanings)) assert.ok(m.explanation?.trim(), `${m.meaning} has an explanation`);
+
+  const stored = {};
+  const lastMeaning = async (client, url) => (await client.ok('GET', url)).signatures.at(-1).meaning;
+  const sign = async (key, client, url, body, readBack) => {
+    await client.ok('POST', url, { password: PASSWORD, ...body });
+    stored[key] = await lastMeaning(daniel, readBack);
+  };
+
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  const testUrl = `/api/tests/${testId}`;
+  await sign('test.submit', tom, `${testUrl}/submit`, {}, testUrl);
+  const before = (await daniel.ok('GET', testUrl)).signatures.length;
+  assert.equal((await sarah.post(`${testUrl}/review`, { decision: 'reject', comment: 'Recheck', password: 'wrong' })).data.code, 'SIGNATURE');
+  assert.equal((await daniel.ok('GET', testUrl)).signatures.length, before, 'a refused signature stores no meaning');
+  await sign('test.review.return', sarah, `${testUrl}/review`, { decision: 'reject', comment: 'Recheck the drift' }, testUrl);
+  await tom.ok('POST', `${testUrl}/submit`, { password: PASSWORD });
+  await sign('test.review.accept', sarah, `${testUrl}/review`, { decision: 'approve' }, testUrl);
+  await sign('test.approve.reject', daniel, `${testUrl}/approve`, { decision: 'reject', comment: 'Wrong balance' }, testUrl);
+  await tom.ok('POST', `${testUrl}/submit`, { password: PASSWORD });
+  await sarah.ok('POST', `${testUrl}/review`, { decision: 'approve', password: PASSWORD });
+  await sign('test.approve.accept', daniel, `${testUrl}/approve`, { decision: 'approve' }, testUrl);
+  await sign('sample.coa.issue', daniel, `/api/samples/${sampleId}/report`, {}, `/api/samples/${sampleId}`);
+
+  const oos = await oosTest('priya.raman');
+  await sign('investigation.close.oos', daniel, `/api/tests/${oos.testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid' }, `/api/investigations/${oos.investigation.id}`);
+  const deviation = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance' });
+  await sign('investigation.close', daniel, `/api/investigations/${deviation.id}/close`, { root_cause: 'Draught from door', conclusion: 'No product impact' }, `/api/investigations/${deviation.id}`);
+
+  const entry = await tom.ok('POST', '/api/notebook', { title: 'Mobile phase prep', body: 'Done.' });
+  await sign('notebook.author', tom, `/api/notebook/${entry.id}/sign`, {}, `/api/notebook/${entry.id}`);
+  await sign('notebook.witness', sarah, `/api/notebook/${entry.id}/witness`, {}, `/api/notebook/${entry.id}`);
+
+  const me = (await priya.ok('GET', '/api/auth/me')).user;
+  const method = await priya.ok('POST', '/api/methods', { title: 'Meanings check', technique: 'UV-Vis', price: 100, tat_days: 3, owner_id: me.id, analytes: [{ name: 'Assay', spec_min: 95, spec_max: 105 }] });
+  await sign('method.approve', daniel, `/api/methods/${method.id}/status`, { status: 'Effective' }, `/api/methods/${method.id}`);
+  await sign('method.retire', daniel, `/api/methods/${method.id}/status`, { status: 'Retired', comment: 'Superseded' }, `/api/methods/${method.id}`);
+
+  assert.deepEqual(stored, Object.fromEntries(Object.keys(signatureMeanings).map((key) => [key, signatureMeanings[key].meaning])));
+});
+
 test('non-text reasons cannot break the audit hash chain', async () => {
   const tom = await as('tom.fletcher');
   const items = await tom.ok('GET', '/api/inventory');
