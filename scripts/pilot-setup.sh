@@ -185,6 +185,8 @@ finish() {
 #   scripts/pilot-setup.sh             set up (or repair) the Pilot copy, step by step
 #   scripts/pilot-setup.sh update      move the Pilot copy to the latest release and restart it
 #   scripts/pilot-setup.sh check       run the live-site check again (e.g. after a restart)
+#   scripts/pilot-setup.sh demo        add the public demo (demo data, no Access) beside the Pilot
+#   scripts/pilot-setup.sh demo-reset  reload fresh demo data; launchd runs this every night
 #   add --dry-run to any of them to see every command and file without changing the Mac
 #
 # Every step is safe to repeat: re-running skips or rewrites what is already done.
@@ -194,9 +196,9 @@ MODE=setup
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
-    setup|update|check) MODE="$arg" ;;
+    setup|update|check|demo|demo-reset) MODE="$arg" ;;
     --dry-run) DRY_RUN=1 ;;
-    *) printf 'Usage: %s [setup|update|check] [--dry-run]\n' "$0"; exit 2 ;;
+    *) printf 'Usage: %s [setup|update|check|demo|demo-reset] [--dry-run]\n' "$0"; exit 2 ;;
   esac
 done
 
@@ -221,6 +223,14 @@ ICLOUD_ROOT="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
 LOCAL_URL="http://127.0.0.1:$PILOT_PORT"
 PUBLIC_URL="https://$PILOT_HOST"
 GUI="gui/$(id -u)"
+# The public demo: a second copy of the same code with the fictional demo lab, open to anyone, reset nightly.
+DEMO_HOST="${DEMO_HOST:-app.nitrolims-demo.com}"
+DEMO_DATA="${DEMO_DATA:-$HOME/Aliquot-Demo-data}"
+DEMO_PORT=3002
+DEMO_LABEL=com.aliquot.demo
+DEMO_RESET_LABEL=com.aliquot.demo-reset
+DEMO_LOCAL_URL="http://127.0.0.1:$DEMO_PORT"
+DEMO_URL="https://$DEMO_HOST"
 ENV_FILE="$PILOT_DATA/pilot-setup.env"   # values this wizard remembers between runs
 
 DRY_ROOT=""
@@ -295,6 +305,36 @@ plist_env() {
   while (( $# )); do printf '    <key>%s</key><string>%s</string>\n' "$1" "$2"; shift 2; done
 }
 
+demo_installed() { [[ -f "$DRY_ROOT$AGENTS_DIR/$DEMO_LABEL.plist" ]]; }
+
+# write_tunnel_config: the tunnel's routing, including the demo's hostname once the demo is installed.
+write_tunnel_config() {
+  write_file "$TUNNEL_CONFIG" <<YAML
+# Written by scripts/pilot-setup.sh. Aliquot listens on 127.0.0.1 only.
+tunnel: $TUNNEL_ID
+credentials-file: $CF_DIR/$TUNNEL_ID.json
+ingress:
+  - hostname: $PILOT_HOST
+    service: http://127.0.0.1:$PILOT_PORT
+$(if demo_installed; then printf '  - hostname: %s\n    service: http://127.0.0.1:%s\n' "$DEMO_HOST" "$DEMO_PORT"; fi)
+  - service: http_status:404
+YAML
+  run "$CLOUDFLARED_BIN" tunnel --config "$TUNNEL_CONFIG" ingress validate
+}
+
+# route_dns HOST: point HOST at the tunnel, offering to replace an existing record.
+route_dns() {
+  if ! run "$CLOUDFLARED_BIN" tunnel route dns "$TUNNEL_NAME" "$1"; then
+    warn "Cloudflare refused the DNS record, usually because $1 already has an A, AAAA or CNAME record."
+    if confirm "Replace the existing $1 record with the tunnel?"; then
+      run "$CLOUDFLARED_BIN" tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$1"
+    else
+      die "Remove the old record in the Cloudflare DNS dashboard, then re-run."
+    fi
+  fi
+  ok "$1 points at the tunnel"
+}
+
 # ── The live-site check: the final stage, and `check` mode ────────────────
 FAILED=0
 expect() { if eval "$2"; then ok "$1"; else bad "$1"; FAILED=$((FAILED + 1)); fi; }
@@ -309,12 +349,20 @@ live_site_check() {
   say "${BOLD}Automatic checks${RESET}"
   expect "Aliquot service is running"                  "agent_running $APP_LABEL"
   expect "Tunnel service is running"                   "agent_running $TUNNEL_LABEL"
-  expect "Nightly backup job is loaded"                "launchctl print $GUI/$BACKUP_LABEL >/dev/null 2>&1"
+  if [[ -f "$AGENTS_DIR/$BACKUP_LABEL.plist" ]]; then
+    expect "Nightly backup job is loaded"              "launchctl print $GUI/$BACKUP_LABEL >/dev/null 2>&1"
+  fi
   expect "$PUBLIC_URL/ redirects to Cloudflare Access" '[[ "$staff" =~ ^30[0-9]\ .*cloudflareaccess\.com ]]'
   expect "$PUBLIC_URL/portal/ loads without Access"    '[[ "$portal" == *"<title>Client portal</title>"* ]]'
   expect "/api/portal answers without Access"          '[[ "$(http_code "$PUBLIC_URL/api/portal/info")" == 200 ]]'
   expect "/js/core and /assets load without Access"    '[[ "$(http_code "$PUBLIC_URL/js/core/html.js")" == 200 && "$(http_code "$PUBLIC_URL/assets/favicon.svg")" == 200 ]]'
   expect "The Staff API stays behind Access"           '[[ "$(http_code "$PUBLIC_URL/api/setup")" =~ ^(30[0-9]|401|403)$ ]]'
+  if demo_installed; then
+    expect "Demo service is running"                   "agent_running $DEMO_LABEL"
+    expect "Nightly demo reset is loaded"              "launchctl print $GUI/$DEMO_RESET_LABEL >/dev/null 2>&1"
+    expect "$DEMO_URL/ is open without Access"         '[[ "$(http_code "$DEMO_URL/")" == 200 ]]'
+    expect "$DEMO_URL/portal/ is open without Access"  '[[ "$(http_code "$DEMO_URL/portal/")" == 200 ]]'
+  fi
   if [[ -n "$lan_ip" ]]; then
     expect "Port $PILOT_PORT is closed to the LAN ($lan_ip)" '[[ "$(curl -s -o /dev/null --max-time 3 -w "%{http_code}" "http://$lan_ip:$PILOT_PORT/" || true)" == 000 ]]'
   else
@@ -327,8 +375,10 @@ live_site_check() {
   step "Before the first Administrator existed, $PUBLIC_URL said setup has to be done on the"
   step "  computer that runs Aliquot (the first-time setup stage asks you to look)."
   step "Restart the Mac, log in, wait a minute, then run: scripts/pilot-setup.sh check"
-  step "Tomorrow morning, today's aliquot-<date>.db is in the iCloud backups folder:"
-  note "    ${ICLOUD_BACKUP_DIR:-$ICLOUD_ROOT/Aliquot-Pilot-backups}/backups"
+  if [[ -f "$AGENTS_DIR/$BACKUP_LABEL.plist" ]]; then
+    step "Tomorrow morning, today's aliquot-<date>.db is in the iCloud backups folder:"
+    note "    ${ICLOUD_BACKUP_DIR:-$ICLOUD_ROOT/Aliquot-Pilot-backups}/backups"
+  fi
   printf '\n'
   if (( FAILED )); then warn "$FAILED automatic check(s) failed: fix them before inviting anyone"; else ok "All automatic checks passed"; fi
 }
@@ -369,6 +419,105 @@ if [[ "$MODE" == update ]]; then
   note "To roll back: git -C \"$PILOT_DIR\" reset --hard $before && launchctl kickstart -k $GUI/$APP_LABEL"
   note "If the new release migrated the database, also restore the backup just made in $PILOT_DATA/backups/manual-*."
   exit 1
+fi
+
+# ── `demo-reset` mode: launchd runs this nightly to reload fresh demo data ─
+# reset_demo: stop the demo, wipe its lab, load the demo lab again and start it.
+reset_demo() {
+  local node_bin="${NODE_BIN:-$(command -v node)}"
+  run launchctl bootout "$GUI/$DEMO_LABEL" 2>/dev/null || true
+  run rm -rf "$DEMO_DATA/aliquot.db" "$DEMO_DATA/aliquot.db-wal" "$DEMO_DATA/aliquot.db-shm" "$DEMO_DATA/files" "$DEMO_DATA/backups"
+  run mkdir -p "$DEMO_DATA/files" "$DEMO_DATA/logs"
+  (cd "$PILOT_DIR" && run env ALIQUOT_DATA="$DEMO_DATA" "$node_bin" scripts/seed-demo.js)
+  run launchctl bootstrap "$GUI" "$AGENTS_DIR/$DEMO_LABEL.plist"
+}
+
+if [[ "$MODE" == demo-reset ]]; then
+  demo_installed || die "The demo isn't installed. Run scripts/pilot-setup.sh demo first."
+  printf '%s demo reset\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+  reset_demo
+  wait_for "$DEMO_LOCAL_URL/api/setup" 30 || die "The demo didn't come back after the reset."
+  ok "Fresh demo data at $DEMO_URL"
+  exit 0
+fi
+
+# ── `demo` mode: the public demo beside the Pilot ─────────────────────────
+if [[ "$MODE" == demo ]]; then
+  printf '\n%s%s  Public demo: %s%s\n\n' "$BOLD" "$BLUE" "$DEMO_URL" "$RESET"
+  say "A second copy of Aliquot with the fictional demo lab, open to anyone without Cloudflare Access."
+  say "Visitors pick a demo person on either sign-in screen (password demo1234). It shows the Pilot's"
+  say "Shipped modules, uses its own data folder, and reloads fresh demo data every night at 03:00."
+  note "  data: $DEMO_DATA (never the Pilot's data) · 127.0.0.1:$DEMO_PORT · same code as $PILOT_DIR"
+  printf '\n'
+  [[ -f "$PILOT_DIR/scripts/seed-demo.js" ]] || die "$PILOT_DIR has no scripts/seed-demo.js. Run scripts/pilot-setup.sh update first."
+  TUNNEL_ID=$(_existing TUNNEL_ID || true)
+  (( DRY_RUN )) && TUNNEL_ID=${TUNNEL_ID:-00000000-0000-0000-0000-000000000000}
+  [[ -n "$TUNNEL_ID" ]] && { (( DRY_RUN )) || [[ -f "$TUNNEL_CONFIG" ]]; } || die "The Pilot's tunnel isn't set up yet. Run scripts/pilot-setup.sh first."
+  NODE_BIN=$(command -v node) || die "Node.js is missing."
+  CLOUDFLARED_BIN=$(command -v cloudflared || echo /opt/homebrew/bin/cloudflared)
+  confirm "Anyone on the internet can use and change the demo until its nightly reset. Set it up?" || exit 0
+  TOTAL_STAGES=3
+
+  stage "Demo service"
+  write_file "$AGENTS_DIR/$DEMO_LABEL.plist" <<XML
+$(plist_head "$DEMO_LABEL")
+  <key>ProgramArguments</key>
+  <array><string>$NODE_BIN</string><string>$PILOT_DIR/server.js</string></array>
+  <key>WorkingDirectory</key><string>$PILOT_DIR</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+$(plist_env PORT "$DEMO_PORT" HOST 127.0.0.1 ALIQUOT_DATA "$DEMO_DATA" SECURE_COOKIES 1 CLOUDFLARE_TUNNEL 1 SHIPPED_MODULES "$PILOT_MODULES")
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$DEMO_DATA/logs/aliquot.log</string>
+  <key>StandardErrorPath</key><string>$DEMO_DATA/logs/aliquot.log</string>
+</dict>
+</plist>
+XML
+  holder=$(lsof -nP -iTCP:"$DEMO_PORT" -sTCP:LISTEN -t 2>/dev/null | head -n1 || true)
+  if [[ -n "$holder" ]] && ! agent_running "$DEMO_LABEL"; then
+    die "Port $DEMO_PORT is taken by: $(ps -p "$holder" -o command= | cut -c1-80). Stop it and re-run."
+  fi
+  run mkdir -p "$DEMO_DATA"
+  run chmod 700 "$DEMO_DATA"
+  reset_demo
+  wait_for "$DEMO_LOCAL_URL/api/setup" 30 || die "The demo didn't start. See $DEMO_DATA/logs/aliquot.log."
+  ok "The demo answers at $DEMO_LOCAL_URL"
+
+  stage "Nightly demo reset"
+  write_file "$AGENTS_DIR/$DEMO_RESET_LABEL.plist" <<XML
+$(plist_head "$DEMO_RESET_LABEL")
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$PILOT_DIR/scripts/pilot-setup.sh</string><string>demo-reset</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+$(plist_env NODE_BIN "$NODE_BIN" PATH "/usr/bin:/bin:/usr/sbin:/sbin:$(dirname "$NODE_BIN")")
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>$DEMO_DATA/logs/reset.log</string>
+  <key>StandardErrorPath</key><string>$DEMO_DATA/logs/reset.log</string>
+</dict>
+</plist>
+XML
+  load_agent "$DEMO_RESET_LABEL"
+  ok "Fresh demo data every night at 03:00 (log: $DEMO_DATA/logs/reset.log)"
+
+  stage "Publish $DEMO_HOST"
+  write_tunnel_config
+  route_dns "$DEMO_HOST"
+  run launchctl kickstart -k "$GUI/$TUNNEL_LABEL"
+  say "Waiting for $DEMO_URL/portal/ to answer…"
+  if wait_for "$DEMO_URL/portal/" 120; then ok "$DEMO_URL is live"; else warn "$DEMO_URL isn't answering yet; DNS can take a few minutes. Re-check with: scripts/pilot-setup.sh check"; fi
+  note "No Access application may cover $DEMO_HOST. If $DEMO_URL asks for an email code, delete that"
+  note "application in Zero Trust → Access controls → Applications (the Pilot's two stay as they are)."
+  printf '\n'
+  say "${BOLD}Staff app:${RESET}      $DEMO_URL/"
+  say "${BOLD}Client portal:${RESET}  $DEMO_URL/portal/"
+  note "Both sign-in screens list demo people: click one (password demo1234)."
+  exit 0
 fi
 
 # ── Full setup ────────────────────────────────────────────────────────────
@@ -554,25 +703,8 @@ if [[ ! -f "$CF_DIR/$TUNNEL_ID.json" ]]; then
   note "This Mac has no credentials for the tunnel yet (it was created elsewhere): fetching them."
   run "$CLOUDFLARED_BIN" tunnel token --cred-file "$CF_DIR/$TUNNEL_ID.json" "$TUNNEL_NAME"
 fi
-write_file "$TUNNEL_CONFIG" <<YAML
-# Written by scripts/pilot-setup.sh. Aliquot listens on 127.0.0.1 only.
-tunnel: $TUNNEL_ID
-credentials-file: $CF_DIR/$TUNNEL_ID.json
-ingress:
-  - hostname: $PILOT_HOST
-    service: http://127.0.0.1:$PILOT_PORT
-  - service: http_status:404
-YAML
-run "$CLOUDFLARED_BIN" tunnel --config "$TUNNEL_CONFIG" ingress validate
-if ! run "$CLOUDFLARED_BIN" tunnel route dns "$TUNNEL_NAME" "$PILOT_HOST"; then
-  warn "Cloudflare refused the DNS record, usually because $PILOT_HOST already has an A, AAAA or CNAME record."
-  if confirm "Replace the existing $PILOT_HOST record with the tunnel?"; then
-    run "$CLOUDFLARED_BIN" tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$PILOT_HOST"
-  else
-    die "Remove the old record in the Cloudflare DNS dashboard, then re-run."
-  fi
-fi
-ok "$PILOT_HOST points at the tunnel"
+write_tunnel_config
+route_dns "$PILOT_HOST"
 pause "Press Enter to continue"
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
