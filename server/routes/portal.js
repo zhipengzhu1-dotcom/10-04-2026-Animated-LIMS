@@ -15,7 +15,6 @@ import { portalAuth, portalLogin, portalLogout, portalCtx, publicPortalUser, por
 import { getSettings } from '../settings.js';
 import { SAMPLE_TYPES, STORAGE_CONDITIONS, PRIORITIES, TECHNIQUES, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, idList, addDays, today, specText, fixed } from '../util.js';
-import { isShipped } from '../config.js';
 import { receiveSamples } from './lab.js';
 import { createProject } from './business.js';
 
@@ -278,7 +277,7 @@ export function respondToRequest(ctx, id, input) {
 // ---------------------------------------------------------------------------------------------
 
 export default function routes(r) {
-  const open = { auth: false, module: 'portal' };
+  const open = { auth: false };
 
   // ===== Public =====
   r.get('/api/portal/info', () => {
@@ -500,7 +499,7 @@ export default function routes(r) {
   // ===================================================================================
   // Staff side
   // ===================================================================================
-  const staff = { perm: 'portal.view', module: 'portal' };
+  const staff = { perm: 'portal.view' };
 
   r.get('/api/portal-admin/summary', () => ({
     unread: get(`SELECT COUNT(*) n FROM portal_threads t WHERE ${LAB_UNREAD}`).n,
@@ -589,11 +588,7 @@ export default function routes(r) {
     return { ok: true };
   }, staff);
 
-  // Receiving creates Samples and opening a project creates a Project, so each needs that module shipped.
-  r.post('/api/portal-admin/submissions/:id/receive', (ctx) => {
-    if (!isShipped('samples')) throw notFound();
-    return receiveSubmission(ctx, +ctx.params.id, ctx.body);
-  }, staff);
+  r.post('/api/portal-admin/submissions/:id/receive', (ctx) => receiveSubmission(ctx, +ctx.params.id, ctx.body), staff);
 
   // ----- Method requests -----
   r.get('/api/portal-admin/requests', (ctx) => {
@@ -621,7 +616,6 @@ export default function routes(r) {
   r.post('/api/portal-admin/requests/:id/status', (ctx) => { respondToRequest(ctx, +ctx.params.id, ctx.body); return { ok: true }; }, staff);
 
   r.post('/api/portal-admin/requests/:id/project', (ctx) => {
-    if (!isShipped('projects')) throw notFound();
     const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', +ctx.params.id, 'Request');
     if (q.project_id) throw bad('A project already exists for this request');
     if (q.status === 'Declined') throw bad('This request was declined');

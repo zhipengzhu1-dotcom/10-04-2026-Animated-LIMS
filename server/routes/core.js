@@ -6,10 +6,10 @@ import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
-import { ROLES, lookups, TEST_OPEN, recordAccess, MONEY_FIELDS } from '../lookups.js';
+import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
-import { CLOUDFLARE_TUNNEL, SHIPPED_MODULES, isShipped } from '../config.js';
+import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
 import { TEST_QUEUES } from './lab.js';
 
@@ -75,7 +75,6 @@ export default function routes(r) {
     user: publicUser(ctx.user),
     permissions: permissionsFor(ctx.user.role),
     settings: publicSettings(),
-    modules: SHIPPED_MODULES,
   }), { allowPasswordChange: true });
 
   r.post('/api/auth/password', (ctx) => {
@@ -108,19 +107,19 @@ export default function routes(r) {
       let n = 0;
       if (can(ctx.user, 'tests.review')) n += queued('review');
       if (can(ctx.user, 'tests.approve')) n += queued('approval');
-      if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) n += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
+      if (can(ctx.user, 'notebook.witness')) n += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
       return n;
     };
     return {
-      ...(isShipped('worklist') && { myTests: queued('assigned') }),
-      ...(isShipped('reviews') && { reviews: reviews() }),
-      ...(isShipped('investigations') && { investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n }),
-      ...(isShipped('portal') && { portal: portalBadge(ctx.user) }), // unread client messages + new submissions/requests
+      myTests: queued('assigned'),
+      reviews: reviews(),
+      investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n,
+      portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
     };
   });
 
   // ---------- Users ----------
-  r.get('/api/users', () => all(`SELECT ${USER_FIELDS} FROM users ORDER BY active DESC, full_name`), { module: 'team' });
+  r.get('/api/users', () => all(`SELECT ${USER_FIELDS} FROM users ORDER BY active DESC, full_name`));
 
   r.get('/api/users/:id', (ctx) => {
     const user = get(`SELECT ${USER_FIELDS}, locked_until, password_changed_at FROM users WHERE id = ?`, +ctx.params.id);
@@ -130,22 +129,20 @@ export default function routes(r) {
         (SELECT COUNT(*) FROM tests WHERE analyst_id = ? AND status = 'Approved' AND approved_at >= ?) AS approved_90d,
         (SELECT COUNT(*) FROM signatures WHERE user_id = ? AND meaning IN ('Reviewed','Approved') AND signed_at >= ?) AS reviews_90d`,
     user.id, addDays(today(), -90), user.id, addDays(today(), -90));
-    if (isShipped('notebook')) stats.notebook_entries = get('SELECT COUNT(*) n FROM notebook_entries WHERE author_id = ?', user.id).n;
+    stats.notebook_entries = get('SELECT COUNT(*) n FROM notebook_entries WHERE author_id = ?', user.id).n;
     return {
       user,
       qualifications: all(`
         SELECT q.*, t.full_name AS trained_by_name,
           (SELECT title FROM methods m WHERE m.code = q.method_code ORDER BY version DESC LIMIT 1) AS method_title
         FROM qualifications q LEFT JOIN users t ON t.id = q.trained_by WHERE q.user_id = ? ORDER BY q.method_code`, user.id),
-      ...(isShipped('samples') && {
-        openTests: all(`
-          SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
-          FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
-          WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
-      }),
+      openTests: all(`
+        SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
+        FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
+        WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
       stats,
     };
-  }, { module: 'team' });
+  });
 
   const userSchema = {
     username: { required: true, max: 40 },
@@ -167,7 +164,7 @@ export default function routes(r) {
       password_hash: hashPassword(ctx.body.password), must_change_password: 1, created_at: nowIso(),
     }, { summary: `User account created (${ROLES[b.role].label})` });
     return { id };
-  }, { perm: 'users.manage', module: 'team' });
+  }, { perm: 'users.manage' });
 
   r.put('/api/users/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -177,7 +174,7 @@ export default function routes(r) {
     update(ctx, 'users', id, b, { summary: 'User account updated' });
     if (b.active === 0) run('DELETE FROM sessions WHERE user_id = ?', id);
     return { ok: true };
-  }, { perm: 'users.manage', module: 'team' });
+  }, { perm: 'users.manage' });
 
   r.post('/api/users/:id/reset-password', (ctx) => {
     const id = +ctx.params.id;
@@ -187,7 +184,7 @@ export default function routes(r) {
     }, { summary: 'Password reset by administrator (user must change at next sign-in)' });
     run('DELETE FROM sessions WHERE user_id = ?', id);
     return { ok: true };
-  }, { perm: 'users.manage', module: 'team' });
+  }, { perm: 'users.manage' });
 
   // ---------- Training / method qualifications ----------
   r.get('/api/qualifications', () => ({
@@ -219,7 +216,7 @@ export default function routes(r) {
       return { id: existing.id };
     }
     return { id: insert(ctx, 'qualifications', { ...b, trained_by: b.trained_by ?? ctx.user.id }, { code: b.method_code, summary: `${who} qualified on ${b.method_code}` }) };
-  }, { perm: 'qualifications.manage', module: 'team' });
+  }, { perm: 'qualifications.manage' });
 
   r.post('/api/qualifications/:id/revoke', (ctx) => {
     const q = get('SELECT q.*, u.full_name FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.id = ?', +ctx.params.id);
@@ -227,7 +224,7 @@ export default function routes(r) {
     if (!ctx.body.reason) throw bad('A reason is required', 'REASON_REQUIRED');
     update(ctx, 'qualifications', q.id, { revoked: 1 }, { summary: `${q.full_name} — qualification on ${q.method_code} revoked`, reason: ctx.body.reason });
     return { ok: true };
-  }, { perm: 'qualifications.manage', module: 'team' });
+  }, { perm: 'qualifications.manage' });
 
   // ---------- Settings ----------
   r.get('/api/settings', () => getSettings());
@@ -241,7 +238,7 @@ export default function routes(r) {
       throw bad('Idle timeout must be between 5 and 720 minutes');
     }
     return setSettings(ctx, patch);
-  }, { perm: 'settings.edit', module: 'settings' });
+  }, { perm: 'settings.edit' });
 
   // ---------- Audit trail ----------
   r.get('/api/audit', (ctx) => {
@@ -264,11 +261,11 @@ export default function routes(r) {
     const limit = limitParam(q.limit, 300, 2000);
     return all(`SELECT a.*, u.full_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.id DESC LIMIT ${limit}`, ...params);
-  }, { perm: 'audit.view', module: 'audit' });
+  }, { perm: 'audit.view' });
 
   // Per-record history is visible to whoever can see the record; money fields only to billing roles.
   r.get('/api/history/:entity/:id', (ctx) => {
-    const rule = recordAccess(ctx.params.entity);
+    const rule = RECORD_ACCESS[ctx.params.entity];
     const allowed = rule ? rule.view === null || rule.view.some((p) => can(ctx.user, p)) : can(ctx.user, 'audit.view');
     if (!allowed) throw forbidden();
     const rows = all(`
@@ -290,7 +287,7 @@ export default function routes(r) {
     const result = verifyChain();
     audit(ctx, { action: 'VERIFY', entity: 'audit_log', summary: result.ok ? `Audit trail integrity verified (${result.count} entries)` : `Audit trail integrity FAILED at entry #${result.brokenAt}` });
     return result;
-  }, { perm: 'audit.view', module: 'audit' });
+  }, { perm: 'audit.view' });
 
   // ---------- Global search (also handles barcode scans: an exact code match returns `exact`) ----------
   r.get('/api/search', (ctx) => {
@@ -299,33 +296,30 @@ export default function routes(r) {
     const t = likeTerm(q);
     const L = 6;
     const results = [];
-    // A result type is searched only while its module ships.
-    const push = (type, module, query, map) => {
-      if (isShipped(module)) query().forEach((row) => results.push({ type, ...map(row) }));
-    };
-    push('Sample', 'samples', () => all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, c.name AS client FROM samples s JOIN clients c ON c.id = s.client_id
+    const push = (type, query, map) => query().forEach((row) => results.push({ type, ...map(row) }));
+    push('Sample', () => all(`SELECT s.id, s.code, s.description, s.batch_no, s.status, c.name AS client FROM samples s JOIN clients c ON c.id = s.client_id
       WHERE s.code LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\' OR s.batch_no LIKE ? ESCAPE '\\' OR s.client_ref LIKE ? ESCAPE '\\' ORDER BY s.id DESC LIMIT ${L}`, t, t, t, t),
     (x) => ({ code: x.code, title: x.description, meta: [x.client, x.batch_no && `Batch ${x.batch_no}`, x.status].filter(Boolean).join(' · '), href: `/samples/${x.id}` }));
-    push('Test', 'samples', () => all(`SELECT t.id, t.code, t.status, m.title, s.code AS sample FROM tests t JOIN methods m ON m.id = t.method_id JOIN samples s ON s.id = t.sample_id
+    push('Test', () => all(`SELECT t.id, t.code, t.status, m.title, s.code AS sample FROM tests t JOIN methods m ON m.id = t.method_id JOIN samples s ON s.id = t.sample_id
       WHERE t.code LIKE ? ESCAPE '\\' ORDER BY t.id DESC LIMIT ${L}`, t),
     (x) => ({ code: x.code, title: x.title, meta: `${x.sample} · ${x.status}`, href: `/tests/${x.id}` }));
-    push('Project', 'projects', () => all(`SELECT p.id, p.code, p.title, p.status, c.name AS client FROM projects p JOIN clients c ON c.id = p.client_id
+    push('Project', () => all(`SELECT p.id, p.code, p.title, p.status, c.name AS client FROM projects p JOIN clients c ON c.id = p.client_id
       WHERE p.code LIKE ? ESCAPE '\\' OR p.title LIKE ? ESCAPE '\\' OR p.po_number LIKE ? ESCAPE '\\' ORDER BY p.id DESC LIMIT ${L}`, t, t, t),
     (x) => ({ code: x.code, title: x.title, meta: `${x.client} · ${x.status}`, href: `/projects/${x.id}` }));
-    push('Client', 'clients', () => all(`SELECT id, code, name FROM clients WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Client', () => all(`SELECT id, code, name FROM clients WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: 'Client', href: `/clients/${x.id}` }));
-    push('Method', 'methods', () => all(`SELECT id, code, version, title, status FROM methods WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY code, version DESC LIMIT ${L}`, t, t),
+    push('Method', () => all(`SELECT id, code, version, title, status FROM methods WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY code, version DESC LIMIT ${L}`, t, t),
       (x) => ({ code: `${x.code} v${x.version}`, title: x.title, meta: x.status, href: `/methods/${x.id}` }));
-    push('Instrument', 'instruments', () => all(`SELECT id, code, name, status FROM instruments WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR serial_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Instrument', () => all(`SELECT id, code, name, status FROM instruments WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR serial_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: x.status, href: `/instruments/${x.id}` }));
-    push('Inventory', 'inventory', () => all(`SELECT id, code, name, lot_no, category FROM inventory WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
+    push('Inventory', () => all(`SELECT id, code, name, lot_no, category FROM inventory WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR lot_no LIKE ? ESCAPE '\\' LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.name, meta: [x.category, x.lot_no && `Lot ${x.lot_no}`].filter(Boolean).join(' · '), href: `/inventory/${x.id}` }));
-    push('Notebook', 'notebook', () => all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
+    push('Notebook', () => all(`SELECT id, code, title, status FROM notebook_entries WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t, t),
       (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/notebook/${x.id}` }));
-    push('Investigation', 'investigations', () => all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
+    push('Investigation', () => all(`SELECT id, code, title, status FROM investigations WHERE code LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ${L}`, t, t),
       (x) => ({ code: x.code, title: x.title, meta: x.status, href: `/investigations/${x.id}` }));
     if (can(ctx.user, 'billing.view')) {
-      push('Invoice', 'invoices', () => all(`SELECT i.id, i.code, i.status, c.name AS client FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.code LIKE ? ESCAPE '\\' LIMIT ${L}`, t),
+      push('Invoice', () => all(`SELECT i.id, i.code, i.status, c.name AS client FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.code LIKE ? ESCAPE '\\' LIMIT ${L}`, t),
         (x) => ({ code: x.code, title: x.client, meta: x.status, href: `/invoices/${x.id}` }));
     }
     const exact = results.find((x) => x.code.toLowerCase() === q.toLowerCase());

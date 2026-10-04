@@ -1,6 +1,6 @@
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, shipped, roleLabel } from '../core/state.js';
+import { state, can, roleLabel } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/nav.js';
 import {
@@ -82,8 +82,8 @@ export async function detail(ctx) {
     <div class="kpis">
       <div class="kpi"><div class="k-label">Tests approved (90 days)</div><div class="k-value">${d.stats.approved_90d}</div></div>
       <div class="kpi"><div class="k-label">Reviews & approvals signed (90 days)</div><div class="k-value">${d.stats.reviews_90d}</div></div>
-      ${shipped('samples') ? html`<div class="kpi"><div class="k-label">Open tests</div><div class="k-value">${d.openTests.length}</div></div>` : ''}
-      ${shipped('notebook') ? html`<div class="kpi"><div class="k-label">Notebook entries</div><div class="k-value">${d.stats.notebook_entries}</div></div>` : ''}
+      <div class="kpi"><div class="k-label">Open tests</div><div class="k-value">${d.openTests.length}</div></div>
+      <div class="kpi"><div class="k-label">Notebook entries</div><div class="k-value">${d.stats.notebook_entries}</div></div>
     </div>
     <div class="split">
       <div class="stack">
@@ -102,7 +102,7 @@ export async function detail(ctx) {
             </tr>`;
           })}</tbody></table></div>` : emptyState({ icon: 'training', title: 'No qualifications recorded', text: 'Record training so this person can be assigned tests.' }),
         })}
-        ${shipped('samples') && d.openTests.length ? card({ title: 'Open tests', flush: true, body: html`<div class="table-wrap"><table class="table compact"><tbody>${d.openTests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.method_title}</span></td><td class="code">${t.sample_code}</td><td>${statusBadge(t.status)}</td><td>${dueChip(t.due_date)}</td></tr>`)}</tbody></table></div>` }) : ''}
+        ${d.openTests.length ? card({ title: 'Open tests', flush: true, body: html`<div class="table-wrap"><table class="table compact"><tbody>${d.openTests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.method_title}</span></td><td class="code">${t.sample_code}</td><td>${statusBadge(t.status)}</td><td>${dueChip(t.due_date)}</td></tr>`)}</tbody></table></div>` }) : ''}
       </div>
       <div class="stack">
         ${card({ title: 'Account', body: kv([

@@ -1,12 +1,12 @@
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, shipped, activeUsers } from '../core/state.js';
+import { state, can, activeUsers } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery, refreshNav } from '../core/nav.js';
 import { markdown } from '../core/markdown.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, priorityBadge, dueChip, fmtDate, fmtDateTime, money, plural,
-  emptyState, field, openForm, esign, toast, showError, busy, promptReason, specText, resultText, outcomeBadge, person, badge, debounce, todayIso, moduleLink,
+  emptyState, field, openForm, esign, toast, showError, busy, promptReason, specText, resultText, outcomeBadge, person, badge, debounce, todayIso,
 } from '../core/ui.js';
 import { stepper, signatureList, recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -167,10 +167,10 @@ export async function detail(ctx) {
       <button class="btn" data-dd aria-label="More actions">${icon('more', { size: 16 })}</button>
       <div class="dropdown-menu" hidden>
         <a href="/samples/${t.sample_id}">${icon('tube')}Open sample ${t.sample_code}</a>
-        ${shipped('methods') ? html`<a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>` : ''}
+        <a href="/methods/${t.method_id}">${icon('method')}Open method ${t.method_code}</a>
         ${d.can.assign ? html`<button data-act="assign">${icon('users')}${t.analyst_id ? 'Reassign' : 'Assign'}</button>` : ''}
         ${d.can.raise ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
-        ${shipped('notebook') && can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
+        ${can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
         ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel test</button>` : ''}
       </div>
     </div>`;
@@ -182,7 +182,7 @@ export async function detail(ctx) {
       badges: html`${statusBadge(t.status)}${priorityBadge(t.priority)}${t.oos ? badge('OOS', 'red') : ''}`,
       meta: html`
         <span class="code">${t.code}</span>
-        <span>${icon('method', { size: 14 })}${moduleLink('methods', `/methods/${t.method_id}`, `${t.method_code} v${t.method_version}`)}</span>
+        <span>${icon('method', { size: 14 })}<a href="/methods/${t.method_id}">${t.method_code} v${t.method_version}</a></span>
         <span>${icon('tube', { size: 14 })}<a href="/samples/${t.sample_id}">${t.sample_code}</a> · ${t.sample_description}${t.batch_no ? ` · ${t.batch_no}` : ''}</span>
         <span>${icon('building', { size: 14 })}${t.client_name}</span>
         <span>${icon('clock', { size: 14 })}${dueChip(t.due_date, { done: ['Approved', 'Cancelled'].includes(t.status) })}</span>`,
@@ -192,7 +192,7 @@ export async function detail(ctx) {
     <div class="card stepper-card">${stepper(TEST_STEPS, t.status === 'Cancelled' ? null : t.status, { stopped: t.status === 'Cancelled' })}</div>
 
     ${returned ? html`<div class="notice warn mb">${icon('undo', { size: 16 })}<span><strong>Returned by ${returned.full_name}:</strong> “${returned.comment}” — correct and resubmit.</span></div>` : ''}
-    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => (shipped('investigations') ? html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> ` : html`<strong>${v.code}</strong> `))}is open — this result cannot be approved until it is closed.</span></div>` : ''}
+    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
     ${t.analyst_id === state.me.id && !d.qualifiedMe && !['Approved', 'Cancelled'].includes(t.status) ? html`<div class="notice warn mb">${icon('training', { size: 16 })}<span>Your training on ${t.method_code} is not current. Ask your manager to update the training record before you record results.</span></div>` : ''}
     ${d.can.review ? html`<div class="notice info mb">${icon('review', { size: 16 })}<span><strong>Peer review:</strong> check the results against the raw data${t.raw_data_ref ? html` (${t.raw_data_ref})` : ''}, the calculations and the specification, then sign or return it to ${t.analyst_name}.</span></div>` : ''}
     ${d.can.approve ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
@@ -232,8 +232,8 @@ export async function detail(ctx) {
               </div>
               ${field({ label: 'Comments', name: 'comments', type: 'textarea', rows: 2, value: t.comments, span: 2, placeholder: 'System suitability, observations, deviations from the method…' })}
             </div>` : kv([
-              ['Instrument', t.instrument_code ? html`${moduleLink('instruments', `/instruments/${t.instrument_id}`, t.instrument_code)} — ${t.instrument_name}` : null],
-              ['Materials', d.materials.length ? html`${d.materials.map((m) => html`<div>${moduleLink('inventory', `/inventory/${m.id}`, m.code, 'code')} ${m.name}${m.lot_no ? html` <span class="muted">· Lot ${m.lot_no}</span>` : ''}</div>`)}` : null],
+              ['Instrument', t.instrument_code ? html`<a href="/instruments/${t.instrument_id}">${t.instrument_code}</a> — ${t.instrument_name}` : null],
+              ['Materials', d.materials.length ? html`${d.materials.map((m) => html`<div><a href="/inventory/${m.id}" class="code">${m.code}</a> ${m.name}${m.lot_no ? html` <span class="muted">· Lot ${m.lot_no}</span>` : ''}</div>`)}` : null],
               ['Raw data', t.raw_data_ref],
               ['Comments', t.comments],
             ]),
@@ -262,11 +262,11 @@ export async function detail(ctx) {
           t.submitted_at && ['Submitted', fmtDateTime(t.submitted_at)],
           t.reviewed_at && ['Reviewed', html`${t.reviewer_name}<div class="muted small">${fmtDateTime(t.reviewed_at)}</div>`],
           t.approved_at && ['Approved', html`${t.approver_name}<div class="muted small">${fmtDateTime(t.approved_at)}</div>`],
-          t.invoice_id && shipped('invoices') && can('billing.view') && ['Invoice', html`<a href="/invoices/${t.invoice_id}">View invoice</a>`],
+          t.invoice_id && can('billing.view') && ['Invoice', html`<a href="/invoices/${t.invoice_id}">View invoice</a>`],
         ]) })}
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
         ${d.investigations.map((v) => card({
-          title: html`${shipped('investigations') ? html`<a href="/investigations/${v.id}" class="code">${v.code}</a>` : html`<span class="code">${v.code}</span>`} ${statusBadge(v.status)}`,
+          title: html`<a href="/investigations/${v.id}" class="code">${v.code}</a> ${statusBadge(v.status)}`,
           actions: d.can.closeInvestigation && v.type === 'OOS' && v.status !== 'Closed' ? html`<button class="btn sm primary" data-act="close-investigation">${icon('sign', { size: 14 })}Close</button>` : '',
           body: kv([
             ['Raised', fmtDateTime(v.raised_at)],

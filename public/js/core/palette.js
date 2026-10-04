@@ -3,36 +3,36 @@ import { html } from './html.js';
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { openModal, debounce } from './ui.js';
-import { can, shipped } from './state.js';
+import { can } from './state.js';
 import { navigate } from './nav.js';
 
-// `module` null: always offered; `perm`: also needs that permission.
+// `perm`: offered only with that permission.
 const PAGES = [
-  { label: 'Dashboard', href: '/', icon: 'dashboard', module: 'dashboard' },
-  { label: 'Samples', href: '/samples', icon: 'tube', module: 'samples' },
-  { label: 'Worklist', href: '/worklist', icon: 'worklist', module: 'worklist' },
-  { label: 'My tests', href: '/worklist?view=mine', icon: 'worklist', module: 'worklist' },
-  { label: 'Reviews & approvals', href: '/reviews', icon: 'review', module: 'reviews' },
-  { label: 'Lab notebook', href: '/notebook', icon: 'book', module: 'notebook' },
-  { label: 'Methods', href: '/methods', icon: 'method', module: 'methods' },
-  { label: 'Instruments', href: '/instruments', icon: 'instrument', module: 'instruments' },
-  { label: 'Standards & reagents', href: '/inventory', icon: 'package', module: 'inventory' },
-  { label: 'Investigations', href: '/investigations', icon: 'alert', module: 'investigations' },
-  { label: 'Clients', href: '/clients', icon: 'building', module: 'clients' },
-  { label: 'Projects', href: '/projects', icon: 'folder', module: 'projects' },
-  { label: 'Team & training', href: '/team', icon: 'users', module: 'team' },
-  { label: 'Training matrix', href: '/team/training', icon: 'training', module: 'team' },
-  { label: 'My account', href: '/account', icon: 'user', module: null },
-  { label: 'Invoices', href: '/invoices', icon: 'receipt', module: 'invoices', perm: 'billing.view' },
-  { label: 'Insights', href: '/insights', icon: 'chart', module: 'insights', perm: 'insights.view' },
-  { label: 'Audit trail', href: '/audit', icon: 'shield', module: 'audit', perm: 'audit.view' },
-  { label: 'Settings', href: '/settings', icon: 'settings', module: 'settings', perm: 'settings.edit' },
+  { label: 'Dashboard', href: '/', icon: 'dashboard' },
+  { label: 'Samples', href: '/samples', icon: 'tube' },
+  { label: 'Worklist', href: '/worklist', icon: 'worklist' },
+  { label: 'My tests', href: '/worklist?view=mine', icon: 'worklist' },
+  { label: 'Reviews & approvals', href: '/reviews', icon: 'review' },
+  { label: 'Lab notebook', href: '/notebook', icon: 'book' },
+  { label: 'Methods', href: '/methods', icon: 'method' },
+  { label: 'Instruments', href: '/instruments', icon: 'instrument' },
+  { label: 'Standards & reagents', href: '/inventory', icon: 'package' },
+  { label: 'Investigations', href: '/investigations', icon: 'alert' },
+  { label: 'Clients', href: '/clients', icon: 'building' },
+  { label: 'Projects', href: '/projects', icon: 'folder' },
+  { label: 'Team & training', href: '/team', icon: 'users' },
+  { label: 'Training matrix', href: '/team/training', icon: 'training' },
+  { label: 'My account', href: '/account', icon: 'user' },
+  { label: 'Invoices', href: '/invoices', icon: 'receipt', perm: 'billing.view' },
+  { label: 'Insights', href: '/insights', icon: 'chart', perm: 'insights.view' },
+  { label: 'Audit trail', href: '/audit', icon: 'shield', perm: 'audit.view' },
+  { label: 'Settings', href: '/settings', icon: 'settings', perm: 'settings.edit' },
 ];
 
 const TYPE_ICON = { Sample: 'tube', Test: 'worklist', Project: 'folder', Client: 'building', Method: 'method', Instrument: 'instrument', Inventory: 'package', Notebook: 'book', Investigation: 'alert', Invoice: 'receipt' };
 
 export function openPalette({ newItems, runNewAction }) {
-  const pages = PAGES.filter((p) => (!p.module || shipped(p.module)) && (!p.perm || can(p.perm)));
+  const pages = PAGES.filter((p) => !p.perm || can(p.perm));
   const m = openModal({
     title: 'Search',
     cls: 'palette',

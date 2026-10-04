@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, shipped } from '../core/state.js';
+import { state, can } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
@@ -111,11 +111,11 @@ export async function detail(ctx) {
             ${l.next_due ? html`<div class="muted small">Next due ${fmtDate(l.next_due)}</div>` : ''}
           </div></li>`)}</ol>` : emptyState({ icon: 'wrench', title: 'No log entries yet' }),
         })}
-        ${shipped('samples') ? card({
+        ${card({
           title: 'Recent tests on this instrument',
           flush: true,
           body: d.recentTests.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.recentTests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.sample_code}</span></td><td>${person(t.analyst_name, t.analyst_id, t.analyst_initials)}</td><td>${statusBadge(t.status)}</td><td class="muted small nowrap">${fmtDateTime(t.started_at)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'worklist', title: 'No tests recorded yet' }),
-        }) : ''}
+        })}
         ${recordFooter()}
       </div>
       <div class="stack">
@@ -124,7 +124,7 @@ export async function detail(ctx) {
           ['Location', i.location], ['Calibration interval', i.calibration_interval_days ? `${i.calibration_interval_days} days` : null],
           ['Last calibrated', fmtDate(i.last_calibrated)], ['Calibration due', i.calibration_due ? dueChip(i.calibration_due) : null], ['Notes', i.notes],
         ]) })}
-        ${shipped('investigations') && d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
+        ${d.investigations.length ? card({ title: 'Investigations', flush: true, body: html`<ul class="list">${d.investigations.map((v) => html`<li class="link" data-href="/investigations/${v.id}"><div class="grow"><div class="title"><span class="code">${v.code}</span></div><div class="meta">${v.title}</div></div>${statusBadge(v.status)}</li>`)}</ul>` }) : ''}
       </div>
     </div>`);
 

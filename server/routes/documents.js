@@ -360,7 +360,7 @@ export default function routes(r) {
   r.get('/api/notebook/:id/documents', (ctx) => {
     if (!get('SELECT 1 FROM notebook_entries WHERE id = ?', +ctx.params.id)) throw notFound('Notebook entry');
     return listDocuments(+ctx.params.id);
-  }, { module: 'notebook' });
+  });
 
   r.post('/api/notebook/:id/documents', (ctx) => {
     const template = String(ctx.body.template || '');
@@ -371,7 +371,7 @@ export default function routes(r) {
     assertEditable(ctx, entry);
     const content = templateFile(template, entry, ctx.user);
     return createDocument(ctx, entry.id, { kind: t.kind, filename: ctx.body.name || (template === 'replicates' ? 'Replicate statistics' : t.label), content, source: 'template' });
-  }, { module: 'notebook' });
+  });
 
   r.post('/api/notebook/:id/documents/upload', (ctx) => {
     const filename = uploadedName(ctx);
@@ -379,13 +379,13 @@ export default function routes(r) {
     if (!kind) throw bad('Only Word (.docx) and Excel (.xlsx) files can be added here. Other files go under Files.');
     if (!ctx.rawBody?.length) throw bad('The file is empty');
     return createDocument(ctx, +ctx.params.id, { kind, filename, content: ctx.rawBody, source: 'upload' });
-  }, { module: 'notebook', raw: true, limit: MAX_UPLOAD_BYTES });
+  }, { raw: true, limit: MAX_UPLOAD_BYTES });
 
   r.get('/api/notebook-documents/:id/versions', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
     return all(`SELECT v.version, v.size, v.sha256, v.source, v.saved_at, u.full_name AS saved_by_name FROM notebook_document_versions v
       JOIN users u ON u.id = v.saved_by WHERE v.document_id = ? ORDER BY v.version DESC`, doc.id);
-  }, { module: 'notebook' });
+  });
 
   r.get('/api/notebook-documents/:id/file', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
@@ -402,7 +402,7 @@ export default function routes(r) {
     });
     ctx.res.end(buf);
     return undefined;
-  }, { module: 'notebook' });
+  });
 
   r.get('/api/notebook-documents/:id/preview', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
@@ -414,7 +414,7 @@ export default function routes(r) {
       if (previewCache.size > 40) previewCache.delete(previewCache.keys().next().value);
     }
     return { kind: doc.kind, version: ver.version, ...p };
-  }, { module: 'notebook' });
+  });
 
   r.post('/api/notebook-documents/:id/versions', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
@@ -422,9 +422,9 @@ export default function routes(r) {
     if (kindOf(filename) !== doc.kind) throw bad(`Upload a ${KINDS[doc.kind].label} (.${doc.kind}) as the new version of ${doc.filename}`);
     if (!ctx.rawBody?.length) throw bad('The file is empty');
     return addVersion(ctx, doc, ctx.rawBody, 'upload');
-  }, { module: 'notebook', raw: true, limit: MAX_UPLOAD_BYTES });
+  }, { raw: true, limit: MAX_UPLOAD_BYTES });
 
-  r.post('/api/notebook-documents/:id/edit-link', (ctx) => createEditLink(ctx, mustDoc(+ctx.params.id)), { module: 'notebook' });
+  r.post('/api/notebook-documents/:id/edit-link', (ctx) => createEditLink(ctx, mustDoc(+ctx.params.id)));
 
   r.post('/api/notebook-documents/:id/remove', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
@@ -439,5 +439,5 @@ export default function routes(r) {
     });
     locks.delete(doc.id);
     return { ok: true };
-  }, { module: 'notebook' });
+  });
 }

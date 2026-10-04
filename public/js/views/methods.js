@@ -1,6 +1,6 @@
 import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, shipped, activeUsers } from '../core/state.js';
+import { state, can, activeUsers } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import { markdown } from '../core/markdown.js';
@@ -93,11 +93,11 @@ export async function detail(ctx) {
           </table></div>` : emptyState({ icon: 'method', title: 'No parameters yet', text: 'Define what this method reports before it can be used.' }),
         })}
         ${card({ title: 'Scope & procedure', body: html`${m.scope ? html`<p>${m.scope}</p>` : ''}<div class="md">${raw(markdown(m.procedure || '_No procedure summary yet._'))}</div>` })}
-        ${shipped('samples') ? card({
+        ${card({
           title: 'Recent tests',
           flush: true,
           body: d.recentTests.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.recentTests.map((t) => html`<tr class="link ${t.oos ? 'row-fail' : ''}" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.sample_code}<span class="sub-line">${t.client_name}</span></td><td>${person(t.analyst_name, t.analyst_id, t.analyst_initials)}</td><td>${statusBadge(t.status)}</td><td>${dueChip(t.due_date, { done: ['Approved', 'Cancelled'].includes(t.status) })}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'worklist', title: 'Not used yet' }),
-        }) : ''}
+        })}
         ${recordFooter()}
       </div>
       <div class="stack">
@@ -115,13 +115,13 @@ export async function detail(ctx) {
           ['OOS rate', oosRate == null ? '—' : html`<span class="${oosRate > 5 ? 'bad-text' : ''}">${oosRate.toFixed(1)}%</span> <span class="muted small">(${d.stats.oos})</span>`],
           ['Avg. start → approval', d.stats.avg_days ? `${d.stats.avg_days.toFixed(1)} days` : '—'],
         ]) })}
-        ${shipped('team') ? card({
+        ${card({
           title: 'Trained analysts',
           sub: `${plural(d.qualified.length, 'person', 'people')} qualified`,
           actions: can('qualifications.manage') ? html`<a class="btn sm ghost" href="/team/training">Training matrix</a>` : '',
           flush: true,
           body: d.qualified.length ? html`<ul class="list">${d.qualified.map((q) => html`<li class="link" data-href="/team/${q.user_id}">${avatar(q.full_name, q.user_id, { initials: q.initials, size: 26 })}<div class="grow"><div class="title">${q.full_name}</div><div class="meta">Since ${fmtDate(q.qualified_at)}${q.expires_at ? ` · expires ${fmtDate(q.expires_at)}` : ''}</div></div></li>`)}</ul>` : html`<div class="card-body"><div class="notice warn">${icon('alert', { size: 15 })}<span>Nobody is trained on this method yet — tests can't be assigned.</span></div></div>`,
-        }) : ''}
+        })}
         ${card({ title: 'Versions', flush: true, body: html`<ul class="list">${d.versions.map((v) => html`<li class="${v.id === m.id ? '' : 'link'}" ${v.id === m.id ? '' : html`data-href="/methods/${v.id}"`}><div class="grow"><div class="title">v${v.version}${v.id === m.id ? html` <span class="muted small">(this version)</span>` : ''}</div><div class="meta">${v.effective_date ? `Effective ${fmtDate(v.effective_date)}` : `Created ${fmtDate(v.created_at)}`}${v.approved_by_name ? ` · ${v.approved_by_name}` : ''}</div></div>${statusBadge(v.status)}</li>`)}</ul>` })}
         ${d.signatures.length ? card({ title: 'Signatures', body: signatureList(d.signatures) }) : ''}
       </div>

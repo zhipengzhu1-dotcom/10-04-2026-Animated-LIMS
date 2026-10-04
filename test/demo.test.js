@@ -1,5 +1,5 @@
-// Public demo: the demo lab is loaded offline by scripts/seed-demo.js, then served behind the tunnel with the Pilot
-// module list. Visitors sign in with the one-click demo accounts on both sign-in screens.
+// Public demo: the demo lab is loaded offline by scripts/seed-demo.js, then served behind the tunnel.
+// Visitors sign in with the one-click demo accounts on both sign-in screens.
 // Run with:  npm test
 
 import { test, before, after } from 'node:test';
@@ -14,7 +14,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 4900 + Math.floor(Math.random() * 90);
 const BASE = `http://127.0.0.1:${PORT}`;
 const VISITOR = '203.0.113.21';
-const PILOT_MODULES = ['samples', 'methods', 'instruments', 'inventory', 'clients', 'projects', 'invoices', 'portal', 'insights', 'team', 'settings'];
 
 let server;
 let dataDir;
@@ -46,7 +45,7 @@ before(async () => {
   assert.equal(first.status, 0, first.stderr);
   server = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, CLOUDFLARE_TUNNEL: '1', SHIPPED_MODULES: PILOT_MODULES.join(',') },
+    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, CLOUDFLARE_TUNNEL: '1' },
     stdio: 'ignore',
   });
   for (let i = 0; i < 100; i++) {
@@ -77,15 +76,13 @@ test('behind the tunnel the demo lab is set up and offers its demo accounts', as
   assert.equal(setup.data.local, false);
 });
 
-test('a visitor signs in to the Staff app with a demo account and sees only the Pilot modules', async () => {
+test('a visitor signs in to the Staff app with a demo account', async () => {
   const req = client();
   const login = await req('POST', '/api/auth/login', { username: 'tom.fletcher', password: 'demo1234' });
   assert.equal(login.status, 200);
   const me = await req('GET', '/api/auth/me');
-  assert.deepEqual([...me.data.modules].sort(), [...PILOT_MODULES].sort());
-  assert.equal((await req('GET', '/api/dashboard')).status, 404);
-  const samples = await req('GET', '/api/samples');
-  assert.equal(samples.status, 200);
+  assert.equal(me.data.user.username, 'tom.fletcher');
+  for (const url of ['/api/dashboard', '/api/samples']) assert.equal((await req('GET', url)).status, 200, url);
 });
 
 test('a visitor signs in to the Client portal with a listed demo account', async () => {

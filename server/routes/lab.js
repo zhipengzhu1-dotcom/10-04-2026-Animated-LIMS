@@ -18,7 +18,6 @@ import {
 import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
-import { isShipped } from '../config.js';
 import { closeInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
@@ -517,16 +516,16 @@ export default function routes(r) {
     }
     const limit = limitParam(q.limit, 500, 2000);
     return all(`${SAMPLE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY s.id DESC LIMIT ${limit}`, ...params);
-  }, { module: 'samples' });
+  });
 
-  r.post('/api/samples/receive', (ctx) => receiveSamples(ctx, ctx.body), { module: 'samples' });
+  r.post('/api/samples/receive', (ctx) => receiveSamples(ctx, ctx.body));
 
   r.get('/api/samples/labels', (ctx) => {
     const ids = idList(ctx.query.ids);
     if (!ids.length) return [];
     return all(`SELECT s.id, s.code, s.description, s.batch_no, s.storage, s.received_at, s.due_date, s.priority, s.location, c.code AS client_code, c.name AS client_name
       FROM samples s JOIN clients c ON c.id = s.client_id WHERE s.id IN (${ph(ids)}) ORDER BY s.id`, ...ids);
-  }, { module: 'samples' });
+  });
 
   r.get('/api/samples/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -538,8 +537,8 @@ export default function routes(r) {
       sample,
       tests,
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
-      ...(isShipped('notebook') && { notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id) }),
-      ...(isShipped('investigations') && { investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id) }),
+      notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
+      investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'samples' AND entity_id = ? ORDER BY id`, id),
       can: {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
@@ -551,7 +550,7 @@ export default function routes(r) {
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
-  }, { module: 'samples' });
+  });
 
   r.put('/api/samples/:id', (ctx) => {
     assertCan(ctx, 'samples.edit');
@@ -568,7 +567,7 @@ export default function routes(r) {
     if (s.status !== 'Received' && !reason) throw bad('Testing has started on this sample — give a reason for the change', 'REASON_REQUIRED');
     update(ctx, 'samples', id, b, { summary: 'Sample details edited', reason: reason || null });
     return { ok: true };
-  }, { module: 'samples' });
+  });
 
   r.post('/api/samples/:id/custody', (ctx) => {
     const id = +ctx.params.id;
@@ -589,9 +588,9 @@ export default function routes(r) {
       update(ctx, 'samples', id, patch, { action: 'CUSTODY', summary: `Custody: ${b.action}${b.location ? ` → ${b.location}` : ''}`, reason: b.note, extraChanges: { custody: [null, b.action] } });
     });
     return { ok: true };
-  }, { module: 'samples' });
+  });
 
-  r.post('/api/samples/:id/tests', (ctx) => addTestsToSample(ctx, +ctx.params.id, ctx.body.method_ids), { module: 'samples' });
+  r.post('/api/samples/:id/tests', (ctx) => addTestsToSample(ctx, +ctx.params.id, ctx.body.method_ids));
 
   r.post('/api/samples/:id/cancel', (ctx) => {
     assertCan(ctx, 'tests.cancel');
@@ -607,9 +606,9 @@ export default function routes(r) {
       update(ctx, 'samples', id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Sample cancelled', reason });
     });
     return { ok: true };
-  }, { module: 'samples' });
+  });
 
-  r.post('/api/samples/:id/report', (ctx) => issueReport(ctx, +ctx.params.id, ctx.body), { module: 'samples' });
+  r.post('/api/samples/:id/report', (ctx) => issueReport(ctx, +ctx.params.id, ctx.body));
 
   r.get('/api/samples/:id/coa', (ctx) => {
     const id = +ctx.params.id;
@@ -633,7 +632,7 @@ export default function routes(r) {
       complies: all_results.length > 0 && all_results.every((x) => ['Pass', 'Report'].includes(x.outcome)),
       final: sample.status === 'Reported',
     };
-  }, { module: 'samples' });
+  });
 
   // ----- Tests -----
   r.get('/api/tests', (ctx) => {
@@ -670,7 +669,7 @@ export default function routes(r) {
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
     const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
       FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
-    // The closure signature is shown here because the Investigations screens may be withheld.
+    // An OOS investigation can be closed on the Test page, so its closure signature is shown here too.
     for (const v of investigations) v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
     return {
       test,
@@ -697,7 +696,7 @@ export default function routes(r) {
         review: can(me, 'tests.review') && test.status === 'Submitted' && !mine,
         approve: can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id,
         cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !investigations.some((v) => v.status !== 'Closed'),
-        raise: isShipped('investigations') && can(me, 'investigations.raise'),
+        raise: can(me, 'investigations.raise'),
         closeInvestigation: can(me, 'investigations.close') && !mine && investigations.some((v) => v.type === 'OOS' && v.status !== 'Closed'),
       },
       qualifiedMe,
@@ -723,7 +722,7 @@ export default function routes(r) {
     };
     if (can(ctx.user, 'tests.review')) out.toReview = queue('review', 't.submitted_at');
     if (can(ctx.user, 'tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
-    if (can(ctx.user, 'notebook.witness') && isShipped('notebook')) {
+    if (can(ctx.user, 'notebook.witness')) {
       out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
@@ -733,12 +732,12 @@ export default function routes(r) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }
     return out;
-  }, { module: 'reviews' });
+  });
 
   // Audit helper for reads of sensitive printouts (CoA prints are logged so copies are traceable).
   r.post('/api/samples/:id/coa-printed', (ctx) => {
     const s = mustGet('SELECT id, code FROM samples WHERE id = ?', +ctx.params.id, 'Sample');
     audit(ctx, { action: 'PRINT', entity: 'samples', entity_id: s.id, entity_code: s.code, summary: 'Certificate of Analysis printed / exported' });
     return { ok: true };
-  }, { module: 'samples' });
+  });
 }

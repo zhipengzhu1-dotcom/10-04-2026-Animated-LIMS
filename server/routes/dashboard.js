@@ -106,7 +106,7 @@ export default function routes(r) {
       revenueTrend: money ? fillMonths(monthsBack(6), all(`SELECT substr(i.issued_date, 1, 7) AS month, SUM(l.quantity * l.unit_price) AS v
         FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.status IN ('Sent','Paid') AND i.issued_date >= ? GROUP BY month`, `${monthsBack(6)[0]}-01`)) : null,
     };
-  }, { module: 'dashboard' });
+  });
 
   r.get('/api/insights', (ctx) => {
     const months = monthsBack(12);
@@ -134,5 +134,5 @@ export default function routes(r) {
         WHERE u.active = 1 AND u.role IN ('analyst','scientist') GROUP BY u.id ORDER BY approved DESC`, new Date(`${addDays(today(), -90)}T00:00:00`).toISOString()),
       generatedAt: localDate(now()),
     };
-  }, { perm: 'insights.view', module: 'insights' });
+  }, { perm: 'insights.view' });
 }

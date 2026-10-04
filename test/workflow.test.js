@@ -75,7 +75,6 @@ test('sign-in, sessions and CSRF protection', async () => {
   const me = await tom.ok('GET', '/api/auth/me');
   assert.equal(me.user.username, 'tom.fletcher');
   assert.ok(!('password_hash' in me.user), 'password hash must never be sent to the browser');
-  assert.equal(me.modules.length, 17, 'with no module configuration every module ships');
   // A mutating request without the custom header (as a cross-site form would send) is refused.
   const res = await fetch(`${BASE}/api/auth/logout`, { method: 'POST', headers: { Cookie: tom.cookie } });
   assert.equal(res.status, 403);
@@ -410,6 +409,7 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal(open[0].code, investigation.code);
   assert.equal(open[0].status, 'Open');
   assert.match(open[0].description, /Out-of-specification/);
+  assert.deepEqual(open[0].signatures, [], 'an open investigation carries no closure signature');
   assert.ok(open[0].raised_at);
   const blocked = await daniel.post(`/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
   assert.equal(blocked.status, 400);
@@ -435,6 +435,8 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal(closed.conclusion, full.conclusion);
   assert.equal(closed.closed_by_name, 'Daniel Okafor');
   assert.ok(closed.closed_at);
+  assert.deepEqual(closed.signatures.map((x) => [x.full_name, x.meaning]), [['Daniel Okafor', 'OOS investigation closed']], 'the Test page shows who signed the closure');
+  assert.ok(closed.signatures[0].signed_at);
   const signed = (await daniel.ok('GET', `/api/investigations/${investigation.id}`)).signatures;
   assert.ok(signed.some((s) => s.meaning === 'OOS investigation closed' && s.full_name === 'Daniel Okafor'), 'closing is e-signed');
   const history = await daniel.ok('GET', `/api/history/investigations/${investigation.id}`);

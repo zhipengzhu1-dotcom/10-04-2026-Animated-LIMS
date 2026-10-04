@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { state, can, shipped } from '../core/state.js';
+import { state, can } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
@@ -27,7 +27,7 @@ const itemFields = (m = {}) => {
     ${field({ label: 'Purity / potency', name: 'potency', value: m.potency, placeholder: 'e.g. 99.8 %' })}
     ${m.id ? '' : field({ label: 'Quantity received', name: 'quantity', type: 'number', min: 0, step: 'any' })}
     ${field({ label: 'Unit', name: 'unit', value: m.unit, placeholder: 'mg, g, mL, L, vials…' })}
-    ${field({ label: 'Reorder level', name: 'min_quantity', type: 'number', value: m.min_quantity, min: 0, step: 'any', hint: shipped('dashboard') ? 'Flags low stock on the dashboard' : 'Flags low stock in the list' })}
+    ${field({ label: 'Reorder level', name: 'min_quantity', type: 'number', value: m.min_quantity, min: 0, step: 'any', hint: 'Flags low stock on the dashboard' })}
     ${field({ label: 'Storage condition', name: 'storage', value: m.storage, placeholder: 'e.g. 2–8 °C, desiccated' })}
     ${field({ label: 'Location', name: 'location', value: m.location, placeholder: 'e.g. Fridge R-02' })}
     ${field({ label: 'Received', name: 'received_date', type: 'date', value: m.received_date || (m.id ? '' : todayIso()) })}
@@ -106,12 +106,12 @@ export async function detail(ctx) {
     ${m.expired ? html`<div class="notice bad mb">${icon('lock', { size: 16 })}<span><strong>Expired on ${fmtDate(m.expiry_date)}.</strong> It can no longer be selected for tests. Requalify (new expiry date) or dispose of it.</span></div>` : ''}
     <div class="split">
       <div class="stack">
-        ${shipped('samples') ? card({
+        ${card({
           title: 'Used in tests',
           sub: 'Traceability: every test that recorded this lot.',
           flush: true,
           body: d.tests.length ? html`<div class="table-wrap"><table class="table compact"><tbody>${d.tests.map((t) => html`<tr class="link" data-href="/tests/${t.id}"><td><a class="code" href="/tests/${t.id}">${t.code}</a></td><td>${t.method_code}<span class="sub-line">${t.method_title}</span></td><td><span class="code">${t.sample_code}</span><span class="sub-line">${t.client_name}</span></td><td>${person(t.analyst_name, t.analyst_id, t.analyst_initials)}</td><td>${statusBadge(t.status)}</td></tr>`)}</tbody></table></div>` : emptyState({ icon: 'worklist', title: 'Not used in any test yet' }),
-        }) : ''}
+        })}
         ${card({
           title: 'Stock movements',
           flush: true,

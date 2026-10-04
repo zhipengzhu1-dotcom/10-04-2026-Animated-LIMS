@@ -178,7 +178,6 @@ Built in:
 | `HOST` | `0.0.0.0` | Interface to listen on (`127.0.0.1` means this computer only) |
 | `ALIQUOT_DATA` | `./data` | Where the database, files and backups are kept |
 | `SECURE_COOKIES` | off | Set to `1` when served over HTTPS |
-| `SHIPPED_MODULES` | every module | Comma-separated module keys to ship, e.g. `samples,methods,invoices`. Other modules are withheld: gone from the app and their APIs answer "not found". Keys: `dashboard`, `samples`, `worklist`, `reviews`, `notebook`, `methods`, `instruments`, `inventory`, `investigations`, `audit`, `clients`, `projects`, `invoices`, `portal`, `insights`, `team`, `settings`. An unknown key stops start-up |
 | `CLOUDFLARE_TUNNEL` | off | Set to `1` when Aliquot is published through Cloudflare Tunnel and listens on `127.0.0.1`. Connections from this computer then take the visitor's address from Cloudflare's `CF-Connecting-IP` header (for sessions, the audit trail and the setup check), so first-time setup works only on this computer and demo data can't be loaded. When off, the header is ignored. |
 
 ---

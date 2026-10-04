@@ -8,7 +8,7 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad, forbidden, notFound } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
-import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, recordAccess } from '../lookups.js';
+import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES, ATTACHABLE, RECORD_ACCESS } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
 import { listDocuments, freezeDocuments } from './documents.js';
@@ -162,7 +162,7 @@ const canAny = (user, perms) => perms === null || perms.some((p) => can(user, p)
 
 function assertAttachmentAccess(ctx, entity, id, mode) {
   if (!ATTACHABLE.includes(entity)) throw bad('Unknown record type');
-  const rule = recordAccess(entity);
+  const rule = RECORD_ACCESS[entity];
   if (!canAny(ctx.user, rule.view)) throw forbidden();
   if (mode === 'edit') {
     if (!canAny(ctx.user, rule.edit)) throw forbidden('You cannot add or remove files on this record');
@@ -213,7 +213,7 @@ export default function routes(r) {
     if (q.q) { const t = likeTerm(q.q); where.push(`(n.code LIKE ? ESCAPE '\\' OR n.title LIKE ? ESCAPE '\\' OR n.body LIKE ? ESCAPE '\\' OR n.tags LIKE ? ESCAPE '\\')`); params.push(t, t, t, t); }
     return all(`${NOTEBOOK_SELECT.replace('SELECT n.*', 'SELECT n.id, n.code, n.title, n.status, n.tags, n.project_id, n.sample_id, n.method_id, n.author_id, n.signed_at, n.witnessed_at, n.created_at, n.updated_at, substr(n.body, 1, 220) AS excerpt, (SELECT COUNT(*) FROM notebook_documents d WHERE d.entry_id = n.id AND d.removed = 0) AS doc_count')}
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY n.updated_at DESC LIMIT 500`, ...params);
-  }, { module: 'notebook' });
+  });
 
   r.get('/api/notebook/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -230,9 +230,9 @@ export default function routes(r) {
         addendum: can(ctx.user, 'notebook.write') && entry.status !== 'Draft',
       },
     };
-  }, { module: 'notebook' });
+  });
 
-  r.post('/api/notebook', (ctx) => createEntry(ctx, ctx.body), { module: 'notebook' });
+  r.post('/api/notebook', (ctx) => createEntry(ctx, ctx.body));
 
   r.put('/api/notebook/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -249,10 +249,10 @@ export default function routes(r) {
       update(ctx, 'notebook_entries', id, { ...rest, updated_at: nowIso() }, { summary: 'Draft edited', extraChanges: extra, audit: Object.keys(extra).length > 0 || Object.keys(rest).length > 0 });
     });
     return { ok: true, updated_at: nowIso() };
-  }, { module: 'notebook' });
+  });
 
-  r.post('/api/notebook/:id/sign', (ctx) => signEntry(ctx, +ctx.params.id, ctx.body), { module: 'notebook' });
-  r.post('/api/notebook/:id/witness', (ctx) => witnessEntry(ctx, +ctx.params.id, ctx.body), { module: 'notebook' });
+  r.post('/api/notebook/:id/sign', (ctx) => signEntry(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/notebook/:id/witness', (ctx) => witnessEntry(ctx, +ctx.params.id, ctx.body));
 
   r.post('/api/notebook/:id/addenda', (ctx) => {
     assertCan(ctx, 'notebook.write');
@@ -263,7 +263,7 @@ export default function routes(r) {
     if (!text) throw bad('The addendum is empty');
     insert(ctx, 'notebook_addenda', { entry_id: id, author_id: ctx.user.id, body: text, created_at: nowIso() }, { code: n.code, summary: 'Addendum added' });
     return { ok: true };
-  }, { module: 'notebook' });
+  });
 
   // ----- Investigations -----
   r.get('/api/investigations', (ctx) => {
@@ -274,7 +274,7 @@ export default function routes(r) {
     else if (q.status && q.status !== 'all') { where.push('v.status = ?'); params.push(q.status); }
     if (q.type) { where.push('v.type = ?'); params.push(q.type); }
     return all(`${INV_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY v.status = 'Closed', v.id DESC`, ...params);
-  }, { module: 'investigations' });
+  });
 
   r.get('/api/investigations/:id', (ctx) => {
     const id = +ctx.params.id;
@@ -288,11 +288,11 @@ export default function routes(r) {
         close: investigation.status !== 'Closed' && can(ctx.user, 'investigations.close'),
       },
     };
-  }, { module: 'investigations' });
+  });
 
-  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body), { module: 'investigations' });
-  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
-  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body), { module: 'investigations' });
+  r.post('/api/investigations', (ctx) => createInvestigation(ctx, ctx.body));
+  r.put('/api/investigations/:id', (ctx) => updateInvestigation(ctx, +ctx.params.id, ctx.body));
+  r.post('/api/investigations/:id/close', (ctx) => closeInvestigation(ctx, +ctx.params.id, ctx.body));
 
   // ----- Attachments -----
   r.get('/api/attachments', (ctx) => {

@@ -1,7 +1,7 @@
 // App shell: boot, routing, sidebar, top bar, command palette.
 import { html } from './core/html.js';
 import { api, setApiHooks } from './core/api.js';
-import { state, can, shipped, roleLabel } from './core/state.js';
+import { state, can, roleLabel } from './core/state.js';
 import { icon, LOGO } from './core/icons.js';
 import { avatar, emptyState, promptReason, modalOpen } from './core/ui.js';
 import { openPalette } from './core/palette.js';
@@ -30,18 +30,14 @@ import * as settings from './views/settings.js';
 import * as account from './views/account.js';
 import * as print from './views/print.js';
 
-// The start page: the Dashboard, or the Samples list when the Dashboard is withheld.
-const startPage = (ctx) => (shipped('dashboard') ? dashboard.render(ctx) : samples.list(ctx));
-
-// [path pattern, view function, nav key, module (defaults to the nav key; a Withheld module's routes fall through to not found)]
-// A route whose nav key names a Withheld module highlights its own module instead (the Test page goes under Samples).
+// [path pattern, view function, nav key]
 const ROUTES = [
-  ['/', startPage, 'dashboard', 'samples'],
+  ['/', dashboard.render, 'dashboard'],
   ['/samples', samples.list, 'samples'],
   ['/samples/receive', samples.receive, 'samples'],
   ['/samples/:id', samples.detail, 'samples'],
   ['/worklist', tests.worklist, 'worklist'],
-  ['/tests/:id', tests.detail, 'worklist', 'samples'],
+  ['/tests/:id', tests.detail, 'worklist'],
   ['/reviews', reviews.render, 'reviews'],
   ['/notebook', notebook.list, 'notebook'],
   ['/notebook/:id', notebook.detail, 'notebook'],
@@ -70,17 +66,16 @@ const ROUTES = [
   ['/team/:id', team.detail, 'team'],
   ['/audit', audit.render, 'audit'],
   ['/settings', settings.render, 'settings'],
-  ['/account', account.render, 'account', null],
+  ['/account', account.render, 'account'],
   ['/print/coa/:id', print.coa, null],
   ['/print/labels', print.labels, null],
   ['/print/invoice/:id', print.invoice, null],
-].map(([pattern, view, nav, module = nav]) => {
+].map(([pattern, view, nav]) => {
   const keys = [];
   const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}/?$`);
-  return { pattern, re, keys, view, nav, module };
+  return { pattern, re, keys, view, nav };
 });
 
-// Each item's `key` is its module key: a Withheld module's item is left out.
 const NAV = [
   { group: null, items: [
     { key: 'dashboard', href: '/', label: 'Dashboard', icon: 'dashboard' },
@@ -190,20 +185,20 @@ function toggleRail() {
 // Shell
 // ---------------------------------------------------------------------------------------------
 
-const visible = (item) => shipped(item.key) && (!item.perm || item.perm.some((p) => can(p)));
+const visible = (item) => !item.perm || item.perm.some((p) => can(p));
 
 function newMenuItems() {
   return [
-    shipped('samples') && can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
-    shipped('notebook') && can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
-    shipped('investigations') && can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
-    shipped('methods') && can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
-    shipped('projects') && can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },
-    shipped('clients') && can('clients.edit') && { action: 'client', label: 'Client', icon: 'building' },
-    shipped('instruments') && can('instruments.edit') && { action: 'instrument', label: 'Instrument', icon: 'instrument' },
-    shipped('inventory') && can('inventory.edit') && { action: 'inventory', label: 'Standard / reagent', icon: 'package' },
-    shipped('invoices') && can('billing.edit') && { action: 'invoice', label: 'Invoice', icon: 'receipt' },
-    shipped('team') && can('users.manage') && { action: 'user', label: 'Team member', icon: 'user' },
+    can('samples.receive') && { href: '/samples/receive', label: 'Receive samples', icon: 'inbox', kbd: '' },
+    can('notebook.write') && { action: 'notebook', label: 'Notebook entry', icon: 'book' },
+    can('investigations.raise') && { action: 'investigation', label: 'Investigation / deviation', icon: 'alert' },
+    can('methods.edit') && { href: '/methods/new', label: 'Method', icon: 'method' },
+    can('projects.edit') && { action: 'project', label: 'Project', icon: 'folder' },
+    can('clients.edit') && { action: 'client', label: 'Client', icon: 'building' },
+    can('instruments.edit') && { action: 'instrument', label: 'Instrument', icon: 'instrument' },
+    can('inventory.edit') && { action: 'inventory', label: 'Standard / reagent', icon: 'package' },
+    can('billing.edit') && { action: 'invoice', label: 'Invoice', icon: 'receipt' },
+    can('users.manage') && { action: 'user', label: 'Team member', icon: 'user' },
   ].filter(Boolean);
 }
 
@@ -243,7 +238,7 @@ function renderShell() {
           <button class="me-btn" data-menu="me" aria-haspopup="true" title="${me.full_name}">${avatar(me.full_name, me.id, { size: 28, initials: me.initials })}<span class="grow"><strong>${me.full_name}</strong><small>${roleLabel(me.role)}</small></span>${icon('chevronUp', { size: 14 })}</button>
           <div class="dropdown-menu up" data-menu-for="me" hidden>
             <a href="/account">${icon('user')}My account</a>
-            ${shipped('team') ? html`<a href="/team/${me.id}">${icon('training')}My training</a>` : ''}
+            <a href="/team/${me.id}">${icon('training')}My training</a>
             <button data-act="theme"><span data-theme-icon>${icon(currentTheme() === 'dark' ? 'sun' : 'moon')}</span>Toggle dark mode</button>
             <button data-act="density">${icon('menu')}<span data-density-label>${densityLabel()}</span></button>
             <button data-act="hud">${icon('sparkle')}<span data-hud-label>${hudLabel()}</span></button>
@@ -393,15 +388,8 @@ function decorateView() {
 // Router
 // ---------------------------------------------------------------------------------------------
 
-/** The sidebar item a route highlights: its own, or its module's when its own is withheld. */
-function activeNav(route) {
-  if (shipped(route.nav) || !route.module) return route.nav;
-  return route.module;
-}
-
 function match(pathname) {
   for (const r of ROUTES) {
-    if (r.module && !shipped(r.module)) continue;
     const m = r.re.exec(pathname);
     if (m) {
       const params = {};
@@ -456,7 +444,7 @@ async function renderRoute({ keepScroll = false } = {}) {
       icon: e.status === 404 ? 'search' : e.status === 403 ? 'lock' : 'alert',
       title: e.status === 404 ? 'Not found' : e.status === 403 ? 'Access restricted' : 'Something went wrong',
       text: e.message,
-      action: html`<a class="btn" href="/">Back to ${shipped('dashboard') ? 'dashboard' : 'samples'}</a>`,
+      action: html`<a class="btn" href="/">Back to dashboard</a>`,
     })}</div>`);
   }
   if (seq !== renderSeq) return undefined;
@@ -468,7 +456,7 @@ async function renderRoute({ keepScroll = false } = {}) {
   window.scrollTo(0, stay ? scrollY : 0);
   if (!stay && !isPrint) document.getElementById('content')?.focus({ preventScroll: true });
   if (!isPrint) {
-    const nav = found && activeNav(found.route);
+    const nav = found && found.route.nav;
     if (nav !== currentNav) {
       root.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
       currentNav = nav;
@@ -527,7 +515,6 @@ async function loadSession() {
   const me = await api.get('/api/auth/me');
   state.me = me.user;
   state.permissions = new Set(me.permissions);
-  state.modules = new Set(me.modules);
   state.settings = me.settings;
   if (me.user.must_change_password) return 'password';
   state.lookups = await api.get('/api/lookups');
