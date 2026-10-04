@@ -1,0 +1,7 @@
+# The public Animated LIMS demo. Aliquot listens on 127.0.0.1 only.
+tunnel: df79bbdb-de26-4e24-9444-bb3b760aac13
+credentials-file: /Users/maracchi/.cloudflared/df79bbdb-de26-4e24-9444-bb3b760aac13.json
+ingress:
+  - hostname: animated.nitrolims-demo.com
+    service: http://127.0.0.1:3003
+  - service: http_status:404

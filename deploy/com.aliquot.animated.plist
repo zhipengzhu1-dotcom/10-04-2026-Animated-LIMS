@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>ALIQUOT_DATA</key>
+		<string>/Users/maracchi/Aliquot-Animated-data</string>
+		<key>CLOUDFLARE_TUNNEL</key>
+		<string>1</string>
+		<key>HOST</key>
+		<string>127.0.0.1</string>
+		<key>PORT</key>
+		<string>3003</string>
+		<key>SECURE_COOKIES</key>
+		<string>1</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.aliquot.animated</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/node</string>
+		<string>/Users/maracchi/Desktop/Claude/10. October 2026/Aliquot-Animated-live/server.js</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/maracchi/Aliquot-Animated-data/logs/aliquot.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/maracchi/Aliquot-Animated-data/logs/aliquot.log</string>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/maracchi/Desktop/Claude/10. October 2026/Aliquot-Animated-live</string>
+</dict>
+</plist>

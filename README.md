@@ -154,6 +154,21 @@ Built in:
 - **Restoring:** stop Aliquot, put a backed-up `aliquot.db` (and `files/`) into `data/`, then start it again.
 - **Access from outside the lab** (home or client sites): don't expose port 3000 directly. Put it behind a reverse proxy that provides HTTPS, such as [Caddy](https://caddyserver.com) or nginx, and set `SECURE_COOKIES=1`. This is required before clients use the portal or anyone uses *Open in Word/Excel* from outside the lab network.
 
+### The public demo
+
+[animated.nitrolims-demo.com](https://animated.nitrolims-demo.com) runs on one Mac. `deploy/` holds a copy of each file that sets it up; the installed copies are the ones that run, so change both together.
+
+| File in `deploy/` | Installed at | What it does |
+|---|---|---|
+| `com.aliquot.animated.plist` | `~/Library/LaunchAgents/` | Runs `server.js` from the live copy on 127.0.0.1:3003, with its data in `~/Aliquot-Animated-data` |
+| `com.aliquot.animated-tunnel.plist` | `~/Library/LaunchAgents/` | Keeps the Cloudflare Tunnel running |
+| `cloudflared.yml` | `~/.cloudflared/aliquot-animated.yml` | Sends the hostname to port 3003. The tunnel's credentials file stays out of the repository |
+| `com.aliquot.animated-reset.plist` | `~/Library/LaunchAgents/` | Runs the reset at 03:05 every night |
+| `reset.sh` | `~/Aliquot-Animated-data/reset.sh` | Stops the demo, loads fresh demo data and starts it again |
+
+- **The live copy is its own clone,** `~/Desktop/Claude/10. October 2026/Aliquot-Animated-live`, kept on `main`. Work in a different clone: every file under `public/` is served the moment it changes.
+- **To publish `main`:** `git -C ~/"Desktop/Claude/10. October 2026/Aliquot-Animated-live" pull --ff-only`, then `launchctl kickstart -k gui/$(id -u)/com.aliquot.animated` to restart the server.
+
 ### Settings via environment variables
 
 | Variable | Default | Meaning |
