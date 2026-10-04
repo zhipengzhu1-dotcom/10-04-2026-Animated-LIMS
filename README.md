@@ -70,7 +70,7 @@ The sign-in page has one-click buttons for these accounts while demo mode is on.
 
 **Finding things:** press **⌘K** (or Ctrl+K, or `/`) anywhere to search. A USB barcode scanner works too: scan a sample label into the search box and the sample opens.
 
-**Fitting more on screen:** the layout is compact by default. Switch to **Comfortable** in the user menu (bottom-left) if you prefer more space, and press `[` or the ☰ button to collapse the sidebar to icons. The **Tuned / Full HUD** switch in the top bar (or the user menu on a phone) changes how much the interface puts on show: Tuned keeps work screens calm, Full HUD adds the ambient sculpture, corner brackets and a live readout strip. These settings are remembered on each computer.
+**Fitting more on screen:** the layout is compact by default. Switch to **Comfortable** in the user menu (bottom-left) if you prefer more space, and press `[` or the ☰ button to collapse the sidebar to icons. The **Tuned / Full HUD** switch in the top bar (or the user menu on a phone) changes how much the interface puts on show: Tuned keeps work screens calm, Full HUD adds a DNA helix behind the work screens, corner brackets and a live readout strip. These settings are remembered on each computer.
 
 ### Word and Excel in the notebook
 
@@ -170,7 +170,7 @@ Built in:
 
 ## For developers
 
-- **Zero dependencies.** Node's built-in `http`, `crypto` and `node:sqlite`. The front end is plain ES modules with no build step.
+- **Zero dependencies.** Node's built-in `http`, `crypto` and `node:sqlite`. The front end is plain ES modules with no build step. The one exception is three.js, which draws the helix on the sign-in screen: it is copied into `public/vendor/three/` with its licence and served by Aliquot itself, so it works without internet access. Without WebGL the sign-in shows a still drawing instead.
 - `server/`: database schema and migrations (`schema.js`), audit trail (`audit.js`), auth and e-signatures (`auth.js`), and one route module per area in `routes/`. `lab.js` holds the core sample/test workflow.
 - `public/js/`: the single-page app. Core helpers are in `core/` (escaping templates, tables, modals, charts, barcodes) and there is one module per screen in `views/`.
 - `npm run dev` starts a development copy on http://localhost:3001 with its own `data-dev/` folder, reachable from this computer only, and restarts when server code changes. It never touches the lab's `data/`.
