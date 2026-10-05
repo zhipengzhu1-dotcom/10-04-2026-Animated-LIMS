@@ -12,10 +12,10 @@ import {
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
-  TEST_SELECT, TEST_QUEUES, TEST_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
-  assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport,
+  TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
+  guard, unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, mayCloseInvestigation, openSampleInvestigation } from './quality.js';
+import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -188,9 +188,12 @@ export default function routes(r) {
     const tests = all(`${TEST_SELECT} WHERE t.sample_id = ? ORDER BY t.id`, id);
     const results = tests.length ? all(`SELECT * FROM results WHERE test_id IN (${ph(tests)}) ORDER BY sort_order, id`, ...tests.map((t) => t.id)) : [];
     for (const t of tests) t.results = results.filter((x) => x.test_id === t.id);
+    const allowed = (action) => !SAMPLE_RULES[action](sample, ctx.user);
     return {
       sample,
       tests,
+      // The Tests the Sample page's "Assign unassigned" assigns.
+      assignable: unassignedTests(id, ctx.user).map((t) => t.id),
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
       investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id),
@@ -198,10 +201,10 @@ export default function routes(r) {
       can: {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
         addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
-        assign: can(ctx.user, 'tests.assign'),
-        issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved' && !openSampleInvestigation(id),
-        dispose: can(ctx.user, 'samples.dispose') && sample.status !== 'Disposed' && !tests.some((t) => TEST_OPEN.includes(t.status)) && !openSampleInvestigation(id),
-        cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status) && !openSampleInvestigation(id),
+        assign: allowed('assign'),
+        issue: allowed('issue'),
+        dispose: allowed('dispose'),
+        cancel: allowed('cancel'),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
@@ -229,11 +232,7 @@ export default function routes(r) {
     const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
     const b = clean(ctx.body, { action: { type: 'enum', values: CUSTODY_ACTIONS, required: true }, location: {}, note: { type: 'text' } });
     if (b.action === 'Disposed') {
-      assertCan(ctx, 'samples.dispose');
-      if (s.status === 'Disposed') throw bad('This sample has already been disposed');
-      if (get(`SELECT 1 FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) throw bad('This sample still has open tests');
-      const inv = openSampleInvestigation(id);
-      if (inv) throw bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
+      guard(SAMPLE_RULES.dispose(s, ctx.user));
     } else {
       assertCan(ctx, 'samples.edit');
     }
@@ -250,23 +249,7 @@ export default function routes(r) {
 
   r.post('/api/samples/:id/tests', (ctx) => addTestsToSample(ctx, +ctx.params.id, ctx.body.method_ids));
 
-  r.post('/api/samples/:id/cancel', (ctx) => {
-    assertCan(ctx, 'tests.cancel');
-    const id = +ctx.params.id;
-    const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
-    const reason = String(ctx.body.reason || '').trim();
-    if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
-    if (!SAMPLE_OPEN.includes(s.status)) throw bad(`Sample is already ${s.status.toLowerCase()}`);
-    const inv = openSampleInvestigation(id);
-    if (inv) throw bad(`${inv.code} is open for this sample — it must be investigated and closed before the sample can be cancelled`);
-    tx(() => {
-      for (const t of all(`SELECT id FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) {
-        update(ctx, 'tests', t.id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Test cancelled with sample', reason });
-      }
-      update(ctx, 'samples', id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Sample cancelled', reason });
-    });
-    return { ok: true };
-  });
+  r.post('/api/samples/:id/cancel', (ctx) => cancelSample(ctx, +ctx.params.id, ctx.body));
 
   r.post('/api/samples/:id/report', (ctx) => issueReport(ctx, +ctx.params.id, ctx.body));
 

@@ -9,7 +9,8 @@
 import { all, get, run, tx } from './db.js';
 import { update, mustGet } from './repo.js';
 import { bad, forbidden } from './http.js';
-import { assertCan, can, verifySignature, applySignature } from './auth.js';
+import { can, verifySignature, applySignature } from './auth.js';
+import { SAMPLE_OPEN } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
 import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
 
@@ -147,7 +148,44 @@ export const TEST_RULES = {
   },
 };
 
-function guard(refusal) {
+const sampleTests = (sampleId) => all(`${TEST_SELECT} WHERE t.sample_id = ? ORDER BY t.id`, sampleId);
+const openTests = (sampleId) => sampleTests(sampleId).filter((t) => TEST_OPEN.includes(t.status));
+
+/** The Tests on Sample `sampleId` nobody is assigned to yet that `me` may assign. */
+export const unassignedTests = (sampleId, me) => sampleTests(sampleId).filter((t) => !t.analyst_id && !TEST_RULES.assign(t, me));
+
+// Sample rules: the same form as the Test rules, given the Sample row and the person.
+export const SAMPLE_RULES = {
+  assign(s, me) {
+    if (!can(me, 'tests.assign')) return forbidden();
+    if (!unassignedTests(s.id, me).length) return bad('Every test on this sample is already assigned');
+  },
+  issue(s, me) {
+    if (!can(me, 'reports.issue')) return forbidden();
+    if (s.status !== 'Approved') return bad('Every test on this sample must be approved before the certificate can be issued');
+    const inv = openSampleInvestigation(s.id);
+    if (inv) return bad(`${inv.code} is still open for this sample — close it before issuing the certificate`);
+  },
+  cancel(s, me) {
+    if (!can(me, 'tests.cancel')) return forbidden();
+    if (!SAMPLE_OPEN.includes(s.status)) return bad(`Sample is already ${s.status.toLowerCase()}`);
+    const inv = openSampleInvestigation(s.id);
+    if (inv) return bad(`${inv.code} is open for this sample — it must be investigated and closed before the sample can be cancelled`);
+    for (const t of openTests(s.id)) {
+      const refusal = TEST_RULES.cancel(t, me);
+      if (refusal) return refusal;
+    }
+  },
+  dispose(s, me) {
+    if (!can(me, 'samples.dispose')) return forbidden();
+    if (s.status === 'Disposed') return bad('This sample has already been disposed');
+    if (openTests(s.id).length) return bad('This sample still has open tests');
+    const inv = openSampleInvestigation(s.id);
+    if (inv) return bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
+  },
+};
+
+export function guard(refusal) {
   if (refusal) throw refusal;
 }
 
@@ -164,15 +202,25 @@ function changeStatus(ctx, t, patch, meta) {
 // ---------------------------------------------------------------------------------------------
 
 export function issueReport(ctx, sampleId, body) {
-  assertCan(ctx, 'reports.issue');
   const s = mustGet('SELECT * FROM samples WHERE id = ?', sampleId, 'Sample');
-  if (s.status !== 'Approved') throw bad('Every test on this sample must be approved before the certificate can be issued');
-  const inv = openSampleInvestigation(s.id);
-  if (inv) throw bad(`${inv.code} is still open for this sample — close it before issuing the certificate`);
+  guard(SAMPLE_RULES.issue(s, ctx.user));
   verifySignature(ctx, body.password);
   tx(() => {
     applySignature(ctx, 'samples', s.id, 'sample.coa.issue', { comment: body.comment || null, code: s.code });
     update(ctx, 'samples', s.id, { status: 'Reported', reported_at: nowIso() }, { action: 'STATUS', summary: 'Certificate of Analysis issued' });
+  });
+  return { ok: true };
+}
+
+export function cancelSample(ctx, sampleId, body) {
+  const s = mustGet('SELECT * FROM samples WHERE id = ?', sampleId, 'Sample');
+  guard(SAMPLE_RULES.cancel(s, ctx.user));
+  const reason = String(body.reason || '').trim();
+  if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
+  // The Sample is cancelled first so that cancelling its Tests doesn't re-derive its status on the way.
+  tx(() => {
+    update(ctx, 'samples', s.id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Sample cancelled', reason });
+    for (const t of openTests(s.id)) changeStatus(ctx, t, { status: 'Cancelled' }, { summary: 'Test cancelled with sample', reason });
   });
   return { ok: true };
 }
