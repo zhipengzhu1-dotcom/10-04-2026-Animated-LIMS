@@ -175,6 +175,7 @@ test('a returned test counts against its analyst', async () => {
   assert.equal(returned.returned, submitted.returned + 1);
   assert.equal(returned.awaiting_review, submitted.awaiting_review - 1);
   assert.equal(returned.in_progress, submitted.in_progress + 1);
+  assert.ok((await tom.ok('GET', '/api/dashboard')).myReturned.includes(testId), 'the dashboard flags the same test as returned');
 });
 
 test('only people who assign work see the workload', async () => {

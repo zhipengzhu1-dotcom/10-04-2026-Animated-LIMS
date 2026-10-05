@@ -4,9 +4,8 @@ import { all, get, ph } from '../db.js';
 import { assertCan } from '../auth.js';
 import { rolesWith } from '../lookups.js';
 import { today, addDays } from '../util.js';
-import { TEST_EDITABLE, TEST_OPEN } from '../workflow.js';
+import { TEST_EDITABLE, TEST_OPEN, TEST_RETURNED } from '../workflow.js';
 
-const RETURNED = ['Returned by reviewer', 'Rejected at approval'];
 const CLOSED_PROJECT = ['Completed', 'Cancelled'];
 
 export default function routes(r) {
@@ -22,12 +21,12 @@ export default function routes(r) {
         SUM(CASE WHEN ${isOpen} THEN 1 ELSE 0 END) AS open,
         SUM(CASE WHEN ${isOpen} AND t.due_date < ? THEN 1 ELSE 0 END) AS overdue,
         SUM(CASE WHEN ${isOpen} AND t.due_date BETWEEN ? AND ? THEN 1 ELSE 0 END) AS due_week,
-        SUM(CASE WHEN t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN (${ph(RETURNED)})) THEN 1 ELSE 0 END) AS returned,
+        SUM(CASE WHEN t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN (${ph(TEST_RETURNED)})) THEN 1 ELSE 0 END) AS returned,
         SUM(CASE WHEN t.status IN ('Submitted','Reviewed') THEN 1 ELSE 0 END) AS awaiting_review
       FROM users u LEFT JOIN tests t ON t.analyst_id = u.id AND t.status IN (${ph(TEST_OPEN)})
       WHERE u.active = 1 AND u.role IN (${ph(performers)})
       GROUP BY u.id ORDER BY open DESC, u.full_name`,
-    ...TEST_EDITABLE, ...TEST_EDITABLE, t, ...TEST_EDITABLE, t, addDays(t, 7), ...RETURNED, ...TEST_OPEN, ...performers);
+    ...TEST_EDITABLE, ...TEST_EDITABLE, t, ...TEST_EDITABLE, t, addDays(t, 7), ...TEST_RETURNED, ...TEST_OPEN, ...performers);
 
     const byId = new Map(analysts.map((a) => [a.id, { ...a, projects: [] }]));
     const links = all(`SELECT x.user_id, p.id, p.code, p.title, c.code AS client_code, p.status, p.due_date, MAX(x.lead) AS lead, SUM(x.open_tests) AS open_tests
