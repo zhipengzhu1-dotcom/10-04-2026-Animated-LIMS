@@ -388,7 +388,7 @@ export async function detail(ctx) {
             ${can('investigations.raise') ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
             ${can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
             ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel sample</button>` : ''}
-            ${d.can.dispose && !stopped ? html`<button data-act="dispose">${icon('trash')}Dispose</button>` : ''}
+            ${d.can.dispose ? html`<button data-act="dispose">${icon('trash')}Dispose</button>` : ''}
           </div>
         </div>`,
     })}
