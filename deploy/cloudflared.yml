@@ -4,4 +4,6 @@ credentials-file: /Users/maracchi/.cloudflared/df79bbdb-de26-4e24-9444-bb3b760aa
 ingress:
   - hostname: animated.nitrolims-demo.com
     service: http://127.0.0.1:3003
+  - hostname: app.nitrolims-demo.com
+    service: http://127.0.0.1:3003
   - service: http_status:404
