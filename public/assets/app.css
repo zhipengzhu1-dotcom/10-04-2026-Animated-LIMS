@@ -146,7 +146,7 @@ html[data-density="comfortable"] {
     --teal-bg: rgba(110, 200, 180, 0.14); --teal-fg: #8fd8c6;
     --gray-bg: rgba(236, 233, 225, 0.09); --gray-fg: #b9b5aa;
     --series-1: #d8d4ca; --series-1-hot: #ff5b14; --series-muted: #3a3934;
-  --load-soon: #d8d4ca; --load-later: #97938a; --load-review: #5c5a53;
+    --load-soon: #d8d4ca; --load-later: #97938a; --load-review: #5c5a53;
     --grid: #252421; --axis: #46443e;
     --shadow-sm: none; --shadow: none; --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.03);
   }

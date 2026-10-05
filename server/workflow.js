@@ -17,8 +17,12 @@ import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } fr
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 export const TEST_SUBMITTED = ['Submitted', 'Reviewed', 'Approved'];
-/** Signature meanings that send a Test back to its analyst; an In Progress Test carrying one is "returned". */
-export const TEST_RETURNED = ['test.review.return', 'test.approve.reject'].map((a) => SIGNATURE_MEANINGS[a].meaning);
+const RETURN_MEANINGS = ['test.review.return', 'test.approve.reject'].map((a) => SIGNATURE_MEANINGS[a].meaning);
+/** [SQL condition, ...params]: Test `t` is In Progress because a reviewer or approver sent it back to its analyst. */
+export const TEST_RETURNED = [
+  `t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN (${ph(RETURN_MEANINGS)}))`,
+  ...RETURN_MEANINGS,
+];
 
 export const TEST_SELECT = `
   SELECT t.*, s.code AS sample_code, s.description AS sample_description, s.batch_no, s.priority, s.client_id, s.project_id,

@@ -82,7 +82,7 @@ async function receive(projectId, dueDate) {
 const assign = (testId, username) => lab.priya.ok('POST', '/api/tests/assign', { test_ids: [testId], analyst_id: lab.users[username].id });
 
 const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const countBy =(tests) => tests.reduce((m, t) => m.set(t.analyst_id, (m.get(t.analyst_id) || 0) + 1), new Map());
+const countBy = (tests) => tests.reduce((m, t) => m.set(t.analyst_id, (m.get(t.analyst_id) || 0) + 1), new Map());
 
 test('each analyst row agrees with the Tests list', async () => {
   await setupLab();

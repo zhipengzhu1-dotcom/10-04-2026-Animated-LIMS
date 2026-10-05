@@ -58,6 +58,7 @@ export async function list(ctx) {
       { key: 'open', label: 'Open', sort: true, align: 'right', render: (r) => html`<a href="/worklist?analyst=${r.id}">${count(r.open)}</a>` },
       { key: 'in_progress', label: 'In progress', sort: true, align: 'right', render: (r) => count(r.in_progress) },
       { key: 'overdue', label: 'Overdue', sort: true, align: 'right', render: (r) => count(r.overdue, 'bad-text') },
+      { key: 'due_week', label: 'Due in 7 days', sort: true, align: 'right', render: (r) => count(r.due_week) },
       { key: 'returned', label: 'Returned', sort: true, align: 'right', render: (r) => count(r.returned, 'warn-text') },
       { key: 'projects', label: 'Projects', sort: (r) => r.projects.length, render: (r) => (r.projects.length ? html`<span class="row">${r.projects.map(projectChip)}</span>` : html`<span class="muted">—</span>`) },
     ],
