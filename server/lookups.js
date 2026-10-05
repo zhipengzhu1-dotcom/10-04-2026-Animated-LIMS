@@ -40,6 +40,8 @@ export const PERMISSIONS = {
   'qualifications.manage': ['admin', 'manager', 'qa'],
   'audit.view': ['admin', 'manager', 'qa'],
   'settings.edit': ['admin'],
+  // Sees every work queue (Worklist, Reviews & approvals, Workload) without being able to act on it.
+  'work.oversee': ['admin'],
   // Client portal: everyone in the lab can read it; replying and progressing requests is for client-facing roles.
   'portal.view': ['admin', 'manager', 'qa', 'scientist', 'analyst', 'business'],
   'portal.respond': ['manager', 'qa', 'scientist', 'business'],

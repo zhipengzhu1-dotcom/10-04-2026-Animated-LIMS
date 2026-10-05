@@ -4,7 +4,7 @@ import { all, get, ph } from '../db.js';
 import { can } from '../auth.js';
 import { SAMPLE_OPEN, rolesWith } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
-import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES } from '../workflow.js';
+import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES, TEST_RETURNED } from '../workflow.js';
 
 function monthsBack(n) {
   const out = [];
@@ -23,6 +23,7 @@ function lastMonthStart(date) {
   return localDate(d);
 }
 
+const [RETURNED_SQL, ...RETURNED_PARAMS] = TEST_RETURNED;
 const fillMonths = (months, rows, key = 'v') => months.map((m) => ({ month: m, value: rows.find((r) => r.month === m)?.[key] ?? 0 }));
 
 function myTests(me) {
@@ -87,7 +88,7 @@ export default function routes(r) {
     return {
       kpis,
       myTests: can(me, 'tests.perform') ? myTests(me.id) : [],
-      myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN ('Returned by reviewer','Rejected at approval'))`, me.id).map((x) => x.id),
+      myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND ${RETURNED_SQL}`, me.id, ...RETURNED_PARAMS).map((x) => x.id),
       myDrafts: all(`SELECT id, code, title, updated_at FROM notebook_entries WHERE author_id = ? AND status = 'Draft' ORDER BY updated_at DESC LIMIT 5`, me.id),
       alerts,
       pipeline: all(`SELECT status, COUNT(*) AS n FROM tests WHERE status IN (${ph(TEST_OPEN)}) GROUP BY status`, ...TEST_OPEN),

@@ -11,11 +11,11 @@ function resultsInline(t) {
   return html`<div class="row" style="gap:6px 12px;margin-top:4px">${t.results.map((r) => html`<span class="small nowrap"><span class="muted">${r.analyte}:</span> <span class="mono">${resultText(r)}</span> ${r.outcome === 'Fail' ? outcomeBadge('Fail') : ''}</span>`)}</div>`;
 }
 
-function testTable(list, kind) {
+function testTable(list, kind, signable) {
   return html`<div class="table-wrap"><table class="table">
-    <thead><tr><th class="sel"><input type="checkbox" data-all="${kind}" aria-label="Select all"></th><th>Test</th><th>Results</th><th>${kind === 'review' ? 'Analyst' : 'Reviewed by'}</th><th>Waiting</th><th>Due</th></tr></thead>
+    <thead><tr>${signable ? html`<th class="sel"><input type="checkbox" data-all="${kind}" aria-label="Select all"></th>` : ''}<th>Test</th><th>Results</th><th>${kind === 'review' ? 'Analyst' : 'Reviewed by'}</th><th>Waiting</th><th>Due</th></tr></thead>
     <tbody>${list.map((t) => html`<tr class="${t.oos ? 'row-fail' : ''}">
-      <td class="sel"><input type="checkbox" data-pick="${kind}" value="${t.id}" ${t.oos ? raw('data-oos="1"') : ''} aria-label="Select ${t.code}"></td>
+      ${signable ? html`<td class="sel"><input type="checkbox" data-pick="${kind}" value="${t.id}" ${t.oos ? raw('data-oos="1"') : ''} aria-label="Select ${t.code}"></td>` : ''}
       <td class="title-cell"><a href="/tests/${t.id}"><strong>${t.method_title}</strong></a> ${priorityBadge(t.priority)}${t.oos ? badge('OOS', 'red', { dot: false }) : ''}
         <span class="sub-line"><span class="code">${t.code}</span> · ${t.sample_code} · ${t.client_code} · ${t.method_code} v${t.method_version}</span></td>
       <td>${resultsInline(t)}</td>
@@ -27,13 +27,17 @@ function testTable(list, kind) {
 
 export async function render(ctx) {
   ctx.title('Reviews & approvals');
-  const d = await api.get('/api/reviews');
+  const signsAnything = ['tests.review', 'tests.approve', 'notebook.witness', 'reports.issue'].some(can);
+  const oversee = !signsAnything && can('work.oversee');
+  const d = await api.get('/api/reviews', oversee ? { scope: 'lab' } : {});
+  const sees = (perm) => can(perm) || oversee;
   const sections = [
-    can('tests.review') && { key: 'review', label: 'Peer review', count: d.toReview.length },
-    can('tests.approve') && { key: 'approve', label: 'QA approval', count: d.toApprove.length },
-    can('notebook.witness') && { key: 'witness', label: 'Notebook witnessing', count: d.toWitness.length },
-    can('reports.issue') && { key: 'issue', label: 'Certificates to issue', count: d.toIssue.length },
+    sees('tests.review') && { key: 'review', label: 'Peer review', count: d.toReview.length },
+    sees('tests.approve') && { key: 'approve', label: 'QA approval', count: d.toApprove.length },
+    sees('notebook.witness') && { key: 'witness', label: 'Notebook witnessing', count: d.toWitness.length },
+    sees('reports.issue') && { key: 'issue', label: 'Certificates to issue', count: d.toIssue.length },
   ].filter(Boolean);
+
   if (!sections.length) {
     ctx.el.innerHTML = String(html`${pageHead({ title: 'Reviews & approvals' })}${emptyState({ icon: 'lock', title: 'Nothing for your role', text: 'Reviews and approvals are done by scientists, managers and QA.' })}`);
     return;
@@ -44,24 +48,24 @@ export async function render(ctx) {
   if (active === 'review') {
     body = d.toReview.length ? card({
       title: 'Waiting for peer review',
-      sub: 'You can review anything you did not perform yourself.',
-      actions: html`<button class="btn primary" data-bulk="review" disabled>${icon('sign', { size: 15 })}Sign review</button>`,
+      sub: can('tests.review') ? 'You can review anything you did not perform yourself.' : '',
+      actions: can('tests.review') ? html`<button class="btn primary" data-bulk="review" disabled>${icon('sign', { size: 15 })}Sign review</button>` : '',
       flush: true,
-      body: testTable(d.toReview, 'review'),
+      body: testTable(d.toReview, 'review', can('tests.review')),
     }) : emptyState({ icon: 'check', title: 'No tests waiting for review', text: 'Nice — the review queue is empty.' });
   } else if (active === 'approve') {
     body = d.toApprove.length ? card({
       title: 'Waiting for QA approval',
       sub: 'Tests with an OOS result must be approved one at a time from the test page, after the investigation is closed.',
-      actions: html`<button class="btn primary" data-bulk="approve" disabled>${icon('sign', { size: 15 })}Approve</button>`,
+      actions: can('tests.approve') ? html`<button class="btn primary" data-bulk="approve" disabled>${icon('sign', { size: 15 })}Approve</button>` : '',
       flush: true,
-      body: testTable(d.toApprove, 'approve'),
+      body: testTable(d.toApprove, 'approve', can('tests.approve')),
     }) : emptyState({ icon: 'check', title: 'Nothing waiting for approval' });
   } else if (active === 'witness') {
     body = d.toWitness.length ? card({
       title: 'Signed notebook entries waiting for a witness',
       flush: true,
-      body: html`<ul class="list">${d.toWitness.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta"><span class="code">${n.code}</span> · ${n.author_name}${n.project_code ? ` · ${n.project_code}` : ''} · signed ${relTime(n.signed_at)}</div></div><a class="btn sm" href="/notebook/${n.id}">Read & witness</a></li>`)}</ul>`,
+      body: html`<ul class="list">${d.toWitness.map((n) => html`<li class="link" data-href="/notebook/${n.id}"><div class="grow"><div class="title">${n.title}</div><div class="meta"><span class="code">${n.code}</span> · ${n.author_name}${n.project_code ? ` · ${n.project_code}` : ''} · signed ${relTime(n.signed_at)}</div></div><a class="btn sm" href="/notebook/${n.id}">${can('notebook.witness') ? 'Read & witness' : 'Read'}</a></li>`)}</ul>`,
     }) : emptyState({ icon: 'book', title: 'Nothing to witness' });
   } else {
     body = d.toIssue.length ? card({
@@ -75,13 +79,13 @@ export async function render(ctx) {
           <td>${s.client_name}${s.project_code ? html`<span class="sub-line">${s.project_code}</span>` : ''}</td>
           <td>${s.test_count} ${s.has_oos ? badge('Contains OOS', 'red') : badge('All pass', 'green')}</td>
           <td>${dueChip(s.due_date)}</td>
-          <td class="right nowrap"><a class="btn sm" href="/print/coa/${s.id}" target="_blank">${icon('eye', { size: 13 })}Preview</a> <button class="btn sm primary" data-issue="${s.id}" data-code="${s.code}">${icon('sign', { size: 13 })}Issue</button></td>
+          <td class="right nowrap"><a class="btn sm" href="/print/coa/${s.id}" target="_blank">${icon('eye', { size: 13 })}Preview</a> ${can('reports.issue') ? html`<button class="btn sm primary" data-issue="${s.id}" data-code="${s.code}">${icon('sign', { size: 13 })}Issue</button>` : ''}</td>
         </tr>`)}</tbody></table></div>`,
     }) : emptyState({ icon: 'method', title: 'No certificates to issue' });
   }
 
   ctx.el.innerHTML = String(html`
-    ${pageHead({ title: 'Reviews & approvals', sub: 'Everything waiting for your signature. Four-eyes principle: you never review or approve your own work.' })}
+    ${pageHead({ title: 'Reviews & approvals', sub: signsAnything ? 'Everything waiting for your signature. Four-eyes principle: you never review or approve your own work.' : 'Everything waiting for a signature across the lab. Read-only: your role does not sign lab data.' })}
     <div class="toolbar">${segmented(sections.map((s) => ({ ...s, href: setQuery({ tab: s.key }) })), active)}</div>
     ${body}`);
 

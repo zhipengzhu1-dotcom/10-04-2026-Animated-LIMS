@@ -185,3 +185,13 @@ export function barList(el, { data, format = compact, labelHead = 'Item', valueH
     return `<li data-i="${i}" tabindex="0"><span class="bl-label" title="${esc(d.label)}">${label}</span><span class="bl-track"><span class="bl-bar" style="width:${pct}%"></span></span><span class="bl-value">${esc(format(d.value || 0))}</span></li>`;
   }).join('')}</ul>${tableFallback(data, format, labelHead, valueHead)}`;
 }
+
+/** Shows the chart tooltip over any element inside `root` that carries data-tip (the value) and data-tip-label. */
+export function hoverTips(root) {
+  root.addEventListener('pointerover', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el) showTip(e, el.dataset.tip, el.dataset.tipLabel);
+    else hideTip();
+  });
+  root.addEventListener('pointerleave', hideTip);
+}

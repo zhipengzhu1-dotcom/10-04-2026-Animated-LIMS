@@ -10,13 +10,19 @@ import { all, get, run, ph, tx } from './db.js';
 import { update, mustGet } from './repo.js';
 import { bad, forbidden } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
-import { SAMPLE_OPEN } from './lookups.js';
+import { SAMPLE_OPEN, SIGNATURE_MEANINGS } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
 import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
 
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 export const TEST_SUBMITTED = ['Submitted', 'Reviewed', 'Approved'];
+const RETURN_MEANINGS = ['test.review.return', 'test.approve.reject'].map((a) => SIGNATURE_MEANINGS[a].meaning);
+/** [SQL condition, ...params]: Test `t` is In Progress because a reviewer or approver sent it back to its analyst. */
+export const TEST_RETURNED = [
+  `t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN (${ph(RETURN_MEANINGS)}))`,
+  ...RETURN_MEANINGS,
+];
 
 export const TEST_SELECT = `
   SELECT t.*, s.code AS sample_code, s.description AS sample_description, s.batch_no, s.priority, s.client_id, s.project_id,

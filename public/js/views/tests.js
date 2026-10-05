@@ -76,7 +76,7 @@ export async function worklist(ctx) {
         { key: 'review', label: 'In review', href: setQuery({ view: 'review' }) },
       ].filter(Boolean), view)}
       <select data-q="method" style="width:auto;max-width:260px" aria-label="Method"><option value="">All methods</option>${methods.map((m) => html`<option value="${m.id}" ${String(m.id) === ctx.query.method ? raw('selected') : ''}>${m.code} — ${m.title}</option>`)}</select>
-      ${canAssign && view !== 'mine' ? html`<select data-q="analyst" style="width:auto" aria-label="Analyst"><option value="">Anyone</option>${analysts.map((u) => html`<option value="${u.id}" ${String(u.id) === ctx.query.analyst ? raw('selected') : ''}>${u.full_name}</option>`)}</select>` : ''}
+      ${(canAssign || can('work.oversee')) && view !== 'mine' ? html`<select data-q="analyst" style="width:auto" aria-label="Analyst"><option value="">Anyone</option>${analysts.map((u) => html`<option value="${u.id}" ${String(u.id) === ctx.query.analyst ? raw('selected') : ''}>${u.full_name}</option>`)}</select>` : ''}
       <span class="spacer"></span>
       ${searchBox('Filter tests…')}
     </div>

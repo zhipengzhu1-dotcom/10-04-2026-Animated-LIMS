@@ -41,6 +41,7 @@
   --series-1: #2a2a27;
   --series-1-hot: #ff5b14;
   --series-muted: #c6c3ba;
+  --load-soon: #2a2a27; --load-later: #6a675f; --load-review: #a6a298;
   --grid: #dcd9d1;
   --axis: #aeaaa0;
 
@@ -145,6 +146,7 @@ html[data-density="comfortable"] {
     --teal-bg: rgba(110, 200, 180, 0.14); --teal-fg: #8fd8c6;
     --gray-bg: rgba(236, 233, 225, 0.09); --gray-fg: #b9b5aa;
     --series-1: #d8d4ca; --series-1-hot: #ff5b14; --series-muted: #3a3934;
+    --load-soon: #d8d4ca; --load-later: #97938a; --load-review: #5c5a53;
     --grid: #252421; --axis: #46443e;
     --shadow-sm: none; --shadow: none; --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.03);
   }
@@ -165,6 +167,7 @@ html[data-density="comfortable"] {
   --teal-bg: rgba(110, 200, 180, 0.14); --teal-fg: #8fd8c6;
   --gray-bg: rgba(236, 233, 225, 0.09); --gray-fg: #b9b5aa;
   --series-1: #d8d4ca; --series-1-hot: #ff5b14; --series-muted: #3a3934;
+  --load-soon: #d8d4ca; --load-later: #97938a; --load-review: #5c5a53;
   --grid: #252421; --axis: #46443e;
   --shadow-sm: none; --shadow: none; --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
@@ -866,6 +869,19 @@ html[data-density="comfortable"] .editor, html[data-density="comfortable"] .edit
 .bl-bar { display: block; height: 100%; min-width: 2px; background: var(--series-1); border-radius: 0; transition: background var(--t-1); transform-origin: left; animation: grow var(--t-5) var(--ease) both var(--t-1); }
 .barlist li:hover .bl-bar { background: var(--series-1-hot); }
 .bl-value { font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+
+/* Workload: one analyst's open tests split by urgency, scaled to the busiest analyst. */
+.load-track { display: block; min-width: 140px; height: 10px; background: repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 6px); }
+.load-bar { display: flex; gap: 2px; height: 100%; transform-origin: left; animation: grow var(--t-5) var(--ease) both var(--t-1); }
+.load-bar > span { min-width: 3px; }
+.seg-overdue { background: var(--red-fg); }
+.seg-soon { background: var(--load-soon); }
+.seg-later { background: var(--load-later); }
+.seg-review { background: repeating-linear-gradient(135deg, var(--load-review) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px var(--load-review); }
+.load-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--text-2); }
+.load-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.load-legend i { display: inline-block; width: 10px; height: 10px; }
+.chip .progress { width: 20px; background: var(--surface); }
 
 /* Print views (CoA, labels, invoice) ------------------------------------------------------ */
 

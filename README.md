@@ -34,7 +34,7 @@ Do this first-time setup **on the computer running Aliquot**. For security, it i
 | `sarah.lindqvist` | Senior Scientist | Reviews & approvals → peer review |
 | `daniel.okafor` | Quality Assurance | QA approval, closing OOS investigations, issuing CoAs, audit trail |
 | `grace.holloway` / `oliver.grant` | Business & Finance | Clients, projects, "ready to bill", invoices |
-| `admin` | Administrator | Team accounts, settings |
+| `admin` | Administrator | Team accounts, settings, a read-only view of every screen |
 
 The sign-in page has one-click buttons for these accounts while demo mode is on.
 
@@ -66,6 +66,7 @@ The sign-in page has one-click buttons for these accounts while demo mode is on.
 | Training records binder | **Training matrix**: only qualified people can be assigned a method |
 | Typed Certificate of Analysis | **CoA**: generated from approved data, e-signed by QA, printed or saved as PDF |
 | Invoicing spreadsheet | **Invoices**: approved work becomes invoice lines in two clicks; nothing is billed twice or forgotten |
+| Who's-on-what board | **Workload**: open, overdue and returned tests per analyst, and the projects each one leads or has tests on |
 | Whiteboard / weekly meeting | **Dashboard and Insights**: workload, due dates, alerts, turnaround, on-time %, OOS rate, revenue, unbilled work |
 
 **Finding things:** press **⌘K** (or Ctrl+K, or `/`) anywhere to search. A USB barcode scanner works too: scan a sample label into the search box and the sample opens.
@@ -105,7 +106,7 @@ Customers get their own sign-in at `/portal/` (for example `http://<lab-server>:
 | Lab Manager | Run the lab: assign, review, approve, cancel, issue CoAs, manage training, see billing |
 | Quality Assurance | Approve results and methods, close investigations, issue CoAs, manage training, read the audit trail |
 | Business & Finance | Clients, projects, invoices and insights (read-only on lab data) |
-| Administrator | User accounts and settings. Deliberately can't sign lab data. |
+| Administrator | User accounts and settings. Sees every screen, including the Worklist, Reviews & approvals and Workload, read-only. Deliberately can't sign lab data. |
 
 Whatever the role, no one can review or approve their own work.
 

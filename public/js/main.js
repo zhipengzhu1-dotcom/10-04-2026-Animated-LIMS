@@ -25,6 +25,7 @@ import * as invoices from './views/invoices.js';
 import * as insights from './views/insights.js';
 import * as portalInbox from './views/portal-inbox.js';
 import * as team from './views/team.js';
+import * as workload from './views/workload.js';
 import * as audit from './views/audit.js';
 import * as settings from './views/settings.js';
 import * as account from './views/account.js';
@@ -61,6 +62,7 @@ const ROUTES = [
   ['/portal-inbox', portalInbox.render, 'portal'],
   ['/portal-inbox/submissions/:id', portalInbox.submission, 'portal'],
   ['/portal-inbox/requests/:id', portalInbox.request, 'portal'],
+  ['/workload', workload.list, 'workload'],
   ['/team', team.list, 'team'],
   ['/team/training', team.training, 'team'],
   ['/team/:id', team.detail, 'team'],
@@ -82,8 +84,8 @@ const NAV = [
   ] },
   { group: 'Laboratory', items: [
     { key: 'samples', href: '/samples', label: 'Samples', icon: 'tube' },
-    { key: 'worklist', href: '/worklist', label: 'Worklist', icon: 'worklist', badge: 'myTests', perm: ['tests.perform', 'tests.assign'] },
-    { key: 'reviews', href: '/reviews', label: 'Reviews & approvals', icon: 'review', badge: 'reviews', hot: true, perm: ['tests.review', 'tests.approve', 'notebook.witness', 'reports.issue'] },
+    { key: 'worklist', href: '/worklist', label: 'Worklist', icon: 'worklist', badge: 'myTests', perm: ['tests.perform', 'tests.assign', 'work.oversee'] },
+    { key: 'reviews', href: '/reviews', label: 'Reviews & approvals', icon: 'review', badge: 'reviews', hot: true, perm: ['tests.review', 'tests.approve', 'notebook.witness', 'reports.issue', 'work.oversee'] },
     { key: 'notebook', href: '/notebook', label: 'Lab notebook', icon: 'book' },
   ] },
   { group: 'Resources', items: [
@@ -103,6 +105,7 @@ const NAV = [
     { key: 'insights', href: '/insights', label: 'Insights', icon: 'chart', perm: ['insights.view'] },
   ] },
   { group: 'Organisation', items: [
+    { key: 'workload', href: '/workload', label: 'Workload', icon: 'activity', perm: ['tests.assign', 'work.oversee'] },
     { key: 'team', href: '/team', label: 'Team & training', icon: 'users' },
     { key: 'settings', href: '/settings', label: 'Settings', icon: 'settings', perm: ['settings.edit'] },
   ] },

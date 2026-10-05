@@ -125,7 +125,7 @@ export async function render(ctx) {
             </li>`)}${d.alerts.length > 10 ? html`<li class="muted small">+ ${d.alerts.length - 10} more</li>` : ''}</ul>` : emptyState({ icon: 'check', title: 'All clear', text: 'Calibrations, standards, training and investigations are all in date.' }),
         })}
 
-        ${can('tests.assign') ? card({ title: 'Team workload', sub: 'Open tests per analyst', body: html`<div data-chart="workload"></div>`, actions: html`<a class="btn sm ghost" href="/worklist?view=unassigned">Assign work</a>` }) : ''}
+        ${can('tests.assign') ? card({ title: 'Team workload', sub: 'Open tests per analyst', body: html`<div data-chart="workload"></div>`, actions: html`<a class="btn sm ghost" href="/worklist?view=unassigned">Assign work</a><a class="btn sm ghost" href="/workload">Workload ${icon('arrowRight', { size: 13 })}</a>` }) : ''}
 
         ${card({
           title: 'Recent activity',

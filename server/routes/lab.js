@@ -361,20 +361,23 @@ export default function routes(r) {
 
   // ----- Review queue -----
   r.get('/api/reviews', (ctx) => {
-    const me = ctx.user.id;
+    const lab = ctx.query.scope === 'lab';
+    if (lab) assertCan(ctx, 'work.oversee');
+    const me = lab ? 0 : ctx.user.id;
     const out = { toReview: [], toApprove: [], toWitness: [], toIssue: [] };
     const queue = (name, order) => {
       const [sql, ...params] = TEST_QUEUES[name](me);
       return all(`${TEST_SELECT} WHERE ${sql} ORDER BY ${order}`, ...params);
     };
-    if (can(ctx.user, 'tests.review')) out.toReview = queue('review', 't.submitted_at');
-    if (can(ctx.user, 'tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
-    if (can(ctx.user, 'notebook.witness')) {
+    const sees = (perm) => lab || can(ctx.user, perm);
+    if (sees('tests.review')) out.toReview = queue('review', 't.submitted_at');
+    if (sees('tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
+    if (sees('notebook.witness')) {
       out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
     }
-    if (can(ctx.user, 'reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
+    if (sees('reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }
