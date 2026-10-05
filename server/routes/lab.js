@@ -548,7 +548,7 @@ export default function routes(r) {
         addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
         assign: can(ctx.user, 'tests.assign'),
         issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved' && !openSampleInvestigation(id),
-        dispose: can(ctx.user, 'samples.dispose'),
+        dispose: can(ctx.user, 'samples.dispose') && sample.status !== 'Disposed' && !tests.some((t) => TEST_OPEN.includes(t.status)),
         cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status) && !openSampleInvestigation(id),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
@@ -578,6 +578,7 @@ export default function routes(r) {
     const b = clean(ctx.body, { action: { type: 'enum', values: CUSTODY_ACTIONS, required: true }, location: {}, note: { type: 'text' } });
     if (b.action === 'Disposed') {
       assertCan(ctx, 'samples.dispose');
+      if (s.status === 'Disposed') throw bad('This sample has already been disposed');
       if (get(`SELECT 1 FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) throw bad('This sample still has open tests');
     } else {
       assertCan(ctx, 'samples.edit');

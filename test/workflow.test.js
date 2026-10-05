@@ -466,6 +466,37 @@ test('the certificate is offered and queued only while no investigation is open 
   assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
 });
 
+test('dispose is offered only when the server would accept it', async () => {
+  const tom = await as('tom.fletcher');
+  const priya = await as('priya.raman');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const offered = async (c) => (await c.ok('GET', `/api/samples/${sampleId}`)).can.dispose;
+
+  assert.equal(await offered(daniel), false, 'not offered while a Test is open');
+  assert.equal((await daniel.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 400);
+
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  assert.equal(await offered(daniel), false, 'not offered while a Test awaits review');
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  assert.equal(await offered(daniel), false, 'not offered while a Test awaits approval');
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  assert.equal(await offered(daniel), true, 'offered once every Test is approved');
+  assert.equal(await offered(tom), false, 'not offered without the permission');
+  assert.equal((await tom.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 403);
+  await daniel.ok('POST', `/api/samples/${sampleId}/custody`, { action: 'Disposed', note: 'Retention period over' });
+  assert.equal(await offered(daniel), false, 'not offered again once disposed');
+  assert.equal((await daniel.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 400);
+
+  const cancelled = await freshTest('ATM-0002', 'tom.fletcher');
+  await priya.ok('POST', `/api/tests/${cancelled.testId}/cancel`, { reason: 'Client withdrew the request' });
+  assert.equal((await daniel.ok('GET', `/api/samples/${cancelled.sampleId}`)).can.dispose, true, 'offered once every Test is cancelled');
+  await daniel.ok('POST', `/api/samples/${cancelled.sampleId}/custody`, { action: 'Disposed' });
+});
+
 // Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
 async function oosTest(analystUsername) {
   const analyst = await as(analystUsername);
