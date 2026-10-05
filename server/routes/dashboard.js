@@ -1,12 +1,10 @@
 // Dashboard (what needs attention today) and Insights (how the business is doing).
 
-import { all, get } from '../db.js';
+import { all, get, ph } from '../db.js';
 import { can } from '../auth.js';
-import { SAMPLE_OPEN } from '../lookups.js';
+import { SAMPLE_OPEN, rolesWith } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
 import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES } from '../workflow.js';
-
-const ph = (a) => a.map(() => '?').join(',');
 
 function monthsBack(n) {
   const out = [];
@@ -97,8 +95,8 @@ export default function routes(r) {
           SUM(CASE WHEN t.status IN (${ph(TEST_EDITABLE)}) THEN 1 ELSE 0 END) AS open,
           SUM(CASE WHEN t.status IN (${ph(TEST_EDITABLE)}) AND t.due_date < ? THEN 1 ELSE 0 END) AS overdue
         FROM users u LEFT JOIN tests t ON t.analyst_id = u.id
-        WHERE u.active = 1 AND u.role IN ('analyst','scientist')
-        GROUP BY u.id ORDER BY open DESC, u.full_name`, ...TEST_EDITABLE, ...TEST_EDITABLE, t),
+        WHERE u.active = 1 AND u.role IN (${ph(rolesWith('tests.perform'))})
+        GROUP BY u.id ORDER BY open DESC, u.full_name`, ...TEST_EDITABLE, ...TEST_EDITABLE, t, ...rolesWith('tests.perform')),
       dueSoon: all(`SELECT s.id, s.code, s.description, s.due_date, s.status, s.priority, c.code AS client_code,
           (SELECT COUNT(*) FROM tests x WHERE x.sample_id = s.id AND x.status != 'Cancelled') AS test_count,
           (SELECT COUNT(*) FROM tests x WHERE x.sample_id = s.id AND x.status = 'Approved') AS tests_approved
@@ -136,7 +134,7 @@ export default function routes(r) {
         FROM tests t JOIN methods m ON m.id = t.method_id WHERE t.submitted_at >= ? AND t.status != 'Cancelled' GROUP BY m.code HAVING runs > 0 ORDER BY 1.0 * SUM(t.oos) / COUNT(*) DESC, runs DESC`, fromIso),
       throughput: all(`SELECT u.id, u.full_name, u.initials, COUNT(t.id) AS approved
         FROM users u LEFT JOIN tests t ON t.analyst_id = u.id AND t.status = 'Approved' AND t.approved_at >= ?
-        WHERE u.active = 1 AND u.role IN ('analyst','scientist') GROUP BY u.id ORDER BY approved DESC`, new Date(`${addDays(today(), -90)}T00:00:00`).toISOString()),
+        WHERE u.active = 1 AND u.role IN (${ph(rolesWith('tests.perform'))}) GROUP BY u.id ORDER BY approved DESC`, new Date(`${addDays(today(), -90)}T00:00:00`).toISOString(), ...rolesWith('tests.perform')),
       generatedAt: localDate(now()),
     };
   }, { perm: 'insights.view' });

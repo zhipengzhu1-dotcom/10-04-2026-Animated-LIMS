@@ -53,6 +53,9 @@ export const get = (sql, ...params) => stmt(sql).get(...bind(params));
 export const run = (sql, ...params) => stmt(sql).run(...bind(params));
 export const exec = (sql) => db.exec(sql);
 
+/** Placeholders for an `IN (…)` list: ph([a, b, c]) → "?,?,?". */
+export const ph = (list) => list.map(() => '?').join(',');
+
 let depth = 0;
 // Runs fn inside a single transaction (nested calls join the outer one). fn must be synchronous.
 export function tx(fn) {

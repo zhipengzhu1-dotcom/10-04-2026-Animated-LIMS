@@ -1,12 +1,12 @@
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update } from '../repo.js';
 import { audit, verifyChain } from '../audit.js';
 import { HttpError, bad, forbidden, isLoopback, notFound } from '../http.js';
 import {
-  can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, rolesWith, verifyPassword,
+  can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
-import { ROLES, lookups, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
+import { ROLES, lookups, RECORD_ACCESS, MONEY_FIELDS, rolesWith } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
@@ -139,7 +139,7 @@ export default function routes(r) {
       openTests: all(`
         SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
         FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
-        WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
+        WHERE t.analyst_id = ? AND t.status IN (${ph(TEST_OPEN)}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
       stats,
     };
   });
@@ -189,7 +189,7 @@ export default function routes(r) {
   // ---------- Training / method qualifications ----------
   r.get('/api/qualifications', () => ({
     users: all(`SELECT id, full_name, initials, role, title FROM users
-      WHERE active = 1 AND role IN (SELECT value FROM json_each(?)) ORDER BY role DESC, full_name`, JSON.stringify(rolesWith('tests.perform'))),
+      WHERE active = 1 AND role IN (${ph(rolesWith('tests.perform'))}) ORDER BY role DESC, full_name`, ...rolesWith('tests.perform')),
     methods: all(`
       SELECT m.code, m.title, m.technique, m.status FROM methods m
       WHERE m.version = (SELECT MAX(version) FROM methods x WHERE x.code = m.code) AND m.status != 'Retired'

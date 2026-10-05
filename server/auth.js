@@ -41,7 +41,6 @@ export function assertCan(ctx, perm, message) {
 }
 
 export const permissionsFor = (role) => Object.keys(PERMISSIONS).filter((p) => PERMISSIONS[p].includes(role));
-export const rolesWith = (perm) => PERMISSIONS[perm] || [];
 
 export function publicUser(u) {
   if (!u) return null;

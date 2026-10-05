@@ -6,15 +6,13 @@
 // Controls enforced here: qualification on the method, instruments within calibration, standards/reagents
 // within expiry, a reason for every change to a recorded result, and automatic OOS investigations.
 
-import { all, get, run, tx } from './db.js';
+import { all, get, run, ph, tx } from './db.js';
 import { update, mustGet } from './repo.js';
 import { bad, forbidden } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
 import { SAMPLE_OPEN } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
 import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
-
-const ph = (arr) => arr.map(() => '?').join(',');
 
 // Groups of Test statuses other areas need: results and attachments can still change; work not yet approved or
 // cancelled; and submitted for review or beyond, which makes the Sample "In Review" once every Test is there.

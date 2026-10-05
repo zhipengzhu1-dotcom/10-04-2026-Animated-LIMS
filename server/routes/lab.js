@@ -1,14 +1,14 @@
 // Samples and tests: receipt, Sample editing, custody, and the screens and lists over them.
 // The Test workflow itself (assign → results → submit → review → approve → CoA) lives in ../workflow.js.
 
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad } from '../http.js';
-import { assertCan, can, rolesWith } from '../auth.js';
+import { assertCan, can } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
-  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN,
+  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN, rolesWith,
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
@@ -16,8 +16,6 @@ import {
   guard, unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
-
-const ph = (arr) => arr.map(() => '?').join(',');
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
