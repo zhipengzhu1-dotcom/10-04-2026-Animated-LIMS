@@ -135,7 +135,9 @@ test('assigning a project test raises that analyst\'s load and lists the project
   assert.equal(row(after, 'tom.fletcher').open, row(before, 'tom.fletcher').open, 'other analysts unchanged');
   assert.equal(after.unassigned, before.unassigned - 1);
   const onProject = lucia.projects.find((p) => p.id === project.id);
-  assert.deepEqual(onProject, { id: project.id, code: project.code, title: 'Workload project', client_code: 'ACME', status: 'Active', due_date: null, lead: false, open_tests: 1 });
+  assert.deepEqual(onProject, { id: project.id, code: project.code, title: 'Workload project', client_code: 'ACME', status: 'Active', due_date: null, lead: false, open_tests: 1, test_count: 1, tests_done: 0 });
+  const { project: stats } = await lab.priya.ok('GET', `/api/projects/${project.id}`);
+  assert.deepEqual([onProject.test_count, onProject.tests_done], [stats.test_count, stats.tests_done], 'progress agrees with the project page');
   assert.ok(!row(after, 'tom.fletcher').projects.some((p) => p.id === project.id), 'only the assignee is on it');
 });
 
@@ -145,7 +147,7 @@ test('a project lead sees their open led projects, merged with their tests on it
   const led = await newProject({ lead_id: tomId, due_date: '2099-01-01' });
   const done = await newProject({ lead_id: tomId, status: 'Completed' });
   let tom = row(await workload(), 'tom.fletcher');
-  assert.deepEqual(tom.projects.find((p) => p.id === led.id), { id: led.id, code: led.code, title: 'Workload project', client_code: 'ACME', status: 'Active', due_date: '2099-01-01', lead: true, open_tests: 0 });
+  assert.deepEqual(tom.projects.find((p) => p.id === led.id), { id: led.id, code: led.code, title: 'Workload project', client_code: 'ACME', status: 'Active', due_date: '2099-01-01', lead: true, open_tests: 0, test_count: 0, tests_done: 0 });
   assert.ok(!tom.projects.some((p) => p.id === done.id), 'completed projects drop off');
   const leads = tom.projects.map((p) => p.lead);
   assert.deepEqual(leads, [...leads].sort((x, y) => y - x), 'led projects first');

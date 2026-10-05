@@ -29,7 +29,9 @@ export default function routes(r) {
     ...TEST_EDITABLE, ...TEST_EDITABLE, t, ...TEST_EDITABLE, t, addDays(t, 7), ...TEST_RETURNED, ...TEST_OPEN, ...performers);
 
     const byId = new Map(analysts.map((a) => [a.id, { ...a, projects: [] }]));
-    const links = all(`SELECT x.user_id, p.id, p.code, p.title, c.code AS client_code, p.status, p.due_date, MAX(x.lead) AS lead, SUM(x.open_tests) AS open_tests
+    const links = all(`SELECT x.user_id, p.id, p.code, p.title, c.code AS client_code, p.status, p.due_date, MAX(x.lead) AS lead, SUM(x.open_tests) AS open_tests,
+        (SELECT COUNT(*) FROM tests pt JOIN samples ps ON ps.id = pt.sample_id WHERE ps.project_id = p.id AND pt.status != 'Cancelled') AS test_count,
+        (SELECT COUNT(*) FROM tests pt JOIN samples ps ON ps.id = pt.sample_id WHERE ps.project_id = p.id AND pt.status = 'Approved') AS tests_done
       FROM (
         SELECT lead_id AS user_id, id AS project_id, 1 AS lead, 0 AS open_tests FROM projects WHERE lead_id IS NOT NULL AND status NOT IN (${ph(CLOSED_PROJECT)})
         UNION ALL
