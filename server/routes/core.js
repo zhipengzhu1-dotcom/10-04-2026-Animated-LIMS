@@ -111,7 +111,7 @@ export default function routes(r) {
       return n;
     };
     return {
-      myTests: queued('assigned'),
+      myTests: can(ctx.user, 'tests.perform') ? queued('assigned') : 0,
       reviews: reviews(),
       investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n,
       portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
