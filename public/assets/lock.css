@@ -211,6 +211,11 @@
 .lock[data-state="granted"] .lock-panel { animation: lk-unseal var(--t-4) var(--ease) forwards; }
 .lock[data-state="granted"] :is(.lock-brand, .lock-side, .lock-rule, .lock-seal, .lock-clock, .lock-foot) { animation: lk-out var(--t-4) var(--ease) forwards; }
 .lock[data-state="granted"] .lock-helix { filter: blur(0.5px); }
+/* Lifted (liftLock): the granted lock floats over the screen rising beneath it until the dive lands. It takes clicks
+   until that screen is revealed, so nothing hidden under the paper can be pressed. */
+.lock.lifted { position: fixed; inset: 0; z-index: 500; min-height: 0; overflow: hidden; }
+.lock.lifted.revealed { pointer-events: none; }
+.lock-paper { position: absolute; inset: 0; z-index: -2; }
 .lock[data-state="granted"] .auth-key { box-shadow: inset 0 -3px 0 var(--lime); }
 
 @media (max-height: 860px) {
@@ -242,7 +247,7 @@
   .lock-panel { order: 3; animation: lk-rise var(--t-5) var(--ease) both var(--t-2); }
   .lp-body { max-height: none; overflow: visible; }
   .lock-msg { order: 4; right: auto; }
-  .lock-helix, .lock .helix-static { position: fixed; left: 0; width: 100%; opacity: 0.5; --helix-cx: 0.5; --helix-cy: 0.42; --helix-span: 1.3; }
+  .lock-helix, .lock .helix-static { position: fixed; left: 0; width: 100%; opacity: 0.5; --helix-cx: 0.5; --helix-cy: 0.42; --helix-span: 2.6; }
   .lock-verify, .lock-warning { position: fixed; left: 50%; top: 42%; }
   .lock-verify { margin-left: -100px; }
   .operator { grid-template-columns: 88px minmax(0, 1fr); }

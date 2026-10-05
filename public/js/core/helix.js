@@ -1,22 +1,52 @@
-// The helix sculpture: a DNA double helix of two louvred strands drawn in fine hatch lines, with sparse base-pair rungs.
-// Shared by the lock screen and the Full HUD backdrop. three.js loads lazily from /vendor, so screens without the
-// sculpture never fetch it. Without WebGL (or under a failed load) the canvas is swapped for a still line drawing.
-//   const h = await createHelix(canvas, { cx: 0.5, cy: 0.5, span: 0.9, tilt: 0.32, colours: { ink, signal, alarm } });
-//   h.setMode('idle' | 'verify' | 'denied' | 'granted');  h.pulse();  await h.flyIn();  h.settle();  h.destroy();
+// The helix sculpture: a solid DNA double helix modelled in Blender and exported to /assets/helix.glb. Shared by the
+// lock screen and the Full HUD backdrop. three.js and the model load lazily, so screens without the sculpture never
+// fetch them. Without WebGL (or under a failed load) the canvas is swapped for a still line drawing.
+//   const h = await createHelix(canvas, { cx: 0.5, cy: 0.5, span: 1.8, tilt: 0.32, colours: { ink, ink2, ink3, paper, signal, alarm } });
+//   h.setMode('idle' | 'verify' | 'denied' | 'granted');  h.pulse();  const { handoff, landed } = h.flyIn();  h.settle();  h.destroy();
+// flyIn replays replication ahead of the camera: the middle melts into a bubble, two forks run out to the ends snapping
+// the hydrogen bonds and overwinding the duplex ahead of them, the unwound strands splay up and down off screen, and the
+// camera dives through the gap they leave. `handoff` resolves mid-dive, once the strands have parted toward the edges, so
+// the next screen can rise beneath them as they sweep off; `landed` resolves when the dive is over.
 // `colours` names the CSS custom properties to read each colour from (Aliquot passes HELIX_TOKENS from lock.js).
 // CSS custom properties on the canvas (--helix-cx, --helix-cy, --helix-span) override the placement options, so media
 // queries can move the sculpture.
 
 const TAU = Math.PI * 2;
-const LEN = 7.2;
-const R = 1;
-const HALF_W = 0.26;
-const TURNS = 2.25;
-const HATCH = 520;
-const RUNGS = 30;
+const TURNS = 4.5;
 const PULSES = 8;
-const FLY_MS = 900;
+const FLY_MS = 1250;
+const HANDOFF_MS = 760;
+// The fly-in as phases on one clock in milliseconds, each eased over its own window (smoothstep unless it names a curve).
+// The forks finish running at 1000 ms; the splay and the dive end with the fly-in.
+// The dive accelerates to the end, so the camera is still moving as it passes between the strands.
+const FLY = {
+  melt: { start: 0, end: 250 },
+  run: { start: 125, end: 1000 },
+  splay: { start: 500, end: FLY_MS },
+  dive: { start: 190, end: FLY_MS, curve: (x) => x ** 3 },
+  level: { start: 0, end: 750 },
+};
+const phasesAt = (ms) => Object.fromEntries(Object.entries(FLY).map(([name, { start, end, curve = ease }]) => [
+  name, curve(Math.min(1, Math.max(0, (ms - start) / (end - start)))),
+]));
+// Along the helix in |y| / half-length: the melted bubble, how far behind a fork the strands take to part fully, and the
+// band ahead of a fork where the duplex is overwound.
+const BUBBLE = 0.12;
+const FRONT = 0.3;
+const BAND = 0.15;
+// The extra turn the band carries. The duplex ahead swivels to take up the twist the parted strands shed, as it does in
+// replication, so only this residual strain shows, the same however far the fork has run.
+const OVERWIND = Math.PI / 2;
+// Model units: how far the parted strands stand off, then splay further as the camera arrives.
+const GAP = 0.5;
+const SPLAY = 0.6;
+// The camera's distance from the origin when the fly-in ends, inside the gap the strands leave.
+const DIVE_TO = 1.2;
+// Around the axis at y = 0, the direction that points from one strand of the model to the other. The strands sit
+// 0.8π apart there, the first at −TURNS·π.
+const ACROSS = (0.1 - TURNS) * Math.PI;
 const FOV = 32;
+const MODEL = '/assets/helix.glb';
 
 const MODES = {
   idle: { speed: 1, tint: 0, hue: 'signal' },
@@ -25,21 +55,49 @@ const MODES = {
   granted: { speed: 2.2, tint: 0.5, hue: 'signal' },
 };
 
-export const noHelix = Object.freeze({ setMode() {}, pulse() {}, flyIn: async () => {}, settle() {}, destroy() {} });
+// How each part of the model is drawn, keyed by its glTF material name. The model's own colours are ignored so the
+// sculpture follows the theme tokens; `lit` is how far faces turned from the light recede toward the page colour, and
+// `snaps` marks the parts that vanish when the helix breaks open instead of travelling with a strand.
+const ROLES = {
+  'Helix Rail': { colour: 'ink', lit: 1, snaps: 0 },
+  'Helix Louvre': { colour: 'ink2', lit: 1, snaps: 0 },
+  'Helix Base': { colour: 'ink3', lit: 1, snaps: 0 },
+  'Hydrogen Bond': { colour: 'signal', lit: 0, snaps: 1 },
+};
+const roleOf = (material) => ROLES[material] ?? ROLES['Helix Louvre'];
+
+// Resolves on the clock, not on frames: a hidden tab or an off-screen canvas must not hold up the sign-in.
+const flight = (handoffMs, landedMs) => {
+  const at = (ms) => new Promise((done) => setTimeout(done, ms));
+  return { handoff: at(handoffMs), landed: at(landedMs) };
+};
+// With no sculpture to fly, the sign-in still holds on "Access granted" for a beat, unless motion is reduced.
+const BEAT_MS = 900;
+export const noHelix = Object.freeze({
+  setMode() {}, pulse() {}, settle() {}, destroy() {},
+  flyIn: () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? flight(0, 0) : flight(BEAT_MS, BEAT_MS)),
+});
 
 const VERTEX = `
-attribute float aS;
-attribute float aKind;
-attribute vec3 aRad;
 uniform float uTime;
-uniform float uReveal;
 uniform float uNear;
 uniform float uFar;
+uniform float uHalfLen;
+uniform float uTwist;
+uniform float uFork;
+uniform float uSplitTurn;
+uniform float uOverwind;
+uniform float uSplay;
 uniform float uPulse[${PULSES}];
-varying float vA;
+varying vec3 vN;
+varying float vDepth;
+varying float vU;
 varying float vHot;
+varying float vOpen;
+varying float vFork;
 void main() {
-  float u = abs(aS - 0.5) * 2.0;
+  float u = abs(position.y) / uHalfLen;
+  vec3 rad = normalize(vec3(position.x, 0.0, position.z) + 1e-5);
   float disp = 0.0;
   float hot = 0.0;
   for (int i = 0; i < ${PULSES}; i++) {
@@ -51,72 +109,124 @@ void main() {
       hot += g;
     }
   }
-  vec3 p = position + aRad * disp * 0.05;
+  vec3 p = position + rad * disp * 0.05;
+  vec3 n = normal;
+  float turn = ${ACROSS.toFixed(5)} + uTwist * position.y;
+  float side = sign(dot(position.xz, vec2(cos(turn), sin(turn))));
+  // Behind a fork every height turns onto the split, which straightens the strands; ahead of it the duplex turns rigidly
+  // with the fork's height, plus the overwind bump across the band. Equal at y = 0 and at the fork, so nothing tears.
+  float fork = max(uFork, 0.0);
+  float held = sign(position.y) * min(u, fork) * uHalfLen;
+  float ahead = smoothstep(0.0, 1.0, (u - fork) / ${BAND.toFixed(3)});
+  float a = uSplitTurn - uTwist * held + sign(uTwist * position.y) * uOverwind * ahead;
+  float unwound = smoothstep(0.0, 1.0, (uFork + ${BAND.toFixed(3)} - u) / ${BAND.toFixed(3)});
+  float open = smoothstep(0.0, 1.0, (uFork - u) / ${FRONT.toFixed(3)});
+  mat2 r = mat2(cos(a), sin(a), -sin(a), cos(a));
+  p.xz = r * p.xz;
+  n.xz = r * n.xz;
+  float split = ${ACROSS.toFixed(5)} + uSplitTurn;
+  p.xz += vec2(cos(split), sin(split)) * side * open * (${GAP.toFixed(3)} + uSplay);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float depth = smoothstep(uNear, uFar, -mv.z);
-  float ends = smoothstep(1.0, 0.84, u);
-  float reveal = 1.0 - smoothstep(uReveal - 0.05, uReveal, u);
-  float kind = aKind < 0.5 ? 0.42 : (aKind < 1.5 ? 0.9 : 0.5);
-  vA = kind * mix(1.0, 0.1, depth) * ends * reveal;
+  vN = normalMatrix * n;
+  vDepth = smoothstep(uNear, uFar, -mv.z);
+  vU = u;
   vHot = clamp(hot, 0.0, 1.0);
+  vOpen = open;
+  vFork = unwound * (1.0 - smoothstep(0.0, 0.5, open));
   gl_Position = projectionMatrix * mv;
 }`;
 
 const FRAGMENT = `
-uniform vec3 uInk;
+const vec3 KEY = normalize(vec3(-0.5, 0.6, 0.6));
+const float SHADE = 0.55;
+const float FAR_ALPHA = 0.25;
+uniform float uReveal;
+uniform vec3 uBase;
+uniform float uLit;
+uniform float uSnaps;
 uniform vec3 uTint;
 uniform float uTintAmt;
-varying float vA;
+uniform vec3 uPaper;
+varying vec3 vN;
+varying float vDepth;
+varying float vU;
 varying float vHot;
+varying float vOpen;
+varying float vFork;
 void main() {
-  gl_FragColor = vec4(mix(uInk, uTint, clamp(uTintAmt + vHot * 0.7, 0.0, 1.0)), vA);
+  if (vU > uReveal) discard;
+  float diffuse = dot(normalize(vN), KEY) * 0.5 + 0.5;
+  vec3 col = mix(uBase, uTint, clamp(uTintAmt + vHot * 0.7 + vFork, 0.0, 1.0));
+  col = mix(col, uPaper, uLit * SHADE * (1.0 - diffuse));
+  float snapped = uSnaps * smoothstep(0.1, 0.5, vOpen);
+  gl_FragColor = vec4(col, mix(1.0, FAR_ALPHA, vDepth) * (1.0 - snapped));
 }`;
 
-// Line segments as flat arrays: hatch lines across each strand (kind 0), the strand edges (kind 1) and the rungs (kind 2).
-function buildHelix() {
-  const pos = [];
-  const s = [];
-  const kind = [];
-  const rad = [];
-  const seg = (a, b, sa, sb, k, ra, rb) => { pos.push(...a, ...b); s.push(sa, sb); kind.push(k, k); rad.push(...ra, ...rb); };
-  const centre = (t, phase) => {
-    const th = t * TURNS * TAU + phase;
-    return { th, c: [R * Math.cos(th), (t - 0.5) * LEN, R * Math.sin(th)], r: [Math.cos(th), 0, Math.sin(th)] };
+const GLB_MAGIC = 0x46546c67;
+const CHUNK_JSON = 0x4e4f534a;
+const CHUNK_BIN = 0x004e4942;
+const COMPONENTS = { 5123: Uint16Array, 5125: Uint32Array };
+
+/**
+ * Reads a static, untextured glTF binary (what Blender exports for this model) into [{ material, geometry }], with
+ * every node transform baked into its geometry. Throws on anything else, so the caller falls back to the still drawing.
+ */
+function readGLB(THREE, buffer) {
+  const view = new DataView(buffer);
+  if (view.getUint32(0, true) !== GLB_MAGIC || view.getUint32(4, true) !== 2) throw new Error('not a glTF 2 binary');
+  const jsonLength = view.getUint32(12, true);
+  if (view.getUint32(16, true) !== CHUNK_JSON) throw new Error('glTF JSON chunk missing');
+  const gltf = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, jsonLength)));
+  const binAt = 20 + jsonLength;
+  if (view.getUint32(binAt + 4, true) !== CHUNK_BIN) throw new Error('glTF BIN chunk missing');
+  const bin = binAt + 8;
+
+  const read = (index, Type, size) => {
+    const acc = gltf.accessors[index];
+    const bv = gltf.bufferViews[acc.bufferView];
+    if (acc.sparse || bv.buffer !== 0) throw new Error('unsupported glTF accessor');
+    if (bv.byteStride && bv.byteStride !== size * Type.BYTES_PER_ELEMENT) throw new Error('interleaved glTF buffer');
+    return new Type(buffer, bin + (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0), acc.count * size);
   };
-  // Phases 0.8π apart, not π: the offset gives the helix its major and minor grooves.
-  const phases = [0, Math.PI * 0.8];
-  phases.forEach((phase, k) => {
-    const edges = [[], []];
-    for (let i = 0; i < HATCH; i++) {
-      const t = i / (HATCH - 1);
-      const { th, c, r } = centre(t, phase);
-      const w = TURNS * TAU * R / LEN;
-      const tan = norm([-Math.sin(th) * w, 1, Math.cos(th) * w]);
-      const bi = cross(tan, r);
-      const phi = t * TAU * 1.1 + k * 1.3;
-      const dir = r.map((v, j) => v * Math.cos(phi) + bi[j] * Math.sin(phi));
-      const a = c.map((v, j) => v - dir[j] * HALF_W);
-      const b = c.map((v, j) => v + dir[j] * HALF_W);
-      seg(a, b, t, t, 0, r, r);
-      edges[0].push([a, t, r]);
-      edges[1].push([b, t, r]);
+  const vec3 = (index) => {
+    const acc = gltf.accessors[index];
+    if (acc.componentType !== 5126 || acc.type !== 'VEC3') throw new Error('glTF attribute is not a float VEC3');
+    return new THREE.BufferAttribute(read(index, Float32Array, 3), 3);
+  };
+  const indices = (index) => {
+    const Type = COMPONENTS[gltf.accessors[index].componentType];
+    if (!Type) throw new Error('unsupported glTF index type');
+    return new THREE.BufferAttribute(read(index, Type, 1), 1);
+  };
+
+  const parts = [];
+  const visit = (index, parent) => {
+    const node = gltf.nodes[index];
+    const local = node.matrix
+      ? new THREE.Matrix4().fromArray(node.matrix)
+      : new THREE.Matrix4().compose(
+        new THREE.Vector3(...(node.translation ?? [0, 0, 0])),
+        new THREE.Quaternion(...(node.rotation ?? [0, 0, 0, 1])),
+        new THREE.Vector3(...(node.scale ?? [1, 1, 1])),
+      );
+    const world = parent.clone().multiply(local);
+    for (const prim of node.mesh === undefined ? [] : gltf.meshes[node.mesh].primitives) {
+      if ((prim.mode ?? 4) !== 4) throw new Error('glTF primitive is not triangles');
+      if (prim.indices === undefined) throw new Error('glTF primitive has no indices');
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', vec3(prim.attributes.POSITION));
+      geometry.setAttribute('normal', vec3(prim.attributes.NORMAL));
+      geometry.setIndex(indices(prim.indices));
+      geometry.applyMatrix4(world);
+      parts.push({ material: gltf.materials?.[prim.material]?.name, geometry });
     }
-    for (const edge of edges) for (let i = 1; i < edge.length; i++) seg(edge[i - 1][0], edge[i][0], edge[i - 1][1], edge[i][1], 1, edge[i - 1][2], edge[i][2]);
-  });
-  for (let j = 0; j < RUNGS; j++) {
-    const t = (j + 0.5) / RUNGS;
-    const a = centre(t, phases[0]);
-    const b = centre(t, phases[1]);
-    const mid = a.c.map((v, i) => (v + b.c[i]) / 2);
-    const gap = (from, to) => from.map((v, i) => v + (to[i] - v) * 0.9);
-    seg(a.c, gap(a.c, mid), t, t, 2, a.r, a.r);
-    seg(b.c, gap(b.c, mid), t, t, 2, b.r, b.r);
-  }
-  return { pos: new Float32Array(pos), s: new Float32Array(s), kind: new Float32Array(kind), rad: new Float32Array(rad) };
+    for (const child of node.children ?? []) visit(child, world);
+  };
+  for (const index of gltf.scenes[gltf.scene ?? 0].nodes) visit(index, new THREE.Matrix4());
+  if (!parts.length) throw new Error('glTF has no meshes');
+  return parts;
 }
 
-const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 // The still drawing used when WebGL is missing: the same helix flattened to two sine strands with hatch and rungs.
@@ -162,16 +272,33 @@ function hasWebGL2() {
 
 function readColours(el, names) {
   const css = getComputedStyle(el);
-  const pick = (name, fallbackHex) => css.getPropertyValue(name).trim() || fallbackHex;
-  return { ink: pick(names.ink, '#131312'), signal: pick(names.signal, '#c4f135'), alarm: pick(names.alarm, '#ff5b14') };
+  const pick = (name, fallbackHex) => (name && css.getPropertyValue(name).trim()) || fallbackHex;
+  const ink = pick(names.ink, '#131312');
+  return {
+    ink,
+    ink2: pick(names.ink2, ink),
+    ink3: pick(names.ink3, ink),
+    paper: pick(names.paper, '#e7e5df'),
+    signal: pick(names.signal, '#c4f135'),
+    alarm: pick(names.alarm, '#ff5b14'),
+  };
 }
+
+const fetchModel = async () => {
+  const res = await fetch(MODEL);
+  if (!res.ok) throw new Error(`${MODEL} → ${res.status}`);
+  return res.arrayBuffer();
+};
 
 export async function createHelix(canvas, opts = {}) {
   if (!hasWebGL2()) return fallback(canvas);
   let THREE;
+  let parts;
   let renderer;
   try {
-    THREE = await import('/vendor/three/three.module.min.js');
+    let model;
+    [THREE, model] = await Promise.all([import('/vendor/three/three.module.min.js'), fetchModel()]);
+    parts = readGLB(THREE, model);
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
   } catch {
     return fallback(canvas);
@@ -180,45 +307,67 @@ export async function createHelix(canvas, opts = {}) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
 
-  const g = buildHelix();
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(g.pos, 3));
-  geometry.setAttribute('aS', new THREE.BufferAttribute(g.s, 1));
-  geometry.setAttribute('aKind', new THREE.BufferAttribute(g.kind, 1));
-  geometry.setAttribute('aRad', new THREE.BufferAttribute(g.rad, 3));
+  const box = new THREE.Box3();
+  for (const { geometry } of parts) {
+    geometry.computeBoundingBox();
+    box.union(geometry.boundingBox);
+  }
+  const halfLen = (box.max.y - box.min.y) / 2;
+  const radius = Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z);
+
   const uniforms = {
     uTime: { value: 0 },
     uReveal: { value: reduced ? 1.1 : 0 },
     uNear: { value: 1 },
     uFar: { value: 10 },
     uPulse: { value: new Array(PULSES).fill(0) },
-    uInk: { value: new THREE.Vector3() },
     uTint: { value: new THREE.Vector3() },
     uTintAmt: { value: 0 },
+    uPaper: { value: new THREE.Vector3() },
+    uHalfLen: { value: halfLen },
+    uTwist: { value: (-TURNS * TAU) / (2 * halfLen) },
+    uFork: { value: -BAND },
+    uSplitTurn: { value: 0 },
+    uOverwind: { value: 0 },
+    uSplay: { value: 0 },
   };
-  const material = new THREE.ShaderMaterial({ vertexShader: VERTEX, fragmentShader: FRAGMENT, uniforms, transparent: true, depthWrite: false, depthTest: false });
-  const lines = new THREE.LineSegments(geometry, material);
+  const materials = new Map();
+  const materialFor = (role) => {
+    if (!materials.has(role)) {
+      materials.set(role, new THREE.ShaderMaterial({
+        vertexShader: VERTEX,
+        fragmentShader: FRAGMENT,
+        uniforms: { ...uniforms, uBase: { value: new THREE.Vector3() }, uLit: { value: role.lit }, uSnaps: { value: role.snaps } },
+        transparent: true,
+        depthWrite: true,
+        depthTest: true,
+      }));
+    }
+    return materials.get(role);
+  };
   const spin = new THREE.Group();
+  for (const { material, geometry } of parts) spin.add(new THREE.Mesh(geometry, materialFor(roleOf(material))));
   const tilt = new THREE.Group();
-  spin.add(lines);
   tilt.add(spin);
   const lean = opts.tilt ?? 0.32;
-  tilt.rotation.z = Math.PI / 2 - lean;
+  const up = new THREE.Vector3();
+  const toSpin = new THREE.Quaternion();
   const scene = new THREE.Scene();
   scene.add(tilt);
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 100);
 
   // Colours are uploaded as raw sRGB triples: the shader writes them straight out, so no colour management applies.
-  const colours = { ink: new THREE.Vector3(), signal: new THREE.Vector3(), alarm: new THREE.Vector3() };
+  const colours = {};
   const rgb = { r: 0, g: 0, b: 0 };
   const scratch = new THREE.Color();
   function applyColours() {
     const c = readColours(canvas, opts.colours);
-    for (const key of Object.keys(colours)) {
+    for (const key of Object.keys(c)) {
       scratch.setStyle(c[key], THREE.SRGBColorSpace).getRGB(rgb, THREE.SRGBColorSpace);
-      colours[key].set(rgb.r, rgb.g, rgb.b);
+      (colours[key] ??= new THREE.Vector3()).set(rgb.r, rgb.g, rgb.b);
     }
-    uniforms.uInk.value.copy(colours.ink);
+    for (const [role, material] of materials) material.uniforms.uBase.value.copy(colours[role.colour]);
+    uniforms.uPaper.value.copy(colours.paper);
     uniforms.uTint.value.copy(colours[MODES[mode].hue]);
   }
 
@@ -232,6 +381,7 @@ export async function createHelix(canvas, opts = {}) {
   let pulseIdx = 0;
   let deniedAt = 0;
   let fly = null;
+  let split = ACROSS;
   let settled = false;
   let destroyed = false;
   let visible = !document.hidden;
@@ -246,13 +396,13 @@ export async function createHelix(canvas, opts = {}) {
     const num = (name, d) => { const v = parseFloat(css.getPropertyValue(name)); return Number.isFinite(v) ? v : d; };
     const cx = num('--helix-cx', opts.cx ?? 0.5);
     const cy = num('--helix-cy', opts.cy ?? 0.5);
-    const span = num('--helix-span', opts.span ?? 0.9);
+    const span = num('--helix-span', opts.span ?? 1.8);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const tanHalf = Math.tan((FOV * Math.PI) / 360);
     // Far enough that the helix spans `span` of the width and never overflows the height.
-    const halfHeight = (LEN / 2) * Math.sin(lean) + R + HALF_W;
-    distance = Math.max((LEN / 2) / (span * tanHalf * camera.aspect), halfHeight / (0.92 * tanHalf));
+    const halfHeight = halfLen * Math.sin(lean) + radius;
+    distance = Math.max(halfLen / (span * tanHalf * camera.aspect), halfHeight / (0.92 * tanHalf));
     camera.setViewOffset(w, h, (0.5 - cx) * w, (0.5 - cy) * h, w, h);
     camera.updateProjectionMatrix();
     if (!raf) frame(performance.now());
@@ -277,14 +427,28 @@ export async function createHelix(canvas, opts = {}) {
     uniforms.uTime.value = time;
     spin.rotation.y = angle;
     const jolt = deniedAt ? Math.exp(-(now - deniedAt) / 180) * Math.sin((now - deniedAt) / 22) : 0;
-    const f = fly ? ease((now - fly.start) / FLY_MS) : 0;
+    const at = phasesAt(fly ? now - fly.start : 0);
     tilt.rotation.x = pointer.y * 0.12;
-    tilt.rotation.y = pointer.x * 0.2 + f * (Math.PI / 2);
+    tilt.rotation.y = pointer.x * 0.2;
+    tilt.rotation.z = Math.PI / 2 - lean * (1 - at.level);
     tilt.position.x = jolt * 0.08;
-    // Dolly toward the axis: distance falls as 9^(−f²), so the approach accelerates into the helix.
-    camera.position.set(0, 0, distance * 9 ** -(f * f) + 0.15 * f);
-    uniforms.uNear.value = camera.position.z - R - 0.4;
-    uniforms.uFar.value = camera.position.z + R + 0.6;
+    uniforms.uFork.value = -BAND + (BAND + BUBBLE) * at.melt + (1 + FRONT - BUBBLE) * at.run;
+    uniforms.uSplay.value = SPLAY * at.splay;
+    uniforms.uOverwind.value = OVERWIND * at.melt;
+    if (fly) {
+      // The model direction that shows as screen-up, so the strands part vertically however the duplex has spun. The
+      // split is a line, so it stays on the end nearest last frame's: on the first frame, the shortest turn at the origin.
+      spin.getWorldQuaternion(toSpin).invert();
+      up.set(0, 1, 0).applyQuaternion(toSpin);
+      const drift = Math.atan2(up.z, up.x) - split;
+      split += drift - Math.PI * Math.round(drift / Math.PI);
+    }
+    // The melt swings the duplex onto the split, so the bubble opens without a jump.
+    uniforms.uSplitTurn.value = (split - ACROSS) * at.melt;
+    // Distance falls geometrically, so equal steps of the dive zoom by equal ratios all the way into the gap.
+    camera.position.set(0, 0, distance * (DIVE_TO / distance) ** at.dive);
+    uniforms.uNear.value = camera.position.z - radius - 0.4;
+    uniforms.uFar.value = camera.position.z + radius + 0.6;
     renderer.render(scene, camera);
     raf = 0;
     if (running()) raf = requestAnimationFrame(frame);
@@ -336,11 +500,10 @@ export async function createHelix(canvas, opts = {}) {
     },
     pulse,
     flyIn() {
-      if (reduced || destroyed || settled) return Promise.resolve();
+      if (reduced || destroyed || settled) return flight(0, 0);
       fly = { start: performance.now() };
       sync();
-      // Resolve on the clock, not on frames: a hidden tab or an off-screen canvas must not hold up the sign-in.
-      return new Promise((done) => setTimeout(done, FLY_MS));
+      return flight(HANDOFF_MS, FLY_MS);
     },
     settle() {
       settled = true;
@@ -357,8 +520,8 @@ export async function createHelix(canvas, opts = {}) {
       scheme.removeEventListener('change', recolour);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pointermove', onPointer);
-      geometry.dispose();
-      material.dispose();
+      for (const { geometry } of parts) geometry.dispose();
+      for (const material of materials.values()) material.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
     },

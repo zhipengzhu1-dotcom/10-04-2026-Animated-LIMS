@@ -8,8 +8,8 @@ export const z = (n) => String(n).padStart(2, '0');
 export const stamp = (d = new Date()) => `${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-/** The custom properties every helix reads its colours from: ink is the text colour, lime verifies, orange denies. */
-export const HELIX_TOKENS = { ink: '--text', signal: '--lime', alarm: '--signal' };
+/** The custom properties every helix reads its colours from: the three text greys shade its parts, faces turned from the light fade toward the page, lime verifies, orange denies. */
+export const HELIX_TOKENS = { ink: '--text', ink2: '--text-2', ink3: '--text-3', paper: '--bg', signal: '--lime', alarm: '--signal' };
 export const initials = (name) => String(name || '').split(/[\s._-]+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 // A head-and-shoulders silhouette filled with a halftone, as on a sealed personnel file.
@@ -77,7 +77,7 @@ export function mountLock(root) {
   const lock = root.querySelector('.lock');
   // three.js arrives asynchronously; until it does, the helix controls go to a stand-in that does nothing.
   let live = noHelix;
-  const pending = createHelix(lock.querySelector('.lock-helix'), { cx: 0.42, cy: 0.5, span: 0.95, colours: HELIX_TOKENS });
+  const pending = createHelix(lock.querySelector('.lock-helix'), { cx: 0.42, cy: 0.5, span: 1.9, colours: HELIX_TOKENS });
   pending.then((h) => { live = h; h.setMode(lock.dataset.state); });
   const helix = { pulse: () => live.pulse(), flyIn: () => live.flyIn() };
   const hm = lock.querySelector('[data-hm]');
@@ -157,7 +157,46 @@ export function lockFlow(ctl, msg) {
       ctl.addLog('Granted', 'ok');
       ctl.setState('granted');
       setMsg('Access granted.', 'Session unsealed · loading workspace');
-      await Promise.all([ctl.helix.flyIn(), sleep(still() ? 0 : 900)]);
+      const fly = ctl.helix.flyIn();
+      landings.set(ctl.lock, fly.landed);
+      await fly.handoff;
     },
+  };
+}
+
+// When each granted lock's fly-in lands, so a lifted lock knows when it may go.
+const landings = new WeakMap();
+
+/**
+ * Lifts the granted lock out of `host` into a fixed overlay, so the caller can replace `host` beneath it while the helix
+ * finishes its dive. The overlay keeps its paper until reveal(el) grows `el` in: then the paper and the lock's last
+ * words fade, the strands sweep off over `el`, and the overlay goes once the dive has landed. Without a granted lock in
+ * `host`, reveal does nothing, so callers can use it on every path.
+ */
+export function liftLock(host) {
+  const lock = host.querySelector('.lock[data-state="granted"]');
+  const landed = lock && landings.get(lock);
+  if (!landed) return () => {};
+  const paper = document.createElement('div');
+  paper.className = 'lock-paper';
+  paper.style.background = getComputedStyle(lock).background;
+  lock.style.background = 'none';
+  // Moving an element restarts its CSS animations, which would bring the unsealed card back; hold each part as it is.
+  const held = [...lock.children].map((c) => [c, getComputedStyle(c).opacity]);
+  for (const [c, opacity] of held) Object.assign(c.style, { animation: 'none', opacity });
+  lock.prepend(paper);
+  lock.classList.add('lifted');
+  document.body.append(lock);
+  return (el) => {
+    lock.classList.add('revealed');
+    if (el) {
+      el.classList.add('arrive');
+      el.addEventListener('animationend', function done(e) { if (e.target === el) { el.classList.remove('arrive'); el.removeEventListener('animationend', done); } });
+    }
+    const fades = [...lock.children].filter((c) => !c.matches('.lock-helix')).map((c) => c.animate(
+      { opacity: [getComputedStyle(c).opacity, 0] },
+      { duration: still() ? 0 : 260, easing: 'ease-out', fill: 'forwards' },
+    ).finished);
+    Promise.all([landed, ...fades]).then(() => lock.remove());
   };
 }

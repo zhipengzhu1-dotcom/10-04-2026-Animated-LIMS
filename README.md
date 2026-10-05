@@ -156,13 +156,13 @@ Built in:
 
 ### The public demo
 
-[animated.nitrolims-demo.com](https://animated.nitrolims-demo.com) runs on one Mac. `deploy/` holds a copy of each file that sets it up; the installed copies are the ones that run, so change both together.
+[animated.nitrolims-demo.com](https://animated.nitrolims-demo.com) runs on one Mac, and [app.nitrolims-demo.com](https://app.nitrolims-demo.com) is a second address for the same site. `deploy/` holds a copy of each file that sets it up; the installed copies are the ones that run, so change both together.
 
 | File in `deploy/` | Installed at | What it does |
 |---|---|---|
 | `com.aliquot.animated.plist` | `~/Library/LaunchAgents/` | Runs `server.js` from the live copy on 127.0.0.1:3003, with its data in `~/Aliquot-Animated-data` |
 | `com.aliquot.animated-tunnel.plist` | `~/Library/LaunchAgents/` | Keeps the Cloudflare Tunnel running |
-| `cloudflared.yml` | `~/.cloudflared/aliquot-animated.yml` | Sends the hostname to port 3003. The tunnel's credentials file stays out of the repository |
+| `cloudflared.yml` | `~/.cloudflared/aliquot-animated.yml` | Sends both hostnames to port 3003. The tunnel's credentials file stays out of the repository |
 | `com.aliquot.animated-reset.plist` | `~/Library/LaunchAgents/` | Runs the reset at 03:05 every night |
 | `reset.sh` | `~/Aliquot-Animated-data/reset.sh` | Stops the demo, loads fresh demo data and starts it again |
 
@@ -184,7 +184,7 @@ Built in:
 
 ## For developers
 
-- **Zero dependencies.** Node's built-in `http`, `crypto` and `node:sqlite`. The front end is plain ES modules with no build step. The one exception is three.js, which draws the helix on the sign-in screen: it is copied into `public/vendor/three/` with its licence and served by Aliquot itself, so it works without internet access. Without WebGL the sign-in shows a still drawing instead.
+- **Zero dependencies.** Node's built-in `http`, `crypto` and `node:sqlite`. The front end is plain ES modules with no build step. The one exception is three.js, which draws the helix on the sign-in screen: it is copied into `public/vendor/three/` with its licence and served by Aliquot itself, so it works without internet access. The helix is a 3-D model at `public/assets/helix.glb`, exported from its Blender source `design/helix/helix.blend`. Without WebGL the sign-in shows a still drawing instead.
 - `server/`: database schema and migrations (`schema.js`), audit trail (`audit.js`), auth and e-signatures (`auth.js`), and one route module per area in `routes/`. `lab.js` holds the core sample/test workflow.
 - `public/js/`: the single-page app. Core helpers are in `core/` (escaping templates, tables, modals, charts, barcodes) and there is one module per screen in `views/`.
 - `npm run dev` starts a development copy on http://localhost:3001 with its own `data-dev/` folder, reachable from this computer only, and restarts when server code changes. It never touches the lab's `data/`.

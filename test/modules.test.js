@@ -1,6 +1,7 @@
 // The browser module graph: starts a real server and follows every import the staff app and the client portal would
 // load, from each page's entry script, the way a browser does. Every module must be served as JavaScript, the lock
-// screen must reach the helix and its vendored three.js, and nothing may still load the retired ribbon sculpture.
+// screen must reach the helix, its vendored three.js and its 3-D model, and nothing may still load the retired ribbon
+// sculpture.
 // Run with:  npm test
 
 import { test, before, after } from 'node:test';
@@ -62,6 +63,14 @@ for (const page of ['/', '/portal/']) {
     assert.deepEqual(stale, []);
   });
 }
+
+test('the helix model is served as a glTF binary and the helix module loads it', async () => {
+  const res = await fetch(`${BASE}/assets/helix.glb`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'model/gltf-binary');
+  assert.equal(Buffer.from(await res.arrayBuffer()).subarray(0, 4).toString('latin1'), 'glTF');
+  assert.match(await (await fetch(`${BASE}/js/core/helix.js`)).text(), /['"]\/assets\/helix\.glb['"]/);
+});
 
 test('the retired ribbon module is gone', async () => {
   assert.equal((await fetch(`${BASE}/js/core/ribbon.js`)).status, 404);

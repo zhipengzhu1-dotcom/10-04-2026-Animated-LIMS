@@ -49,8 +49,10 @@
   --ease-snap: cubic-bezier(.7, 0, .2, 1);
   --gutter: 16px;
   --tabbar: 64px;
-  /* The lock screen's helix reads its ink from --text, the staff app's name for the text colour (HELIX_TOKENS). */
+  /* The lock screen's helix reads its inks from the staff app's names for the text colours (HELIX_TOKENS). */
   --text: var(--ink);
+  --text-2: var(--ink-2);
+  --text-3: var(--muted);
   color-scheme: light;
 }
 

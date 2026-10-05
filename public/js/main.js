@@ -7,7 +7,7 @@ import { avatar, emptyState, promptReason, modalOpen } from './core/ui.js';
 import { openPalette } from './core/palette.js';
 import { renderLogin, renderSetup, renderForcedPasswordChange } from './views/auth.js';
 import { createHelix } from './core/helix.js';
-import { HELIX_TOKENS } from './core/lock.js';
+import { HELIX_TOKENS, liftLock } from './core/lock.js';
 import { snapshot, settle } from './core/motion.js';
 
 import * as dashboard from './views/dashboard.js';
@@ -157,7 +157,7 @@ function syncAmbient() {
     // Each helix gets a fresh canvas: destroy() loses the old one's WebGL context for good.
     const canvas = document.createElement('canvas');
     host.replaceChildren(canvas);
-    const helix = createHelix(canvas, { cx: 0.6, cy: 0.52, span: 0.8, colours: HELIX_TOKENS });
+    const helix = createHelix(canvas, { cx: 0.6, cy: 0.52, span: 1.6, colours: HELIX_TOKENS });
     helix.then((h) => setTimeout(() => h.settle(), 2600));
     ambient = { host, helix };
   }
@@ -521,28 +521,29 @@ async function loadSession() {
   return 'ok';
 }
 
-/** Loads the session and mounts the shell; `arrive` grows it out of the sign-in fly-in instead of cutting to it. */
-export async function startApp({ arrive = false } = {}) {
+/** Loads the session and mounts the shell. After a sign-in, the shell grows in beneath the still-diving helix. */
+export async function startApp() {
   const status = await loadSession();
+  const reveal = liftLock(root);
   root.innerHTML = '';
   if (status === 'password') {
     renderForcedPasswordChange(root, startApp);
+    reveal(root.firstElementChild);
     return;
   }
   renderShell();
-  const app = root.querySelector('.app');
-  if (arrive && app) {
-    app.classList.add('arrive');
-    app.addEventListener('animationend', (e) => { if (e.target === app) app.classList.remove('arrive'); });
+  try {
+    await renderRoute();
+  } finally {
+    reveal(root.querySelector('.app'));
   }
-  await renderRoute();
   refreshBadges();
 }
 
 function signedOut(message) {
   state.me = null;
   document.querySelectorAll('.modal-backdrop, .viz-tip').forEach((el) => el.remove());
-  renderLogin(root, { message, onSuccess: () => startApp({ arrive: true }) });
+  renderLogin(root, { message, onSuccess: startApp });
   syncAmbient();
 }
 
@@ -574,13 +575,13 @@ async function boot() {
   try {
     const { needsSetup, local, demoAllowed } = await api.get('/api/setup');
     if (needsSetup) {
-      if (local) renderSetup(root, () => startApp({ arrive: true }), { demoAllowed });
+      if (local) renderSetup(root, startApp, { demoAllowed });
       else root.innerHTML = String(html`<div class="error-page">${emptyState({ icon: 'lock', title: 'Aliquot is not set up yet', text: 'For security, the first-time setup has to be done on the computer that runs Aliquot. Open http://localhost:3000 there, then come back to this address.' })}</div>`);
       return;
     }
     await startApp();
   } catch (e) {
-    if (e.status === 401) renderLogin(root, { onSuccess: () => startApp({ arrive: true }) });
+    if (e.status === 401) renderLogin(root, { onSuccess: startApp });
     else root.innerHTML = String(html`<div class="error-page">${emptyState({ icon: 'alert', title: 'Aliquot is not reachable', text: e.message, action: html`<a class="btn" href="/" target="_self">Retry</a>` })}</div>`);
   }
 }

@@ -5,7 +5,7 @@
 import { html, raw } from '/js/core/html.js';
 import { icon, LOGO } from '/js/core/icons.js';
 import { snapshot, settle } from '/js/core/motion.js';
-import { lockFrame, mountLock, lockFlow, lockError, SILHOUETTE, stamp, z } from '/js/core/lock.js';
+import { lockFrame, mountLock, lockFlow, liftLock, lockError, SILHOUETTE, stamp, z } from '/js/core/lock.js';
 
 // ---------------------------------------------------------------------------------------------
 // Small helpers
@@ -186,8 +186,6 @@ const trustFooter = () => html`<div class="foot-trust">
 // ---------------------------------------------------------------------------------------------
 
 // The same lock screen as the laboratory's own sign-in (core/lock.js), in the client's words.
-// Set once sign-in is granted, so the shell grows out of the sculpture's depth instead of simply appearing.
-let arriving = false;
 const LOCKED = { message: 'Your session is locked. Present your authorization key.', sub: 'Your authorization key is your portal password' };
 
 function portalLock(panel, { ghost = 'Access', message = LOCKED.message, sub = LOCKED.sub } = {}) {
@@ -270,7 +268,6 @@ function showSignIn(message) {
     attempts.textContent = `Attempt ${z(++tries)} · recorded`;
     try {
       await flow.run(() => post('/login', { email: d.email, password: d.password }));
-      arriving = true;
       await boot();
     } catch (e) {
       if (e.handled) return;
@@ -332,7 +329,6 @@ function showPasswordChange() {
     try {
       await flow.run(() => post('/password', { current: d.current, next: d.next }));
       toast('Password saved');
-      arriving = true;
       await boot();
     } catch (err) {
       if (!err.handled) lockError(form, err.message);
@@ -362,11 +358,6 @@ const NAV = [
 ];
 
 function renderShell() {
-  if (arriving) {
-    arriving = false;
-    app.classList.add('arrive');
-    app.addEventListener('animationend', function done(e) { if (e.target === app) { app.classList.remove('arrive'); app.removeEventListener('animationend', done); } });
-  }
   const { me, info } = state;
   app.innerHTML = String(html`
     <header class="top">
@@ -1109,9 +1100,15 @@ async function boot() {
     if (e.status === 401) { showSignIn(); return; }
     throw e;
   }
-  if (state.me.user.must_change_password) { showPasswordChange(); return; }
+  // After a sign-in, the next screen grows in beneath the still-diving helix.
+  const reveal = liftLock(app);
+  if (state.me.user.must_change_password) { showPasswordChange(); reveal(app); return; }
   renderShell();
-  await route();
+  try {
+    await route();
+  } finally {
+    reveal(app);
+  }
 }
 
 window.addEventListener('hashchange', route);

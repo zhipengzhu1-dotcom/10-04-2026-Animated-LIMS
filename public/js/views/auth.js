@@ -3,7 +3,7 @@ import { html, raw } from '../core/html.js';
 import { api } from '../core/api.js';
 import { icon, LOGO } from '../core/icons.js';
 import { field, formData } from '../core/ui.js';
-import { lockFrame, mountLock, lockFlow, lockError, SILHOUETTE, initials, stamp, still, sleep, z } from '../core/lock.js';
+import { lockFrame, mountLock, lockFlow, liftLock, lockError, SILHOUETTE, initials, stamp, still, sleep, z } from '../core/lock.js';
 
 const DEMO = [
   ['priya.raman', 'Priya Raman', 'Lab Manager'],
@@ -158,7 +158,11 @@ export function renderSetup(root, onDone, { demoAllowed = true } = {}) {
         await api.post('/api/setup', d);
         if (d.mode === 'real') await api.post('/api/auth/login', { username: d.username, password: d.password });
       });
-      if (d.mode === 'demo') return renderLogin(root, { onSuccess: onDone });
+      if (d.mode === 'demo') {
+        const reveal = liftLock(root);
+        await renderLogin(root, { onSuccess: onDone });
+        return reveal(root.firstElementChild);
+      }
       await onDone();
     } catch (err) {
       lockError(form, err.message);
