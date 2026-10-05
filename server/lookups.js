@@ -127,6 +127,7 @@ export const MONEY_FIELDS = ['budget', 'price', 'unit_price', 'lines', 'tax_rate
 export function lookups() {
   return {
     roles: ROLES,
+    testPerformerRoles: PERMISSIONS['tests.perform'],
     projectTypes: PROJECT_TYPES,
     projectStatuses: PROJECT_STATUSES,
     techniques: TECHNIQUES,

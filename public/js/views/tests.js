@@ -59,7 +59,7 @@ export async function worklist(ctx) {
   if (view === 'overdue') params.overdue = 1;
   if (view === 'review') { delete params.scope; params.status = 'Submitted,Reviewed'; }
   const [rows, methods] = await Promise.all([api.get('/api/tests', params), api.get('/api/methods')]);
-  const analysts = activeUsers(['analyst', 'scientist', 'manager']);
+  const analysts = activeUsers(state.lookups.testPerformerRoles);
 
   ctx.el.innerHTML = String(html`
     ${pageHead({
@@ -162,7 +162,8 @@ export async function detail(ctx) {
     ${d.can.start ? html`<button class="btn primary" data-act="start">${icon('play', { size: 15 })}Start test</button>` : ''}
     ${d.can.submit ? html`<button class="btn primary" data-act="submit">${icon('send', { size: 15 })}Submit for review</button>` : ''}
     ${d.can.review ? html`<button class="btn" data-act="review-return">${icon('undo', { size: 15 })}Return</button><button class="btn primary" data-act="review-ok">${icon('sign', { size: 15 })}Sign review</button>` : ''}
-    ${d.can.approve ? html`<button class="btn" data-act="approve-return">${icon('undo', { size: 15 })}Return</button><button class="btn primary" data-act="approve-ok" ${openInv.length ? raw('disabled title="Close the open investigation first"') : ''}>${icon('sign', { size: 15 })}Approve</button>` : ''}
+    ${d.can.return ? html`<button class="btn" data-act="approve-return">${icon('undo', { size: 15 })}Return</button>` : ''}
+    ${d.can.accept || d.can.return ? html`<button class="btn primary" data-act="approve-ok" ${d.can.accept ? '' : raw('disabled title="Close the open investigation first"')}>${icon('sign', { size: 15 })}Approve</button>` : ''}
     <div class="dropdown">
       <button class="btn" data-dd aria-label="More actions">${icon('more', { size: 16 })}</button>
       <div class="dropdown-menu" hidden>
@@ -195,7 +196,7 @@ export async function detail(ctx) {
     ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
     ${t.analyst_id === state.me.id && !d.qualifiedMe && !['Approved', 'Cancelled'].includes(t.status) ? html`<div class="notice warn mb">${icon('training', { size: 16 })}<span>Your training on ${t.method_code} is not current. Ask your manager to update the training record before you record results.</span></div>` : ''}
     ${d.can.review ? html`<div class="notice info mb">${icon('review', { size: 16 })}<span><strong>Peer review:</strong> check the results against the raw data${t.raw_data_ref ? html` (${t.raw_data_ref})` : ''}, the calculations and the specification, then sign or return it to ${t.analyst_name}.</span></div>` : ''}
-    ${d.can.approve ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
+    ${d.can.return ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
 
     <div class="split">
       <div class="stack">

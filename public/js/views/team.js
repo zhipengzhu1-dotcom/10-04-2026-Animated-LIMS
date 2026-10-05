@@ -52,7 +52,7 @@ export async function list(ctx) {
       { key: 'full_name', label: 'Name', sort: true, render: (r) => html`<span class="person">${avatar(r.full_name, r.id, { initials: r.initials, size: 30 })}<span><strong>${r.full_name}</strong><span class="sub-line">${r.title || ''}</span></span></span>` },
       { key: 'username', label: 'Username', sort: true, render: (r) => html`<span class="mono small">${r.username}</span>` },
       { key: 'role', label: 'Role', sort: true, render: (r) => roleBadge(r.role) },
-      { key: 'open', label: 'Open tests', sort: true, align: 'right', render: (r) => (['analyst', 'scientist', 'manager'].includes(r.role) ? html`<span class="num">${r.open}</span>` : '') },
+      { key: 'open', label: 'Open tests', sort: true, align: 'right', render: (r) => (state.lookups.testPerformerRoles.includes(r.role) ? html`<span class="num">${r.open}</span>` : '') },
       { key: 'last_login_at', label: 'Last sign-in', sort: true, render: (r) => html`<span class="muted nowrap">${relTime(r.last_login_at)}</span>` },
       { key: 'active', label: 'Status', sort: true, render: (r) => (r.active ? badge('Active', 'green') : badge('Deactivated', 'gray')) },
     ],

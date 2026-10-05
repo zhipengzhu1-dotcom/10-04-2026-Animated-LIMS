@@ -3,7 +3,7 @@ import { insert, update } from '../repo.js';
 import { audit, verifyChain } from '../audit.js';
 import { HttpError, bad, forbidden, isLoopback, notFound } from '../http.js';
 import {
-  can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
+  can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, rolesWith, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
 import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
@@ -188,7 +188,8 @@ export default function routes(r) {
 
   // ---------- Training / method qualifications ----------
   r.get('/api/qualifications', () => ({
-    users: all(`SELECT id, full_name, initials, role, title FROM users WHERE active = 1 AND role IN ('analyst','scientist','manager') ORDER BY role DESC, full_name`),
+    users: all(`SELECT id, full_name, initials, role, title FROM users
+      WHERE active = 1 AND role IN (SELECT value FROM json_each(?)) ORDER BY role DESC, full_name`, JSON.stringify(rolesWith('tests.perform'))),
     methods: all(`
       SELECT m.code, m.title, m.technique, m.status FROM methods m
       WHERE m.version = (SELECT MAX(version) FROM methods x WHERE x.code = m.code) AND m.status != 'Retired'
