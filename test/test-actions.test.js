@@ -198,3 +198,31 @@ test('the first result on a pending Test starts it as a status change and moves 
   assert.equal(latest.summary, 'Results recorded');
   assert.equal((await priya.ok('GET', `/api/samples/${t.sample_id}`)).sample.status, 'In Testing');
 });
+
+test('review, approval and cancel refuse with unchanged messages and codes, and are not offered when refused', async () => {
+  const [priya, tom, daniel, helena] = await Promise.all(['priya.raman', 'tom.fletcher', 'daniel.okafor', 'helena.weiss'].map(as));
+  const [testId] = await kfTests('priya.raman');
+  const refused = async (c, action, body, status, error, flag) => {
+    const r = await c.post(`/api/tests/${testId}/${action}`, body);
+    assert.equal(r.status, status, `${action}: ${JSON.stringify(r.data)}`);
+    assert.equal(r.data.error, error);
+    if (flag) assert.equal((await c.ok('GET', `/api/tests/${testId}`)).can[flag], false, `${flag} not offered: ${error}`);
+  };
+  await refused(daniel, 'review', { decision: 'approve', password: PASSWORD }, 400, 'This test is not awaiting review', 'review');
+  await refused(tom, 'cancel', { reason: 'Not needed' }, 403, 'You do not have permission to do that.', 'cancel');
+  await refused(priya, 'cancel', {}, 400, 'A reason is required to cancel a test');
+
+  await enterInSpec(priya, testId);
+  await priya.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await refused(priya, 'review', { decision: 'approve', password: PASSWORD }, 403, 'You performed this test — a different person must review it', 'review');
+  await refused(daniel, 'review', { decision: 'return', password: PASSWORD }, 400, 'Explain why the test is being returned to the analyst');
+  await refused(helena, 'approve', { decision: 'approve', password: PASSWORD }, 400, 'This test is not awaiting approval', 'accept');
+
+  await daniel.ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await refused(daniel, 'approve', { decision: 'reject', comment: 'Recheck', password: PASSWORD }, 403, 'You reviewed this test — approval must come from a different person', 'return');
+  await refused(priya, 'approve', { decision: 'approve', password: PASSWORD }, 403, 'You performed this test — you cannot approve it', 'accept');
+  await refused(helena, 'approve', { decision: 'reject', password: PASSWORD }, 400, 'Explain why the test is being returned');
+
+  await helena.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  await refused(priya, 'cancel', { reason: 'Not needed' }, 400, "An approved test can't be cancelled", 'cancel');
+});

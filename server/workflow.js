@@ -89,6 +89,13 @@ export function getTest(id) {
 // offers the action when there is none. Readiness checks the person can fix stay in the action.
 // ---------------------------------------------------------------------------------------------
 
+function approvalRule(t, me) {
+  if (!can(me, 'tests.approve')) return forbidden();
+  if (t.status !== 'Reviewed') return bad('This test is not awaiting approval');
+  if (t.analyst_id === me.id) return forbidden('You performed this test — you cannot approve it');
+  if (t.reviewed_by === me.id) return forbidden('You reviewed this test — approval must come from a different person');
+}
+
 export const TEST_RULES = {
   assign(t, me) {
     if (!can(me, 'tests.assign')) return forbidden();
@@ -117,6 +124,26 @@ export const TEST_RULES = {
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can submit this test');
     if (t.status !== 'In Progress') return bad('Only tests in progress can be submitted');
     if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current — you can't sign this test`);
+  },
+  review(t, me) {
+    if (!can(me, 'tests.review')) return forbidden();
+    if (t.status !== 'Submitted') return bad('This test is not awaiting review');
+    if (t.analyst_id === me.id) return forbidden('You performed this test — a different person must review it');
+  },
+  // An open investigation blocks accepting the result, never returning it.
+  accept(t, me) {
+    const refusal = approvalRule(t, me);
+    if (refusal) return refusal;
+    const inv = openTestInvestigation(t.id);
+    if (inv) return bad(`${inv.code} is still open — close the investigation before approving this result`);
+  },
+  return: (t, me) => approvalRule(t, me),
+  cancel(t, me) {
+    if (!can(me, 'tests.cancel')) return forbidden();
+    if (!TEST_OPEN.includes(t.status)) return bad(`An ${t.status.toLowerCase()} test can't be cancelled`);
+    // An out-of-specification result can never be made to disappear by cancelling and retesting.
+    const inv = openTestInvestigation(t.id);
+    if (inv) return bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
   },
 };
 
@@ -314,58 +341,40 @@ export function submitTest(ctx, id, body) {
 }
 
 export function reviewTest(ctx, id, body) {
-  assertCan(ctx, 'tests.review');
   const t = getTest(id);
-  if (t.status !== 'Submitted') throw bad('This test is not awaiting review');
-  if (t.analyst_id === ctx.user.id) throw forbidden('You performed this test — a different person must review it');
+  guard(TEST_RULES.review(t, ctx.user));
   const accept = body.decision === 'approve';
   const comment = String(body.comment || '').trim() || null;
   if (!accept && !comment) throw bad('Explain why the test is being returned to the analyst', 'REASON_REQUIRED');
   verifySignature(ctx, body.password);
   tx(() => {
     applySignature(ctx, 'tests', id, accept ? 'test.review.accept' : 'test.review.return', { comment, code: t.code });
-    if (accept) update(ctx, 'tests', id, { status: 'Reviewed', reviewed_by: ctx.user.id, reviewed_at: nowIso() }, { action: 'STATUS', summary: 'Peer review passed' });
-    else update(ctx, 'tests', id, { status: 'In Progress', submitted_at: null }, { action: 'STATUS', summary: 'Returned to analyst by reviewer', reason: comment });
-    refreshSampleStatus(ctx, t.sample_id);
+    if (accept) changeStatus(ctx, t, { status: 'Reviewed', reviewed_by: ctx.user.id, reviewed_at: nowIso() }, { summary: 'Peer review passed' });
+    else changeStatus(ctx, t, { status: 'In Progress', submitted_at: null }, { summary: 'Returned to analyst by reviewer', reason: comment });
   });
   return { ok: true };
 }
 
 export function approveTest(ctx, id, body) {
-  assertCan(ctx, 'tests.approve');
   const t = getTest(id);
-  if (t.status !== 'Reviewed') throw bad('This test is not awaiting approval');
-  if (t.analyst_id === ctx.user.id) throw forbidden('You performed this test — you cannot approve it');
-  if (t.reviewed_by === ctx.user.id) throw forbidden('You reviewed this test — approval must come from a different person');
   const accept = body.decision === 'approve';
+  guard(TEST_RULES[accept ? 'accept' : 'return'](t, ctx.user));
   const comment = String(body.comment || '').trim() || null;
   if (!accept && !comment) throw bad('Explain why the test is being returned', 'REASON_REQUIRED');
-  if (accept) {
-    const inv = openTestInvestigation(id);
-    if (inv) throw bad(`${inv.code} is still open — close the investigation before approving this result`);
-  }
   verifySignature(ctx, body.password);
   tx(() => {
     applySignature(ctx, 'tests', id, accept ? 'test.approve.accept' : 'test.approve.reject', { comment, code: t.code });
-    if (accept) update(ctx, 'tests', id, { status: 'Approved', approved_by: ctx.user.id, approved_at: nowIso() }, { action: 'STATUS', summary: 'Result approved' });
-    else update(ctx, 'tests', id, { status: 'In Progress', submitted_at: null, reviewed_by: null, reviewed_at: null }, { action: 'STATUS', summary: 'Returned to analyst at approval', reason: comment });
-    refreshSampleStatus(ctx, t.sample_id);
+    if (accept) changeStatus(ctx, t, { status: 'Approved', approved_by: ctx.user.id, approved_at: nowIso() }, { summary: 'Result approved' });
+    else changeStatus(ctx, t, { status: 'In Progress', submitted_at: null, reviewed_by: null, reviewed_at: null }, { summary: 'Returned to analyst at approval', reason: comment });
   });
   return { ok: true };
 }
 
 export function cancelTest(ctx, id, reason) {
-  assertCan(ctx, 'tests.cancel');
   const t = getTest(id);
-  if (['Approved', 'Cancelled'].includes(t.status)) throw bad(`An ${t.status.toLowerCase()} test can't be cancelled`);
-  // An out-of-specification result can never be made to disappear by cancelling and retesting.
-  const inv = openTestInvestigation(id);
-  if (inv) throw bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
+  guard(TEST_RULES.cancel(t, ctx.user));
   if (!String(reason || '').trim()) throw bad('A reason is required to cancel a test', 'REASON_REQUIRED');
-  tx(() => {
-    update(ctx, 'tests', id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Test cancelled', reason });
-    refreshSampleStatus(ctx, t.sample_id);
-  });
+  changeStatus(ctx, t, { status: 'Cancelled' }, { summary: 'Test cancelled', reason });
   return { ok: true };
 }
 
