@@ -193,7 +193,7 @@ export async function detail(ctx) {
     <div class="card stepper-card">${stepper(TEST_STEPS, t.status === 'Cancelled' ? null : t.status, { stopped: t.status === 'Cancelled' })}</div>
 
     ${returned ? html`<div class="notice warn mb">${icon('undo', { size: 16 })}<span><strong>Returned by ${returned.full_name}:</strong> “${returned.comment}” — correct and resubmit.</span></div>` : ''}
-    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
+    ${d.can.return && !d.can.accept ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
     ${t.analyst_id === state.me.id && !d.qualifiedMe && !['Approved', 'Cancelled'].includes(t.status) ? html`<div class="notice warn mb">${icon('training', { size: 16 })}<span>Your training on ${t.method_code} is not current. Ask your manager to update the training record before you record results.</span></div>` : ''}
     ${d.can.review ? html`<div class="notice info mb">${icon('review', { size: 16 })}<span><strong>Peer review:</strong> check the results against the raw data${t.raw_data_ref ? html` (${t.raw_data_ref})` : ''}, the calculations and the specification, then sign or return it to ${t.analyst_name}.</span></div>` : ''}
     ${d.can.return ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
@@ -244,7 +244,7 @@ export async function detail(ctx) {
             <span class="muted small">${icon('shield', { size: 13 })} Every change is recorded. Changing a recorded result asks for a reason.</span>
             <span class="btn-group" style="margin-left:auto">
               <button type="submit" class="btn" data-save>${icon('check', { size: 15 })}Save</button>
-              ${t.status === 'In Progress' || t.status === 'Pending' ? html`<button type="button" class="btn primary" data-act="submit">${icon('send', { size: 15 })}Save & submit for review</button>` : ''}
+              <button type="button" class="btn primary" data-act="submit">${icon('send', { size: 15 })}Save & submit for review</button>
             </span>
           </div></div>` : ''}
         </form>
