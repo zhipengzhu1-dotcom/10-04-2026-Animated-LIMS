@@ -194,7 +194,6 @@ export default function routes(r) {
     return {
       sample,
       tests,
-      // The Tests the Sample page's "Assign unassigned" assigns.
       assignable: unassignedTests(id, ctx.user).map((t) => t.id),
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),

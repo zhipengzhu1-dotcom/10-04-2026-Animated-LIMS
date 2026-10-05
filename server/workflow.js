@@ -14,8 +14,6 @@ import { SAMPLE_OPEN } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
 import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
 
-// Groups of Test statuses other areas need: results and attachments can still change; work not yet approved or
-// cancelled; and submitted for review or beyond, which makes the Sample "In Review" once every Test is there.
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 export const TEST_SUBMITTED = ['Submitted', 'Reviewed', 'Approved'];
@@ -81,11 +79,7 @@ export function getTest(id) {
   return mustGet(`${TEST_SELECT} WHERE t.id = ?`, id, 'Test');
 }
 
-// ---------------------------------------------------------------------------------------------
-// Test rules: one per action, given the Test and the person. Nothing means allowed; otherwise the refusal to throw,
-// `forbidden` (not allowed for you, 403) or `bad` (not possible now, 400). The action throws it and the Test page
-// offers the action when there is none. Readiness checks the person can fix stay in the action.
-// ---------------------------------------------------------------------------------------------
+// Each rule returns nothing when allowed, else the refusal the action throws; the Test page offers what is allowed.
 
 function approvalRule(t, me) {
   if (!can(me, 'tests.approve')) return forbidden();
@@ -151,7 +145,6 @@ const openTests = (sampleId) => sampleTests(sampleId).filter((t) => TEST_OPEN.in
 /** The Tests on Sample `sampleId` nobody is assigned to yet that `me` may assign. */
 export const unassignedTests = (sampleId, me) => sampleTests(sampleId).filter((t) => !t.analyst_id && !TEST_RULES.assign(t, me));
 
-// Sample rules: the same form as the Test rules, given the Sample row and the person.
 export const SAMPLE_RULES = {
   assign(s, me) {
     if (!can(me, 'tests.assign')) return forbidden();
@@ -421,8 +414,7 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Tests waiting on a user: assigned to them, awaiting their peer review, awaiting their QA approval.
-// Each gives [SQL condition on tests aliased `t`, ...params]; the badges, the Reviews queue and the Samples work filters share them.
+// Each gives [SQL condition on tests aliased `t`, ...params], shared by the badges, Reviews, Worklist and work filters.
 export const TEST_QUEUES = {
   assigned: (me) => [
     `t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) AND EXISTS (SELECT 1 FROM qualifications q JOIN methods qm ON qm.code = q.method_code
