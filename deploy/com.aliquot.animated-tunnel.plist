@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key><string>com.aliquot.animated-tunnel</string>
   <key>ProgramArguments</key>
-  <array><string>/opt/homebrew/bin/cloudflared</string><string>tunnel</string><string>--no-autoupdate</string><string>--config</string><string>/Users/maracchi/.cloudflared/aliquot-animated.yml</string><string>run</string><string>aliquot-animated</string></array>
+  <array><string>/usr/bin/caffeinate</string><string>-i</string><string>/opt/homebrew/bin/cloudflared</string><string>tunnel</string><string>--no-autoupdate</string><string>--config</string><string>/Users/maracchi/.cloudflared/aliquot-animated.yml</string><string>run</string><string>aliquot-animated</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
