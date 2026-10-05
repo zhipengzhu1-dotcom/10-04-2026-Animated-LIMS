@@ -131,17 +131,20 @@ export function updateInvestigation(ctx, id, body) {
   return { ok: true };
 }
 
+const performedTestUnder = (user, v) => !!v.test_id && get('SELECT analyst_id FROM tests WHERE id = ?', v.test_id)?.analyst_id === user.id;
+
+/** Whether `user` may close investigation `v` (a row with `status` and `test_id`): the rule `closeInvestigation` enforces. */
+export const mayCloseInvestigation = (user, v) => can(user, 'investigations.close') && v.status !== 'Closed' && !performedTestUnder(user, v);
+
 /**
- * Closes an investigation with an e-signature, from the Investigations screen or the Test page. A root cause and
- * conclusion given here are recorded with the closure; otherwise the ones already recorded must be filled in.
+ * Closes an investigation with an e-signature, from the Investigations screen or its card on the Test page. A root
+ * cause and conclusion given here are recorded with the closure; otherwise the ones already recorded must be filled in.
  */
 export function closeInvestigation(ctx, id, body) {
   assertCan(ctx, 'investigations.close');
   const v = mustGet('SELECT * FROM investigations WHERE id = ?', id, 'Investigation');
   if (v.status === 'Closed') throw bad('Already closed');
-  if (v.test_id && get('SELECT analyst_id FROM tests WHERE id = ?', v.test_id)?.analyst_id === ctx.user.id) {
-    throw forbidden('You performed the test under investigation — someone independent must close it');
-  }
+  if (performedTestUnder(ctx.user, v)) throw forbidden('You performed the test under investigation — someone independent must close it');
   const given = clean(body, { root_cause: { type: 'text' }, conclusion: { type: 'text' } }, { partial: true });
   const findings = Object.fromEntries(Object.entries(given).filter(([, text]) => text));
   if (!(findings.root_cause ?? v.root_cause)?.trim()) throw bad('Record the root cause before closing');
@@ -285,7 +288,7 @@ export default function routes(r) {
       signatures: all(`SELECT * FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, id),
       can: {
         edit: investigation.status !== 'Closed' && (can(ctx.user, 'investigations.raise') || can(ctx.user, 'investigations.close')),
-        close: investigation.status !== 'Closed' && can(ctx.user, 'investigations.close'),
+        close: mayCloseInvestigation(ctx.user, investigation),
       },
     };
   });

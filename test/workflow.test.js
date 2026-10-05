@@ -389,6 +389,114 @@ test('an OOS cannot be hidden by cancelling the test, and blocks the certificate
   assert.equal(report.status, 400);
 });
 
+// Receives one Sample with two Tests, one of them started, so cancelling has more than one open Test to touch.
+async function twoTestSample() {
+  const priya = await as('priya.raman');
+  const clients = await priya.ok('GET', '/api/clients');
+  const methods = await priya.ok('GET', '/api/methods?usable=1');
+  const ids = ['ATM-0001', 'ATM-0002'].map((code) => methods.find((x) => x.code === code && x.status === 'Effective').id);
+  const res = await priya.ok('POST', '/api/samples/receive', { client_id: clients[0].id, samples: [{ description: 'Cancel under investigation' }], method_ids: ids });
+  const sampleId = res.samples[0].id;
+  const [first] = (await priya.ok('GET', `/api/samples/${sampleId}`)).tests;
+  await priya.ok('POST', `/api/tests/${first.id}/claim`);
+  await priya.ok('POST', `/api/tests/${first.id}/start`);
+  return { sampleId, testIds: (await priya.ok('GET', `/api/samples/${sampleId}`)).tests.map((t) => t.id) };
+}
+
+for (const on of ['Test', 'Sample']) {
+  test(`a Sample is not cancelled while an Investigation is open on its ${on}, and is once it closes`, async () => {
+    const priya = await as('priya.raman');
+    const daniel = await as('daniel.okafor');
+    const { sampleId, testIds } = await twoTestSample();
+    const before = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(before.can.cancel, true);
+
+    const target = on === 'Test' ? { test_id: testIds[1] } : { sample_id: sampleId };
+    const inv = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Pipette out of calibration', description: 'Found during daily check', ...target });
+
+    const refused = await priya.post(`/api/samples/${sampleId}/cancel`, { reason: 'Client withdrew the order' });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(inv.code));
+    const after = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(after.sample.status, before.sample.status, 'the Sample is unchanged');
+    assert.deepEqual(after.tests.map((t) => t.status), before.tests.map((t) => t.status), 'every Test is unchanged');
+    assert.deepEqual(after.tests.map((t) => t.status), ['In Progress', 'Pending']);
+    assert.equal(after.can.cancel, false, 'the Sample page offers no cancel the server would refuse');
+
+    await daniel.ok('POST', `/api/investigations/${inv.id}/close`, { root_cause: 'Calibration lapsed', conclusion: 'No impact on this sample', password: PASSWORD });
+    assert.equal((await priya.ok('GET', `/api/samples/${sampleId}`)).can.cancel, true);
+    await priya.ok('POST', `/api/samples/${sampleId}/cancel`, { reason: 'Client withdrew the order' });
+    const cancelled = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(cancelled.sample.status, 'Cancelled');
+    assert.deepEqual(cancelled.tests.map((t) => t.status), ['Cancelled', 'Cancelled']);
+  });
+}
+
+test('the certificate is offered and queued only while no investigation is open on the Sample or its Tests', async () => {
+  const tom = await as('tom.fletcher');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  const offered = async () => (await daniel.ok('GET', `/api/samples/${sampleId}`)).can.issue;
+  const queued = async () => (await daniel.ok('GET', '/api/reviews')).toIssue.some((s) => s.id === sampleId);
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+
+  const onSample = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge at 9 °C overnight', sample_id: sampleId });
+  const onTest = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance', test_id: testId });
+  const close = (id) => daniel.ok('POST', `/api/investigations/${id}/close`, { root_cause: 'Door left ajar', conclusion: 'No product impact', password: PASSWORD });
+  for (const open of [onSample, onTest]) {
+    assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved', 'the Sample is otherwise ready');
+    assert.equal(await offered(), false, `issue is not offered while ${open.code} is open`);
+    assert.equal(await queued(), false, `the certificate queue omits the Sample while ${open.code} is open`);
+    const refused = await daniel.post(`/api/samples/${sampleId}/report`, { password: PASSWORD });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(`${open.code} is still open`));
+    await close(open.id);
+  }
+
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
+test('dispose is offered only when the server would accept it', async () => {
+  const tom = await as('tom.fletcher');
+  const priya = await as('priya.raman');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const offered = async (c) => (await c.ok('GET', `/api/samples/${sampleId}`)).can.dispose;
+
+  assert.equal(await offered(daniel), false, 'not offered while a Test is open');
+  assert.equal((await daniel.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 400);
+
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  assert.equal(await offered(daniel), false, 'not offered while a Test awaits review');
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  assert.equal(await offered(daniel), false, 'not offered while a Test awaits approval');
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  assert.equal(await offered(daniel), true, 'offered once every Test is approved');
+  assert.equal(await offered(tom), false, 'not offered without the permission');
+  assert.equal((await tom.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 403);
+  await daniel.ok('POST', `/api/samples/${sampleId}/custody`, { action: 'Disposed', note: 'Retention period over' });
+  assert.equal(await offered(daniel), false, 'not offered again once disposed');
+  assert.equal((await daniel.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed' })).status, 400);
+
+  const cancelled = await freshTest('ATM-0002', 'tom.fletcher');
+  await priya.ok('POST', `/api/tests/${cancelled.testId}/cancel`, { reason: 'Client withdrew the request' });
+  assert.equal((await daniel.ok('GET', `/api/samples/${cancelled.sampleId}`)).can.dispose, true, 'offered once every Test is cancelled');
+  await daniel.ok('POST', `/api/samples/${cancelled.sampleId}/custody`, { action: 'Disposed' });
+});
+
 // Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
 async function oosTest(analystUsername) {
   const analyst = await as(analystUsername);
@@ -415,10 +523,18 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal(blocked.status, 400);
   assert.match(blocked.data.error, /still open/);
 
-  const close = `/api/tests/${testId}/investigation/close`;
+  assert.equal(open[0].can.close, true, 'an independent closer is offered Close on the card');
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  assert.equal((await priya.ok('GET', `/api/tests/${testId}`)).investigations[0].can.close, false, 'the analyst who performed the test is not offered Close');
+  assert.equal((await tom.ok('GET', `/api/tests/${testId}`)).investigations[0].can.close, false, 'nor is someone without the close permission');
+  assert.equal((await priya.ok('GET', `/api/investigations/${investigation.id}`)).can.close, false, 'the Investigations screen answers the same');
+
+  const close = `/api/investigations/${investigation.id}/close`;
+  assert.equal((await daniel.post(`/api/tests/${testId}/investigation/close`, {})).status, 404, 'the Test-scoped close endpoint is gone');
   const full = { root_cause: 'Sample absorbed moisture after opening', conclusion: 'Confirmed OOS — result valid', password: PASSWORD };
-  assert.equal((await (await as('tom.fletcher')).post(close, full)).status, 403, 'analysts lack the close permission');
-  const own = await (await as('priya.raman')).post(close, full);
+  assert.equal((await tom.post(close, full)).status, 403, 'analysts lack the close permission');
+  const own = await priya.post(close, full);
   assert.equal(own.status, 403, 'the analyst who performed the test cannot close its investigation');
   assert.match(own.data.error, /performed/);
   assert.equal((await daniel.post(close, { ...full, root_cause: '  ' })).status, 400, 'root cause required');
@@ -437,6 +553,7 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.ok(closed.closed_at);
   assert.deepEqual(closed.signatures.map((x) => [x.full_name, x.meaning]), [['Daniel Okafor', 'OOS investigation closed']], 'the Test page shows who signed the closure');
   assert.ok(closed.signatures[0].signed_at);
+  assert.equal(closed.can.close, false, 'a closed investigation offers no Close');
   const signed = (await daniel.ok('GET', `/api/investigations/${investigation.id}`)).signatures;
   assert.ok(signed.some((s) => s.meaning === 'OOS investigation closed' && s.full_name === 'Daniel Okafor'), 'closing is e-signed');
   const history = await daniel.ok('GET', `/api/history/investigations/${investigation.id}`);
@@ -450,44 +567,36 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
 });
 
-test('closing an investigation needs the right password on both endpoints, and wrong ones count toward lock-out', async () => {
+test('closing an investigation needs the right password, and wrong ones count toward lock-out', async () => {
   const daniel = await as('daniel.okafor');
   const helena = await as('helena.weiss');
-  const { testId, investigation } = await oosTest('tom.fletcher');
+  const { investigation } = await oosTest('tom.fletcher');
+  const close = `/api/investigations/${investigation.id}/close`;
   await daniel.ok('PUT', `/api/investigations/${investigation.id}`, { title: 'OOS water', root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' });
   for (const password of [undefined, 'nope']) {
-    const r = await daniel.post(`/api/investigations/${investigation.id}/close`, { password });
+    const r = await daniel.post(close, { password });
     assert.equal(r.status, 400);
     assert.equal(r.data.code, 'SIGNATURE');
   }
-  const body = { root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' };
-  for (let i = 0; i < 5; i++) await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: 'bad' });
-  const locked = await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: PASSWORD });
+  for (let i = 0; i < 5; i++) await helena.post(close, { password: 'bad' });
+  const locked = await helena.post(close, { password: PASSWORD });
   assert.equal(locked.status, 423, 'locked even with the right password');
 });
 
-test('both close endpoints apply the same rules and sign an OOS closure with the same meaning', async () => {
-  const priya = await as('priya.raman');
+test('each Investigation card on a Test closes its own Investigation, whatever its type', async () => {
   const daniel = await as('daniel.okafor');
-  const { testId, investigation } = await oosTest('priya.raman');
-  const body = { root_cause: 'Balance drift', conclusion: 'Invalidated — assignable laboratory error', password: PASSWORD };
-  const viaTest = await priya.post(`/api/tests/${testId}/investigation/close`, body);
-  const viaInvestigations = await priya.post(`/api/investigations/${investigation.id}/close`, body);
-  assert.equal(viaInvestigations.status, 403, 'the analyst who performed the test cannot close it from Investigations either');
-  assert.deepEqual(viaInvestigations.data, viaTest.data, 'both endpoints refuse with the same words');
-  for (const missing of [{ root_cause: ' ' }, { conclusion: '' }]) {
-    const a = await daniel.post(`/api/investigations/${investigation.id}/close`, { ...body, ...missing });
-    const b = await daniel.post(`/api/tests/${testId}/investigation/close`, { ...body, ...missing });
-    assert.equal(a.status, 400, `refused without ${Object.keys(missing)[0]}`);
-    assert.deepEqual(a.data, b.data, 'both endpoints refuse with the same words');
-  }
+  const { testId, investigation } = await oosTest('tom.fletcher');
+  const deviation = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', test_id: testId, title: 'Balance out of level', description: 'Bubble off-centre during the run' });
+  const cards = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(cards.map((v) => [v.code, v.can.close]), [[deviation.code, true], [investigation.code, true]], 'both open cards offer Close');
+  assert.equal((await (await as('tom.fletcher')).ok('GET', `/api/tests/${testId}`)).investigations.some((v) => v.can.close), false);
 
-  await daniel.ok('POST', `/api/investigations/${investigation.id}/close`, body);
-  const d = await daniel.ok('GET', `/api/investigations/${investigation.id}`);
-  assert.equal(d.investigation.status, 'Closed');
-  assert.equal(d.investigation.root_cause, body.root_cause, 'the root cause given when closing is recorded');
-  assert.equal(d.investigation.conclusion, body.conclusion);
-  assert.deepEqual(d.signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'OOS investigation closed']]);
+  await daniel.ok('POST', `/api/investigations/${deviation.id}/close`, { root_cause: 'Bench knocked', conclusion: 'Relevelled; no impact on the result', password: PASSWORD });
+  const after = Object.fromEntries((await daniel.ok('GET', `/api/tests/${testId}`)).investigations.map((v) => [v.code, v]));
+  assert.equal(after[deviation.code].status, 'Closed', 'the pressed card is closed');
+  assert.deepEqual(after[deviation.code].signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'Closed']]);
+  assert.equal(after[investigation.code].status, 'Open', 'the other card stays open');
+  assert.equal(after[investigation.code].can.close, true);
 });
 
 test('closing a deviation from Investigations is still signed "Closed"', async () => {
@@ -546,7 +655,7 @@ test('every signed action stores exactly the meaning the lookups serve for it', 
   await sign('sample.coa.issue', daniel, `/api/samples/${sampleId}/report`, {}, `/api/samples/${sampleId}`);
 
   const oos = await oosTest('priya.raman');
-  await sign('investigation.close.oos', daniel, `/api/tests/${oos.testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid' }, `/api/investigations/${oos.investigation.id}`);
+  await sign('investigation.close.oos', daniel, `/api/investigations/${oos.investigation.id}/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid' }, `/api/investigations/${oos.investigation.id}`);
   const deviation = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance' });
   await sign('investigation.close', daniel, `/api/investigations/${deviation.id}/close`, { root_cause: 'Draught from door', conclusion: 'No product impact' }, `/api/investigations/${deviation.id}`);
 

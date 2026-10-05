@@ -18,7 +18,7 @@ import {
 import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
-import { closeInvestigation } from './quality.js';
+import { mayCloseInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -137,8 +137,11 @@ function getTest(id) {
   return mustGet(`${TEST_SELECT} WHERE t.id = ?`, id, 'Test');
 }
 
+// An investigation `v` open on Sample `s` or any of its Tests.
+const OPEN_ON_SAMPLE = `v.status != 'Closed' AND (v.sample_id = s.id OR v.test_id IN (SELECT id FROM tests WHERE sample_id = s.id))`;
+
 function openSampleInvestigation(sampleId) {
-  return get(`SELECT code FROM investigations WHERE status != 'Closed' AND (sample_id = ? OR test_id IN (SELECT id FROM tests WHERE sample_id = ?)) LIMIT 1`, sampleId, sampleId);
+  return get(`SELECT v.code FROM investigations v JOIN samples s ON s.id = ? WHERE ${OPEN_ON_SAMPLE} LIMIT 1`, sampleId);
 }
 
 function openInvestigation(testId) {
@@ -476,15 +479,6 @@ const WORK_FILTERS = {
   approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
 };
 
-/** Closes the Test's open OOS investigation from the Test page, so it never depends on the Investigations screens. */
-export function closeTestInvestigation(ctx, id, body) {
-  assertCan(ctx, 'investigations.close');
-  getTest(id);
-  const inv = get(`SELECT id FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
-  if (!inv) throw bad('There is no open OOS investigation on this test');
-  return closeInvestigation(ctx, inv.id, body);
-}
-
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -544,9 +538,9 @@ export default function routes(r) {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
         addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
         assign: can(ctx.user, 'tests.assign'),
-        issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved',
-        dispose: can(ctx.user, 'samples.dispose'),
-        cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status),
+        issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved' && !openSampleInvestigation(id),
+        dispose: can(ctx.user, 'samples.dispose') && sample.status !== 'Disposed' && !tests.some((t) => TEST_OPEN.includes(t.status)),
+        cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status) && !openSampleInvestigation(id),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
@@ -575,6 +569,7 @@ export default function routes(r) {
     const b = clean(ctx.body, { action: { type: 'enum', values: CUSTODY_ACTIONS, required: true }, location: {}, note: { type: 'text' } });
     if (b.action === 'Disposed') {
       assertCan(ctx, 'samples.dispose');
+      if (s.status === 'Disposed') throw bad('This sample has already been disposed');
       if (get(`SELECT 1 FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) throw bad('This sample still has open tests');
     } else {
       assertCan(ctx, 'samples.edit');
@@ -599,6 +594,8 @@ export default function routes(r) {
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
     if (!SAMPLE_OPEN.includes(s.status)) throw bad(`Sample is already ${s.status.toLowerCase()}`);
+    const inv = openSampleInvestigation(id);
+    if (inv) throw bad(`${inv.code} is open for this sample — it must be investigated and closed before the sample can be cancelled`);
     tx(() => {
       for (const t of all(`SELECT id FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) {
         update(ctx, 'tests', t.id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Test cancelled with sample', reason });
@@ -667,10 +664,13 @@ export default function routes(r) {
     const mine = test.analyst_id === me.id;
     const qualifiedMe = isQualified(me.id, test.method_code);
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
-    const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
+    const investigations = all(`SELECT v.id, v.test_id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
       FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
-    // An OOS investigation can be closed on the Test page, so its closure signature is shown here too.
-    for (const v of investigations) v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
+    // Each Investigation can be closed from its card on the Test page, so its closure signature is shown here too.
+    for (const v of investigations) {
+      v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
+      v.can = { close: mayCloseInvestigation(me, v) };
+    }
     const performers = rolesWith('tests.perform');
     const perform = can(me, 'tests.perform');
     const approver = can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id;
@@ -702,7 +702,6 @@ export default function routes(r) {
         return: approver,
         cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !open,
         raise: can(me, 'investigations.raise'),
-        closeInvestigation: can(me, 'investigations.close') && !mine && investigations.some((v) => v.type === 'OOS' && v.status !== 'Closed'),
       },
       qualifiedMe,
     };
@@ -715,7 +714,6 @@ export default function routes(r) {
   r.post('/api/tests/:id/review', (ctx) => reviewTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/approve', (ctx) => approveTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/cancel', (ctx) => cancelTest(ctx, +ctx.params.id, ctx.body.reason));
-  r.post('/api/tests/:id/investigation/close', (ctx) => closeTestInvestigation(ctx, +ctx.params.id, ctx.body));
 
   // ----- Review queue -----
   r.get('/api/reviews', (ctx) => {
@@ -732,7 +730,7 @@ export default function routes(r) {
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
     }
-    if (can(ctx.user, 'reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' ORDER BY s.due_date`);
+    if (can(ctx.user, 'reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }

@@ -268,7 +268,7 @@ export async function detail(ctx) {
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
         ${d.investigations.map((v) => card({
           title: html`<a href="/investigations/${v.id}" class="code">${v.code}</a> ${statusBadge(v.status)}`,
-          actions: d.can.closeInvestigation && v.type === 'OOS' && v.status !== 'Closed' ? html`<button class="btn sm primary" data-act="close-investigation">${icon('sign', { size: 14 })}Close</button>` : '',
+          actions: v.can.close ? html`<button class="btn sm primary" data-act="close-investigation" data-id="${v.id}">${icon('sign', { size: 14 })}Close</button>` : '',
           body: kv([
             ['Raised', fmtDateTime(v.raised_at)],
             ['Description', v.description ? html`<div style="white-space:pre-wrap">${v.description}</div>` : null],
@@ -396,21 +396,24 @@ export async function detail(ctx) {
     'approve-ok': () => signDecision('approve', true),
     'approve-return': () => signDecision('approve', false),
     assign: async () => { if (await assignDialog([t.id], [t])) ctx.refresh(); },
-    'close-investigation': () => esign({
-      title: `Close ${openInv.find((v) => v.type === 'OOS').code}`,
-      action: 'investigation.close.oos',
-      description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked and the result can go to approval.`,
-      fields: html`
-        ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true })}
-        ${field({ label: 'Conclusion', name: 'conclusion', type: 'textarea', rows: 3, required: true, span: 2, placeholder: 'e.g. Confirmed OOS — result valid' })}`,
-      confirmLabel: 'Sign & close',
-      onSign: async (sig) => {
-        await api.post(`/api/tests/${t.id}/investigation/close`, { root_cause: sig.root_cause, conclusion: sig.conclusion, password: sig.password });
-        toast('Investigation closed');
-        refreshNav();
-        ctx.refresh();
-      },
-    }),
+    'close-investigation': (a) => {
+      const v = d.investigations.find((x) => x.id === +a.dataset.id);
+      return esign({
+        title: `Close ${v.code}`,
+        action: v.type === 'OOS' ? 'investigation.close.oos' : 'investigation.close',
+        description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked; the result can go to approval when no investigation on it is open.`,
+        fields: html`
+          ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true, value: v.root_cause })}
+          ${field({ label: 'Conclusion', name: 'conclusion', type: 'textarea', rows: 3, required: true, span: 2, placeholder: 'e.g. Confirmed OOS — result valid', value: v.conclusion })}`,
+        confirmLabel: 'Sign & close',
+        onSign: async (sig) => {
+          await api.post(`/api/investigations/${v.id}/close`, { root_cause: sig.root_cause, conclusion: sig.conclusion, password: sig.password });
+          toast('Investigation closed');
+          refreshNav();
+          ctx.refresh();
+        },
+      });
+    },
     cancel: async () => {
       const reason = await promptReason('Why is this test being cancelled? It will no longer be billed or reported');
       if (!reason) return;
