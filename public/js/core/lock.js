@@ -43,7 +43,6 @@ export function lockFrame({
     <div class="lock" data-state="idle" data-variant="${variant}">
       <canvas class="lock-helix" aria-hidden="true"></canvas>
       <div class="lock-grain" aria-hidden="true"></div>
-      <div class="lock-rule" aria-hidden="true"></div>
       <header class="lock-brand">
         <div class="lb-word">Aliquot</div>
         <div class="lb-tag">Laboratory information</div>

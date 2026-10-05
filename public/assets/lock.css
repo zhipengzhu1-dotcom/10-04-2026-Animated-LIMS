@@ -9,22 +9,20 @@
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .lock {
   --lk-bg: #e7e5df; --lk-ink: #131312; --lk-2: #55534d; --lk-3: #8b877e; --lk-line: rgba(19, 19, 18, 0.16);
-  --lk-glass: rgba(246, 245, 241, 0.42); --lk-veil: rgba(241, 240, 236, 0.22); --lk-slab: #161615; --lk-slab-text: #f2f0ea;
+  --lk-glass: rgba(246, 245, 241, 0.42); --lk-slab: #161615; --lk-slab-text: #f2f0ea;
   position: relative; min-height: 100vh; overflow: hidden; color: var(--lk-ink); isolation: isolate;
   background: radial-gradient(120% 90% at 40% 45%, #f1f0ec 0%, var(--lk-bg) 55%, #d9d6ce 100%);
   transition: background var(--t-1) steps(1);
 }
-:root[data-theme="dark"] .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-veil: rgba(17, 17, 15, 0.28); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-veil: rgba(17, 17, 15, 0.28); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); } }
+:root[data-theme="dark"] .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lock { --lk-bg: #11110f; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(236, 233, 225, 0.14); --lk-glass: rgba(24, 24, 21, 0.7); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: radial-gradient(120% 90% at 40% 45%, #1b1b18 0%, var(--lk-bg) 60%, #070707 100%); } }
 .lock .micro { font: 500 10px/1.3 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--lk-3); }
 .lock kbd { display: inline-block; border: 1px solid color-mix(in srgb, var(--lk-ink) 32%, transparent); border-radius: 1px; padding: 0 5px; color: var(--lk-2); }
-/* The helix (core/helix.js) fills the area beside the brand rail; without WebGL it is swapped for a still SVG. */
-.lock-helix, .lock .helix-static { position: absolute; top: 0; bottom: 0; left: 261px; width: calc(100% - 261px); height: 100%; z-index: -1; pointer-events: none; transition: opacity var(--t-5), filter var(--t-5); }
+/* The helix (core/helix.js) fills the area beside the brand rail, fading in from its left edge so it never runs under
+   the rail text; without WebGL it is swapped for a still SVG. */
+.lock-helix, .lock .helix-static { position: absolute; top: 0; bottom: 0; left: 261px; width: calc(100% - 261px); height: 100%; z-index: -1; pointer-events: none; transition: opacity var(--t-5), filter var(--t-5); mask-image: linear-gradient(to right, transparent, #000 120px); }
 .lock .helix-static { color: var(--lk-ink); opacity: 0.32; padding: 12vh 30% 12vh 4%; box-sizing: border-box; }
 .lock-grain { position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5; background-image: radial-gradient(var(--lk-line) 0.6px, transparent 0.7px); background-size: 3px 3px; mask-image: radial-gradient(80% 70% at 50% 50%, transparent 40%, #000 100%); }
-.lock::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 260px; background: var(--lk-veil); backdrop-filter: blur(3px) saturate(1.05); pointer-events: none; }
-.lock-rule { position: absolute; left: 260px; top: 0; bottom: 0; width: 1px; background: var(--lk-line); animation: lk-draw-y var(--t-5) var(--ease) both; transform-origin: top; }
-@keyframes lk-draw-y { from { transform: scaleY(0); } }
 
 .lock-brand { position: absolute; left: 40px; top: 44px; animation: lk-rise var(--t-5) var(--spring) both var(--t-0); }
 .lb-word { font: 800 36px/1 var(--font); letter-spacing: 0.02em; text-transform: uppercase; }
@@ -35,12 +33,12 @@
 
 .lock-side { position: absolute; left: 40px; top: 190px; bottom: 28px; width: 180px; display: flex; flex-direction: column; gap: 14px; animation: lk-fade var(--t-5) ease both var(--t-4); }
 .ls-dash { width: 14px; height: 2px; background: var(--lk-ink); }
-.lock-side p.micro { line-height: 1.8; font-size: 10.5px; margin: 0; white-space: nowrap; }
+.lock-side p.micro { line-height: 1.8; font-size: 10.5px; margin: 0; white-space: nowrap; color: var(--lk-2); }
 .lock-log { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font: 500 10.5px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--lk-2); }
 .lock-log li { display: flex; gap: 10px; animation: lk-type-in var(--t-4) steps(12) both; }
 .lock-log li { align-items: center; white-space: nowrap; }
 .lock-log li::before { content: ""; width: 6px; height: 6px; background: var(--lk-ink); flex: none; }
-.lock-log li time { color: var(--lk-3); }
+.lock-log li time { color: var(--lk-2); }
 .lock-log li.bad { color: var(--signal); }
 .lock-log li.bad::before { background: var(--signal); }
 .lock-log li.ok::before { background: var(--lime); box-shadow: 0 0 0 1px var(--lk-ink); }
@@ -182,7 +180,7 @@
 .lock-warning ul li { padding-left: 1.4em; text-indent: -1.4em; }
 .lock-warning ul li:empty { display: none; }
 .lock-warning ul li::before { content: "▪ "; color: var(--signal); }
-.lock[data-state="denied"] { --lk-bg: #0b0b0a; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(255, 91, 20, 0.22); --lk-glass: rgba(18, 16, 14, 0.7); --lk-veil: rgba(11, 11, 10, 0.32); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: #0b0b0a; box-shadow: inset 0 0 0 2px var(--signal); }
+.lock[data-state="denied"] { --lk-bg: #0b0b0a; --lk-ink: #ece9e1; --lk-2: #b9b5aa; --lk-3: #7c786f; --lk-line: rgba(255, 91, 20, 0.22); --lk-glass: rgba(18, 16, 14, 0.7); --lk-slab: #ece9e1; --lk-slab-text: #121211; background: #0b0b0a; box-shadow: inset 0 0 0 2px var(--signal); }
 .lock[data-state="denied"] .lock-warning { display: block; animation: lk-glitch 0.32s steps(2) both; }
 .lock[data-state="denied"] .lock-panel { filter: saturate(0.7); }
 .lock[data-state="denied"] .lp-ghost { --lk-ghost: var(--signal); }
@@ -209,7 +207,7 @@
 @keyframes lk-out { to { opacity: 0; } }
 .lock[data-state="granted"]::before { opacity: 0; transition: opacity var(--t-4); }
 .lock[data-state="granted"] .lock-panel { animation: lk-unseal var(--t-4) var(--ease) forwards; }
-.lock[data-state="granted"] :is(.lock-brand, .lock-side, .lock-rule, .lock-seal, .lock-clock, .lock-foot) { animation: lk-out var(--t-4) var(--ease) forwards; }
+.lock[data-state="granted"] :is(.lock-brand, .lock-side, .lock-seal, .lock-clock, .lock-foot) { animation: lk-out var(--t-4) var(--ease) forwards; }
 .lock[data-state="granted"] .lock-helix { filter: blur(0.5px); }
 /* Lifted (liftLock): the granted lock floats over the screen rising beneath it until the dive lands. It takes clicks
    until that screen is revealed, so nothing hidden under the paper can be pressed. */
@@ -237,7 +235,7 @@
 }
 @media (max-width: 860px) {
   .lock { min-height: 100svh; overflow-y: auto; display: flex; flex-direction: column; padding: 20px 16px 24px; gap: 16px; }
-  .lock-rule, .lock-side, .lock-foot, .lock-grain, .lock::before { display: none; }
+  .lock-side, .lock-foot, .lock-grain { display: none; }
   .lock-brand, .lock-clock, .lock-panel, .lock-msg { position: relative; inset: auto; transform: none; width: auto; }
   .lock-brand { order: 1; }
   .lb-word { font-size: 30px; } .lb-tag { font-size: 9px; margin-top: 6px; } .lb-os { font-size: 22.5px; }
