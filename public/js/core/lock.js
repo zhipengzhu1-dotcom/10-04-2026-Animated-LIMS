@@ -1,7 +1,7 @@
 // The full-screen lock screen: staff sign-in, first-run setup, password change, and the client portal's sign-in.
 // Styles live in /assets/lock.css, which both apps load.
 import { html, raw } from './html.js';
-import { icon, LOGO } from './icons.js';
+import { icon } from './icons.js';
 import { createHelix, noHelix } from './helix.js';
 
 export const z = (n) => String(n).padStart(2, '0');
@@ -54,10 +54,6 @@ export function lockFrame({
         <ol class="lock-log" data-log></ol>
         <div class="ls-keys micro"><span><kbd>Enter</kbd> request</span><span><kbd>Tab</kbd> next field</span></div>
         <div class="ls-section"><span></span><b class="ls-n">${labName}</b><b class="ls-d">Lockdown active</b></div>
-      </div>
-      <div class="lock-seal" aria-hidden="true">
-        <span class="micro">Locked</span>
-        <div class="seal-slab">${LOGO}<span class="seal-word">${initials(labName) || 'AQ'}</span><i class="seal-dot"></i><small>Sealed section</small></div>
       </div>
       ${clockMarkup()}
       <section class="lock-panel"><div class="lp-ghost" aria-hidden="true">${ghost}</div><div class="lp-body">${panel}</div></section>
