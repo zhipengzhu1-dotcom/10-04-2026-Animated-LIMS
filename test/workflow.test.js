@@ -415,10 +415,18 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal(blocked.status, 400);
   assert.match(blocked.data.error, /still open/);
 
-  const close = `/api/tests/${testId}/investigation/close`;
+  assert.equal(open[0].can.close, true, 'an independent closer is offered Close on the card');
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  assert.equal((await priya.ok('GET', `/api/tests/${testId}`)).investigations[0].can.close, false, 'the analyst who performed the test is not offered Close');
+  assert.equal((await tom.ok('GET', `/api/tests/${testId}`)).investigations[0].can.close, false, 'nor is someone without the close permission');
+  assert.equal((await priya.ok('GET', `/api/investigations/${investigation.id}`)).can.close, false, 'the Investigations screen answers the same');
+
+  const close = `/api/investigations/${investigation.id}/close`;
+  assert.equal((await daniel.post(`/api/tests/${testId}/investigation/close`, {})).status, 404, 'the Test-scoped close endpoint is gone');
   const full = { root_cause: 'Sample absorbed moisture after opening', conclusion: 'Confirmed OOS — result valid', password: PASSWORD };
-  assert.equal((await (await as('tom.fletcher')).post(close, full)).status, 403, 'analysts lack the close permission');
-  const own = await (await as('priya.raman')).post(close, full);
+  assert.equal((await tom.post(close, full)).status, 403, 'analysts lack the close permission');
+  const own = await priya.post(close, full);
   assert.equal(own.status, 403, 'the analyst who performed the test cannot close its investigation');
   assert.match(own.data.error, /performed/);
   assert.equal((await daniel.post(close, { ...full, root_cause: '  ' })).status, 400, 'root cause required');
@@ -437,6 +445,7 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.ok(closed.closed_at);
   assert.deepEqual(closed.signatures.map((x) => [x.full_name, x.meaning]), [['Daniel Okafor', 'OOS investigation closed']], 'the Test page shows who signed the closure');
   assert.ok(closed.signatures[0].signed_at);
+  assert.equal(closed.can.close, false, 'a closed investigation offers no Close');
   const signed = (await daniel.ok('GET', `/api/investigations/${investigation.id}`)).signatures;
   assert.ok(signed.some((s) => s.meaning === 'OOS investigation closed' && s.full_name === 'Daniel Okafor'), 'closing is e-signed');
   const history = await daniel.ok('GET', `/api/history/investigations/${investigation.id}`);
@@ -450,44 +459,36 @@ test('an OOS investigation is closed from the Test page with an e-signature', as
   assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
 });
 
-test('closing an investigation needs the right password on both endpoints, and wrong ones count toward lock-out', async () => {
+test('closing an investigation needs the right password, and wrong ones count toward lock-out', async () => {
   const daniel = await as('daniel.okafor');
   const helena = await as('helena.weiss');
-  const { testId, investigation } = await oosTest('tom.fletcher');
+  const { investigation } = await oosTest('tom.fletcher');
+  const close = `/api/investigations/${investigation.id}/close`;
   await daniel.ok('PUT', `/api/investigations/${investigation.id}`, { title: 'OOS water', root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' });
   for (const password of [undefined, 'nope']) {
-    const r = await daniel.post(`/api/investigations/${investigation.id}/close`, { password });
+    const r = await daniel.post(close, { password });
     assert.equal(r.status, 400);
     assert.equal(r.data.code, 'SIGNATURE');
   }
-  const body = { root_cause: 'Hygroscopic sample', conclusion: 'Confirmed OOS' };
-  for (let i = 0; i < 5; i++) await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: 'bad' });
-  const locked = await helena.post(`/api/tests/${testId}/investigation/close`, { ...body, password: PASSWORD });
+  for (let i = 0; i < 5; i++) await helena.post(close, { password: 'bad' });
+  const locked = await helena.post(close, { password: PASSWORD });
   assert.equal(locked.status, 423, 'locked even with the right password');
 });
 
-test('both close endpoints apply the same rules and sign an OOS closure with the same meaning', async () => {
-  const priya = await as('priya.raman');
+test('each Investigation card on a Test closes its own Investigation, whatever its type', async () => {
   const daniel = await as('daniel.okafor');
-  const { testId, investigation } = await oosTest('priya.raman');
-  const body = { root_cause: 'Balance drift', conclusion: 'Invalidated — assignable laboratory error', password: PASSWORD };
-  const viaTest = await priya.post(`/api/tests/${testId}/investigation/close`, body);
-  const viaInvestigations = await priya.post(`/api/investigations/${investigation.id}/close`, body);
-  assert.equal(viaInvestigations.status, 403, 'the analyst who performed the test cannot close it from Investigations either');
-  assert.deepEqual(viaInvestigations.data, viaTest.data, 'both endpoints refuse with the same words');
-  for (const missing of [{ root_cause: ' ' }, { conclusion: '' }]) {
-    const a = await daniel.post(`/api/investigations/${investigation.id}/close`, { ...body, ...missing });
-    const b = await daniel.post(`/api/tests/${testId}/investigation/close`, { ...body, ...missing });
-    assert.equal(a.status, 400, `refused without ${Object.keys(missing)[0]}`);
-    assert.deepEqual(a.data, b.data, 'both endpoints refuse with the same words');
-  }
+  const { testId, investigation } = await oosTest('tom.fletcher');
+  const deviation = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', test_id: testId, title: 'Balance out of level', description: 'Bubble off-centre during the run' });
+  const cards = (await daniel.ok('GET', `/api/tests/${testId}`)).investigations;
+  assert.deepEqual(cards.map((v) => [v.code, v.can.close]), [[deviation.code, true], [investigation.code, true]], 'both open cards offer Close');
+  assert.equal((await (await as('tom.fletcher')).ok('GET', `/api/tests/${testId}`)).investigations.some((v) => v.can.close), false);
 
-  await daniel.ok('POST', `/api/investigations/${investigation.id}/close`, body);
-  const d = await daniel.ok('GET', `/api/investigations/${investigation.id}`);
-  assert.equal(d.investigation.status, 'Closed');
-  assert.equal(d.investigation.root_cause, body.root_cause, 'the root cause given when closing is recorded');
-  assert.equal(d.investigation.conclusion, body.conclusion);
-  assert.deepEqual(d.signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'OOS investigation closed']]);
+  await daniel.ok('POST', `/api/investigations/${deviation.id}/close`, { root_cause: 'Bench knocked', conclusion: 'Relevelled; no impact on the result', password: PASSWORD });
+  const after = Object.fromEntries((await daniel.ok('GET', `/api/tests/${testId}`)).investigations.map((v) => [v.code, v]));
+  assert.equal(after[deviation.code].status, 'Closed', 'the pressed card is closed');
+  assert.deepEqual(after[deviation.code].signatures.map((s) => [s.full_name, s.meaning]), [['Daniel Okafor', 'Closed']]);
+  assert.equal(after[investigation.code].status, 'Open', 'the other card stays open');
+  assert.equal(after[investigation.code].can.close, true);
 });
 
 test('closing a deviation from Investigations is still signed "Closed"', async () => {
@@ -546,7 +547,7 @@ test('every signed action stores exactly the meaning the lookups serve for it', 
   await sign('sample.coa.issue', daniel, `/api/samples/${sampleId}/report`, {}, `/api/samples/${sampleId}`);
 
   const oos = await oosTest('priya.raman');
-  await sign('investigation.close.oos', daniel, `/api/tests/${oos.testId}/investigation/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid' }, `/api/investigations/${oos.investigation.id}`);
+  await sign('investigation.close.oos', daniel, `/api/investigations/${oos.investigation.id}/close`, { root_cause: 'Moisture uptake', conclusion: 'Confirmed OOS — result valid' }, `/api/investigations/${oos.investigation.id}`);
   const deviation = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance' });
   await sign('investigation.close', daniel, `/api/investigations/${deviation.id}/close`, { root_cause: 'Draught from door', conclusion: 'No product impact' }, `/api/investigations/${deviation.id}`);
 
