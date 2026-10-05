@@ -5,7 +5,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 ## Commands
 
 - `npm run dev`: development copy on http://localhost:3001 with its own `data-dev/` folder. Never point development at `data/`.
-- `npm run check`: syntax-check every JavaScript file.
+- `npm run check`: syntax-check every JavaScript file and refuse hand-written writes that bypass the audit trail.
 - `npm test`: end-to-end tests against a real server on a throwaway database.
 
 ## Coding standards
@@ -14,6 +14,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 - **Match the house style.** 2-space indent, single quotes, semicolons, trailing commas in multi-line literals, arrow functions for small helpers, early returns over nesting. Keep lines readable; long `html` template lines are tolerated, long logic lines are not.
 - **Comments are rare and say why.** A one-line `/** … */` above an exported function when its contract isn't obvious from the name. No comments that restate the code.
 - **The server enforces every rule.** Permissions, workflow states and GxP controls live on the server; the browser only hides what the server would refuse. A screen-only check is a bug.
+- **Test and Sample rules live once, in `server/workflow.js`.** Each `TEST_RULES` / `SAMPLE_RULES` entry feeds both the action's guard and the `can` flag the Staff app reads; route modules call it. A new action gets an entry in `TEST_ACTIONS` / `SAMPLE_ACTIONS` in `test/agreement.test.js`.
 - **All writes go through `repo.insert` / `repo.update`** so the audit trail records them. Never write `INSERT`/`UPDATE` against an audited table by hand.
 - **Signed records stay locked.** Anything a signature depends on is never edited or deleted; corrections are new records.
 - **E-signatures re-ask for the password** with `verifySignature` then `applySignature` (`server/auth.js`), with a stated meaning.
