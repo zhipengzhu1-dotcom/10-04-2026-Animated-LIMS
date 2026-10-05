@@ -403,7 +403,7 @@ export async function detail(ctx) {
           title: 'Tests & results',
           sub: d.tests.length ? `${d.tests.filter((t) => t.status === 'Approved').length} of ${d.tests.filter((t) => t.status !== 'Cancelled').length} approved` : null,
           flush: true,
-          actions: d.can.assign && d.tests.some((t) => t.status === 'Pending' && !t.analyst_id) ? html`<button class="btn sm" data-act="assign-all">${icon('users', { size: 13 })}Assign unassigned</button>` : '',
+          actions: d.can.assign ? html`<button class="btn sm" data-act="assign-all">${icon('users', { size: 13 })}Assign unassigned</button>` : '',
           body: d.tests.length ? html`<div class="table-wrap"><table class="table">
             <thead><tr><th>Test / parameter</th><th>Specification</th><th class="right">Result</th><th>Outcome</th><th>Analyst</th><th>Status</th></tr></thead>
             <tbody>${d.tests.map((t) => html`
@@ -450,8 +450,7 @@ export async function detail(ctx) {
     'add-tests': () => addTests(ctx, s, d.tests),
     'assign-all': async () => {
       const { assignDialog } = await import('./tests.js');
-      const ids = d.tests.filter((t) => t.status === 'Pending' && !t.analyst_id).map((t) => t.id);
-      if (await assignDialog(ids, d.tests.filter((t) => ids.includes(t.id)))) ctx.refresh();
+      if (await assignDialog(d.assignable, d.tests.filter((t) => d.assignable.includes(t.id)))) ctx.refresh();
     },
     issue: () => esign({
       title: 'Issue Certificate of Analysis',

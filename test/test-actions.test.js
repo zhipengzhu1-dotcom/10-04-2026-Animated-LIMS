@@ -226,3 +226,26 @@ test('review, approval and cancel refuse with unchanged messages and codes, and 
   await helena.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
   await refused(priya, 'cancel', { reason: 'Not needed' }, 400, "An approved test can't be cancelled", 'cancel');
 });
+
+test('a Sample offers assign only while it has an unassigned Test that can be assigned, and names those Tests', async () => {
+  const [priya, tom] = await Promise.all(['priya.raman', 'tom.fletcher'].map(as));
+  const [testId] = await kfTests('tom.fletcher');
+  const sampleId = (await priya.ok('GET', `/api/tests/${testId}`)).test.sample_id;
+  const offer = async (c) => {
+    const d = await c.ok('GET', `/api/samples/${sampleId}`);
+    return { assign: d.can.assign, assignable: d.assignable };
+  };
+
+  assert.deepEqual(await offer(priya), { assign: false, assignable: [] }, 'every Test assigned');
+  await tom.ok('POST', `/api/tests/${testId}/start`);
+  assert.deepEqual(await offer(priya), { assign: false, assignable: [] }, 'every Test started');
+
+  const kf = (await priya.ok('GET', '/api/methods?usable=1')).find((m) => m.code === 'ATM-0002' && m.status === 'Effective');
+  await priya.ok('POST', `/api/samples/${sampleId}/tests`, { method_ids: [kf.id] });
+  const added = (await priya.ok('GET', `/api/samples/${sampleId}`)).tests.find((t) => t.id !== testId).id;
+  assert.deepEqual(await offer(priya), { assign: true, assignable: [added] }, 'an unassigned Test beside a started one');
+  assert.deepEqual(await offer(tom), { assign: false, assignable: [] }, 'someone who cannot assign');
+
+  await priya.ok('POST', `/api/tests/${added}/cancel`, { reason: 'Not needed' });
+  assert.deepEqual(await offer(priya), { assign: false, assignable: [] }, 'the unassigned Test cancelled');
+});
