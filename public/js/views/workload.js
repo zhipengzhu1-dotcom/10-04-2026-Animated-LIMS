@@ -1,6 +1,6 @@
 import { html } from '../core/html.js';
 import { api } from '../core/api.js';
-import { roleLabel } from '../core/state.js';
+import { roleLabel, can } from '../core/state.js';
 import { icon } from '../core/icons.js';
 import { hoverTips } from '../core/charts.js';
 import { pageHead, mountTable, searchBox, emptyState, avatar, num, plural, debounce, progress } from '../core/ui.js';
@@ -37,7 +37,7 @@ export async function list(ctx) {
     ${pageHead({
       title: 'Workload',
       sub: 'Open tests per analyst and the projects they are on: projects they lead, or hold open tests for.',
-      actions: html`<a class="btn primary" href="/worklist?view=unassigned">${icon('users', { size: 15 })}Assign work</a>`,
+      actions: can('tests.assign') ? html`<a class="btn primary" href="/worklist?view=unassigned">${icon('users', { size: 15 })}Assign work</a>` : '',
     })}
     <div class="kpis">
       <a class="kpi" href="/worklist"><div class="k-label">${icon('worklist', { size: 14 })}Open tests</div><div class="k-value">${num(total('open'))}</div><div class="k-sub">${num(total('in_progress'))} in progress · ${num(total('due_week'))} due in 7 days</div></a>

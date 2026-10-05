@@ -180,6 +180,27 @@ test('a returned test counts against its analyst', async () => {
   assert.ok((await tom.ok('GET', '/api/dashboard')).myReturned.includes(testId), 'the dashboard flags the same test as returned');
 });
 
+test('the administrator oversees every work queue but cannot act on it', async () => {
+  const admin = await as('admin');
+  assert.equal((await admin.get('/api/workload')).status, 200, 'workload');
+  assert.ok((await admin.ok('GET', '/api/auth/me')).permissions.includes('work.oversee'));
+
+  const reviews = await admin.ok('GET', '/api/reviews?scope=lab');
+  assert.equal((await admin.ok('GET', '/api/reviews')).toReview.length, 0, 'nothing is queued for the administrator to sign');
+  assert.equal((await lab.priya.get('/api/reviews?scope=lab')).status, 403, 'the lab-wide view is for overseers');
+  const submitted = await admin.ok('GET', '/api/tests?status=Submitted');
+  const reviewed = await admin.ok('GET', '/api/tests?status=Reviewed');
+  assert.ok(submitted.length && reviewed.length, 'the demo lab has tests waiting at both stages');
+  assert.deepEqual(reviews.toReview.map((t) => t.id).sort(), submitted.map((t) => t.id).sort(), 'every test waiting for peer review');
+  assert.deepEqual(reviews.toApprove.map((t) => t.id).sort(), reviewed.map((t) => t.id).sort(), 'every test waiting for approval');
+
+  const blocked = await admin.req('POST', `/api/tests/${submitted[0].id}/review`, { decision: 'approve', password: PASSWORD });
+  assert.equal(blocked.status, 403, 'seeing the queue is not signing it');
+  assert.equal((await admin.ok('GET', `/api/tests/${submitted[0].id}`)).test.status, 'Submitted');
+  const [unassigned] = await admin.ok('GET', '/api/tests?scope=open&unassigned=1');
+  assert.equal((await admin.req('POST', '/api/tests/assign', { test_ids: [unassigned.id], analyst_id: lab.users['tom.fletcher'].id })).status, 403, 'nor assigning work');
+});
+
 test('only people who assign work see the workload', async () => {
   assert.equal((await (await as('sarah.lindqvist')).get('/api/workload')).status, 200, 'senior scientists assign work');
   assert.equal((await (await as('tom.fletcher')).get('/api/workload')).status, 403, 'analyst');

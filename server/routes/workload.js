@@ -1,7 +1,8 @@
 // Workload: each analyst's open tests and the projects they are on, for the people who assign work.
 
 import { all, get, ph } from '../db.js';
-import { assertCan } from '../auth.js';
+import { can } from '../auth.js';
+import { forbidden } from '../http.js';
 import { rolesWith } from '../lookups.js';
 import { today, addDays } from '../util.js';
 import { TEST_EDITABLE, TEST_OPEN, TEST_RETURNED } from '../workflow.js';
@@ -10,7 +11,7 @@ const CLOSED_PROJECT = ['Completed', 'Cancelled'];
 
 export default function routes(r) {
   r.get('/api/workload', (ctx) => {
-    assertCan(ctx, 'tests.assign');
+    if (!can(ctx.user, 'tests.assign') && !can(ctx.user, 'work.oversee')) throw forbidden();
     const t = today();
     const performers = rolesWith('tests.perform');
     const isOpen = `t.status IN (${ph(TEST_EDITABLE)})`;
