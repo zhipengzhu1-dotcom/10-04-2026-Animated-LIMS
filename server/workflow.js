@@ -6,7 +6,7 @@
 // Controls enforced here: qualification on the method, instruments within calibration, standards/reagents
 // within expiry, a reason for every change to a recorded result, and automatic OOS investigations.
 
-import { all, get, run, tx } from './db.js';
+import { all, get, run, ph, tx } from './db.js';
 import { update, mustGet } from './repo.js';
 import { bad, forbidden } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
@@ -14,10 +14,6 @@ import { SAMPLE_OPEN } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
 import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
 
-const ph = (arr) => arr.map(() => '?').join(',');
-
-// Groups of Test statuses other areas need: results and attachments can still change; work not yet approved or
-// cancelled; and submitted for review or beyond, which makes the Sample "In Review" once every Test is there.
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 export const TEST_SUBMITTED = ['Submitted', 'Reviewed', 'Approved'];
@@ -38,11 +34,10 @@ export const TEST_SELECT = `
   LEFT JOIN users ap ON ap.id = t.approved_by
   LEFT JOIN instruments i ON i.id = t.instrument_id`;
 
+const CURRENT_QUALIFICATION = 'q.revoked = 0 AND (q.expires_at IS NULL OR q.expires_at >= ?)';
+
 export function isQualified(userId, methodCode) {
-  return !!get(
-    `SELECT 1 FROM qualifications WHERE user_id = ? AND method_code = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at >= ?)`,
-    userId, methodCode, today(),
-  );
+  return !!get(`SELECT 1 FROM qualifications q WHERE q.user_id = ? AND q.method_code = ? AND ${CURRENT_QUALIFICATION}`, userId, methodCode, today());
 }
 
 export function evaluateNumeric(row, value) {
@@ -84,11 +79,7 @@ export function getTest(id) {
   return mustGet(`${TEST_SELECT} WHERE t.id = ?`, id, 'Test');
 }
 
-// ---------------------------------------------------------------------------------------------
-// Test rules: one per action, given the Test and the person. Nothing means allowed; otherwise the refusal to throw,
-// `forbidden` (not allowed for you, 403) or `bad` (not possible now, 400). The action throws it and the Test page
-// offers the action when there is none. Readiness checks the person can fix stay in the action.
-// ---------------------------------------------------------------------------------------------
+// Each rule returns nothing when allowed, else the refusal the action throws; the Test page offers what is allowed.
 
 function approvalRule(t, me) {
   if (!can(me, 'tests.approve')) return forbidden();
@@ -154,7 +145,6 @@ const openTests = (sampleId) => sampleTests(sampleId).filter((t) => TEST_OPEN.in
 /** The Tests on Sample `sampleId` nobody is assigned to yet that `me` may assign. */
 export const unassignedTests = (sampleId, me) => sampleTests(sampleId).filter((t) => !t.analyst_id && !TEST_RULES.assign(t, me));
 
-// Sample rules: the same form as the Test rules, given the Sample row and the person.
 export const SAMPLE_RULES = {
   assign(s, me) {
     if (!can(me, 'tests.assign')) return forbidden();
@@ -331,11 +321,9 @@ export function saveResults(ctx, id, body) {
   if (modifiesRecorded && !reason) throw bad('You are changing a result that was already recorded — give a reason for the change', 'REASON_REQUIRED');
 
   tx(() => {
+    // Result lines and materials are audited as part of the Test's own entry (`extraChanges`), with the reason.
     for (const u of updates) {
-      run(
-        'UPDATE results SET value_num = ?, value_text = ?, outcome = ?, entered_by = ?, entered_at = ? WHERE id = ?',
-        u.valueNum, u.valueText, u.outcome, ctx.user.id, nowIso(), u.row.id,
-      );
+      update(ctx, 'results', u.row.id, { value_num: u.valueNum, value_text: u.valueText, outcome: u.outcome, entered_by: ctx.user.id, entered_at: nowIso() }, { audit: false });
     }
     if (newMaterials) {
       run('DELETE FROM test_materials WHERE test_id = ?', id);
@@ -426,10 +414,13 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Tests waiting on a user: assigned to them, awaiting their peer review, awaiting their QA approval.
-// Each gives [SQL condition on tests aliased `t`, ...params]; the badges, the Reviews queue and the Samples work filters share them.
+// Each gives [SQL condition on tests aliased `t`, ...params], shared by the badges, Reviews, Worklist and work filters.
 export const TEST_QUEUES = {
-  assigned: (me) => [`t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)})`, me, ...TEST_EDITABLE],
+  assigned: (me) => [
+    `t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) AND EXISTS (SELECT 1 FROM qualifications q JOIN methods qm ON qm.code = q.method_code
+      WHERE qm.id = t.method_id AND q.user_id = t.analyst_id AND ${CURRENT_QUALIFICATION})`,
+    me, ...TEST_EDITABLE, today(),
+  ],
   review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
   approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
 };

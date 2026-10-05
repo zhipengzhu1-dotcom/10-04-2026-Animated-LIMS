@@ -1,14 +1,14 @@
 // Samples and tests: receipt, Sample editing, custody, and the screens and lists over them.
 // The Test workflow itself (assign → results → submit → review → approve → CoA) lives in ../workflow.js.
 
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad } from '../http.js';
-import { assertCan, can, rolesWith } from '../auth.js';
+import { assertCan, can } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
-  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN,
+  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN, rolesWith,
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
@@ -16,8 +16,6 @@ import {
   guard, unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
-
-const ph = (arr) => arr.map(() => '?').join(',');
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -140,6 +138,13 @@ const WORK_FILTERS = {
   approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
 };
 
+function workFilter(ctx, name) {
+  const rule = Object.hasOwn(WORK_FILTERS, name) && WORK_FILTERS[name];
+  if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
+  assertCan(ctx, rule.perm);
+  return rule.match(ctx.user.id);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -157,10 +162,7 @@ export default function routes(r) {
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
     if (q.work) {
-      const rule = Object.hasOwn(WORK_FILTERS, q.work) && WORK_FILTERS[q.work];
-      if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
-      assertCan(ctx, rule.perm);
-      const [sql, ...args] = rule.match(ctx.user.id);
+      const [sql, ...args] = workFilter(ctx, q.work);
       where.push(`EXISTS (SELECT 1 FROM tests t WHERE t.sample_id = s.id AND ${sql})`);
       params.push(...args);
     }
@@ -192,7 +194,6 @@ export default function routes(r) {
     return {
       sample,
       tests,
-      // The Tests the Sample page's "Assign unassigned" assigns.
       assignable: unassignedTests(id, ctx.user).map((t) => t.id),
       custody: all(`SELECT ce.*, u.full_name FROM custody_events ce LEFT JOIN users u ON u.id = ce.user_id WHERE ce.sample_id = ? ORDER BY ce.at DESC, ce.id DESC`, id),
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
@@ -284,7 +285,7 @@ export default function routes(r) {
     const params = [];
     if (q.scope === 'open') { where.push(`t.status IN (${ph(TEST_OPEN)})`); params.push(...TEST_OPEN); }
     if (q.status) { const list = String(q.status).split(','); where.push(`t.status IN (${ph(list)})`); params.push(...list); }
-    if (q.mine) { where.push('t.analyst_id = ?'); params.push(ctx.user.id); }
+    if (q.work) { const [sql, ...args] = workFilter(ctx, q.work); where.push(sql); params.push(...args); }
     if (q.analyst_id) { where.push('t.analyst_id = ?'); params.push(+q.analyst_id); }
     if (q.unassigned) where.push('t.analyst_id IS NULL');
     if (q.method_id) { where.push('t.method_id = ?'); params.push(+q.method_id); }

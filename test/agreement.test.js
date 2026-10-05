@@ -122,8 +122,8 @@ const sampleStatus = async (sampleId) => (await (await as('priya.raman')).ok('GE
 
 // ----- People -----
 
-// Each person signs in as `username`; the analyst after a role change is the Test's own analyst, moved to QA once their
-// Tests were assigned and worked, and moved back afterwards so the next Test can be prepared.
+// Each person signs in as `username`. The analyst after a role change, and after their qualification lapses, is the
+// Test's own analyst, changed once their Tests were assigned and worked and changed back so the next Test can be prepared.
 const PEOPLE = {
   'the analyst': { username: ANALYST },
   'a reviewer who is not the analyst': { username: 'daniel.okafor' },
@@ -132,18 +132,32 @@ const PEOPLE = {
   'a scientist not qualified on the Method': { username: 'sarah.lindqvist' },
   'a person with none of the permissions': { username: 'grace.holloway' },
   'the analyst after a role change': { username: ANALYST, role: 'qa' },
+  'the analyst after their qualification lapses': { username: ANALYST, lapsed: 'ATM-0002' },
 };
 
 async function within(person, fn) {
   const c = await as(person.username);
-  if (!person.role) return fn(c);
-  const admin = await as('admin');
-  await admin.ok('PUT', `/api/users/${lab.users[person.username]}`, { role: person.role });
-  try {
-    return await fn(c);
-  } finally {
-    await admin.ok('PUT', `/api/users/${lab.users[person.username]}`, { role: 'analyst' });
+  const userId = lab.users[person.username];
+  if (person.role) {
+    const admin = await as('admin');
+    await admin.ok('PUT', `/api/users/${userId}`, { role: person.role });
+    try {
+      return await fn(c);
+    } finally {
+      await admin.ok('PUT', `/api/users/${userId}`, { role: 'analyst' });
+    }
   }
+  if (person.lapsed) {
+    const priya = await as('priya.raman');
+    const q = (await priya.ok('GET', '/api/qualifications')).qualifications.find((x) => x.user_id === userId && x.method_code === person.lapsed);
+    await priya.ok('POST', `/api/qualifications/${q.id}/revoke`, { reason: 'Retraining required' });
+    try {
+      return await fn(c);
+    } finally {
+      await priya.ok('POST', '/api/qualifications', { user_id: userId, method_code: person.lapsed });
+    }
+  }
+  return fn(c);
 }
 
 const refused = (r) => [400, 403].includes(r.status);
@@ -189,8 +203,13 @@ async function queues(c, t) {
     return r.status === 200 && r.data.some((s) => s.id === t.sampleId);
   };
   const reviews = await c.ok('GET', '/api/reviews');
+  const worklist = await c.get('/api/tests?work=assigned');
+  assert.ok([200, 403].includes(worklist.status), `Worklist My tests → ${describe(worklist)}`);
   return {
     assigned: await inWork('assigned'),
+    worklist: worklist.status === 200 && worklist.data.some((x) => x.id === t.testId),
+    worklistIds: worklist.status === 200 ? worklist.data.map((x) => x.id) : [],
+    dashboardIds: (await c.ok('GET', '/api/dashboard')).myTests.map((x) => x.id),
     review: await inWork('review'),
     approval: await inWork('approval'),
     toReview: reviews.toReview.some((x) => x.id === t.testId),
@@ -211,6 +230,10 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
       }));
 
       for (const [queue, flag] of Object.entries(QUEUE_FLAG)) assert.equal(queued[queue], can[flag], `${label}: ${queue} queue vs can.${flag}`);
+      assert.equal(queued.worklist, can.edit, `${label}: Worklist My tests vs can.edit`);
+      // The Dashboard shows the first dozen of the same list.
+      assert.deepEqual(queued.dashboardIds.filter((id) => !queued.worklistIds.includes(id)), [], `${label}: Dashboard My tests outside the Worklist`);
+      assert.equal(queued.dashboardIds.length, Math.min(12, queued.worklistIds.length), `${label}: Dashboard My tests vs Worklist`);
       assert.equal(queued.toReview, can.review, `${label}: Reviews page review list vs can.review`);
       assert.equal(queued.toApprove, can.return, `${label}: Reviews page approval list vs can.return`);
       assert.equal(after.myTests - before.myTests, can.edit ? 1 : 0, `${label}: My tests badge vs can.edit`);

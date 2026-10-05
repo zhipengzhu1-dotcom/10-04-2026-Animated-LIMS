@@ -6,7 +6,7 @@
 //                          progress method-work requests and manage client portal accounts.
 
 import crypto from 'node:crypto';
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { HttpError, bad, forbidden, notFound } from '../http.js';
@@ -28,7 +28,6 @@ export const REGULATORY_CONTEXTS = ['GMP release', 'Clinical (IND / IMPD)', 'Reg
 const PROJECT_TYPE_FOR = { 'Method development': 'Method Development', 'Method validation': 'Method Validation', 'Method transfer': 'Method Transfer', Other: 'Other' };
 
 const json = (v, fallback) => { try { return JSON.parse(v) ?? fallback; } catch { return fallback; } };
-const ph = (list) => list.map(() => '?').join(',');
 
 /** Readable one-time password that satisfies the password policy, e.g. "kq7m-x4pt-9wza". */
 function tempPassword() {
