@@ -182,3 +182,19 @@ test('an analyst whose role no longer performs Tests has none counted in their M
     await admin.ok('PUT', `/api/users/${tomId}`, { role: 'analyst' });
   }
 });
+
+test('the first result on a pending Test starts it as a status change and moves its Sample into testing', async () => {
+  const priya = await as('priya.raman');
+  const tom = await as('tom.fletcher');
+  const [testId] = await kfTests('tom.fletcher');
+  assert.equal((await tom.ok('GET', `/api/tests/${testId}`)).test.status, 'Pending');
+  await enterInSpec(tom, testId);
+
+  const { test: t } = await tom.ok('GET', `/api/tests/${testId}`);
+  assert.equal(t.status, 'In Progress');
+  assert.ok(t.started_at, 'start time recorded');
+  const [latest] = await priya.ok('GET', `/api/history/tests/${testId}`);
+  assert.equal(latest.action, 'STATUS', 'audited as a status change');
+  assert.equal(latest.summary, 'Results recorded');
+  assert.equal((await priya.ok('GET', `/api/samples/${t.sample_id}`)).sample.status, 'In Testing');
+});
