@@ -167,3 +167,18 @@ test('a reviewed Test with no open investigation offers both accept and return t
   assert.equal(self.can.accept, false, 'the analyst cannot accept their own Test');
   assert.equal(self.can.return, false);
 });
+
+test('an analyst whose role no longer performs Tests has none counted in their My tests badge', async () => {
+  const admin = await as('admin');
+  const tom = await as('tom.fletcher');
+  const tomId = (await tom.ok('GET', '/api/auth/me')).user.id;
+  await kfTests('tom.fletcher');
+  assert.ok((await tom.ok('GET', '/api/nav')).myTests > 0);
+
+  await admin.ok('PUT', `/api/users/${tomId}`, { role: 'qa' });
+  try {
+    assert.equal((await tom.ok('GET', '/api/nav')).myTests, 0, 'nothing counted that start and edit are withheld on');
+  } finally {
+    await admin.ok('PUT', `/api/users/${tomId}`, { role: 'analyst' });
+  }
+});
