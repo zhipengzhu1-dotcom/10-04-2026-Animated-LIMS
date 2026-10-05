@@ -497,6 +497,34 @@ test('dispose is offered only when the server would accept it', async () => {
   await daniel.ok('POST', `/api/samples/${cancelled.sampleId}/custody`, { action: 'Disposed' });
 });
 
+test('a Sample is not disposed while an Investigation is open on it or its Tests, and is once they close', async () => {
+  const tom = await as('tom.fletcher');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  const offered = async () => (await daniel.ok('GET', `/api/samples/${sampleId}`)).can.dispose;
+  assert.equal(await offered(), true);
+
+  const onSample = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge at 9 °C overnight', sample_id: sampleId });
+  const onTest = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance', test_id: testId });
+  for (const open of [onSample, onTest]) {
+    assert.equal(await offered(), false, `dispose is not offered while ${open.code} is open`);
+    const refused = await daniel.post(`/api/samples/${sampleId}/custody`, { action: 'Disposed', note: 'Retention period over' });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(open.code));
+    assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved', 'the Sample is unchanged');
+    await daniel.ok('POST', `/api/investigations/${open.id}/close`, { root_cause: 'Door left ajar', conclusion: 'No product impact', password: PASSWORD });
+  }
+
+  assert.equal(await offered(), true);
+  await daniel.ok('POST', `/api/samples/${sampleId}/custody`, { action: 'Disposed', note: 'Retention period over' });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Disposed');
+});
+
 // Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
 async function oosTest(analystUsername) {
   const analyst = await as(analystUsername);
