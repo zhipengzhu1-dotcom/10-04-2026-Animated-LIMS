@@ -18,7 +18,7 @@ import {
 import {
   clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round, sameValue, fixed, specText,
 } from '../util.js';
-import { closeInvestigation } from './quality.js';
+import { mayCloseInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 
@@ -479,15 +479,6 @@ const WORK_FILTERS = {
   approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
 };
 
-/** Closes the Test's open OOS investigation from the Test page, so it never depends on the Investigations screens. */
-export function closeTestInvestigation(ctx, id, body) {
-  assertCan(ctx, 'investigations.close');
-  getTest(id);
-  const inv = get(`SELECT id FROM investigations WHERE test_id = ? AND type = 'OOS' AND status != 'Closed' ORDER BY id DESC LIMIT 1`, id);
-  if (!inv) throw bad('There is no open OOS investigation on this test');
-  return closeInvestigation(ctx, inv.id, body);
-}
-
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -673,10 +664,13 @@ export default function routes(r) {
     const mine = test.analyst_id === me.id;
     const qualifiedMe = isQualified(me.id, test.method_code);
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
-    const investigations = all(`SELECT v.id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
+    const investigations = all(`SELECT v.id, v.test_id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
       FROM investigations v LEFT JOIN users cb ON cb.id = v.closed_by WHERE v.test_id = ? ORDER BY v.id DESC`, id);
-    // An OOS investigation can be closed on the Test page, so its closure signature is shown here too.
-    for (const v of investigations) v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
+    // Each Investigation can be closed from its card on the Test page, so its closure signature is shown here too.
+    for (const v of investigations) {
+      v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
+      v.can = { close: mayCloseInvestigation(me, v) };
+    }
     return {
       test,
       method,
@@ -703,7 +697,6 @@ export default function routes(r) {
         approve: can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id,
         cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !investigations.some((v) => v.status !== 'Closed'),
         raise: can(me, 'investigations.raise'),
-        closeInvestigation: can(me, 'investigations.close') && !mine && investigations.some((v) => v.type === 'OOS' && v.status !== 'Closed'),
       },
       qualifiedMe,
     };
@@ -716,7 +709,6 @@ export default function routes(r) {
   r.post('/api/tests/:id/review', (ctx) => reviewTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/approve', (ctx) => approveTest(ctx, +ctx.params.id, ctx.body));
   r.post('/api/tests/:id/cancel', (ctx) => cancelTest(ctx, +ctx.params.id, ctx.body.reason));
-  r.post('/api/tests/:id/investigation/close', (ctx) => closeTestInvestigation(ctx, +ctx.params.id, ctx.body));
 
   // ----- Review queue -----
   r.get('/api/reviews', (ctx) => {
