@@ -324,7 +324,6 @@ export default function routes(r) {
     const id = +ctx.params.id;
     const test = getTest(id);
     const me = ctx.user;
-    const mine = test.analyst_id === me.id;
     const qualifiedMe = isQualified(me.id, test.method_code);
     const method = get('SELECT id, code, version, title, technique, procedure, reference, scope, status FROM methods WHERE id = ?', test.method_id);
     const investigations = all(`SELECT v.id, v.test_id, v.code, v.type, v.title, v.status, v.description, v.raised_at, v.root_cause, v.conclusion, v.closed_at, cb.full_name AS closed_by_name
@@ -336,8 +335,6 @@ export default function routes(r) {
     }
     const performers = rolesWith('tests.perform');
     const allowed = (action) => !TEST_RULES[action](test, me);
-    const approver = can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id;
-    const open = investigations.some((v) => v.status !== 'Closed');
     return {
       test,
       method,
@@ -360,10 +357,10 @@ export default function routes(r) {
         start: allowed('start'),
         edit: allowed('record'),
         submit: allowed('submit'),
-        review: can(me, 'tests.review') && test.status === 'Submitted' && !mine,
-        accept: approver && !open,
-        return: approver,
-        cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !open,
+        review: allowed('review'),
+        accept: allowed('accept'),
+        return: allowed('return'),
+        cancel: allowed('cancel'),
         raise: can(me, 'investigations.raise'),
       },
       qualifiedMe,
