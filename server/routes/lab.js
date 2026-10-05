@@ -8,14 +8,14 @@ import { bad } from '../http.js';
 import { assertCan, can, rolesWith } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
-  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, TEST_OPEN, SAMPLE_OPEN,
+  SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN,
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
-  TEST_SELECT, TEST_QUEUES, TEST_RULES, OPEN_ON_SAMPLE, getTest, isQualified, instrumentProblem, materialProblem, openSampleInvestigation, refreshSampleStatus,
+  TEST_SELECT, TEST_QUEUES, TEST_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport,
 } from '../workflow.js';
-import { mayCloseInvestigation } from './quality.js';
+import { OPEN_ON_SAMPLE, mayCloseInvestigation, openSampleInvestigation } from './quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
 

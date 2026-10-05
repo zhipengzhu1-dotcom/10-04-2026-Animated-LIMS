@@ -2,9 +2,9 @@
 
 import { all, get } from '../db.js';
 import { can } from '../auth.js';
-import { SAMPLE_OPEN, TEST_OPEN } from '../lookups.js';
+import { SAMPLE_OPEN } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
-import { TEST_SELECT } from '../workflow.js';
+import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN } from '../workflow.js';
 
 const ph = (a) => a.map(() => '?').join(',');
 
@@ -37,7 +37,7 @@ export default function routes(r) {
     const kpis = get(`SELECT
       (SELECT COUNT(*) FROM samples WHERE status IN (${ph(SAMPLE_OPEN)})) AS samples_in_lab,
       (SELECT COUNT(*) FROM samples WHERE received_at >= ?) AS received_7d,
-      (SELECT COUNT(*) FROM tests WHERE status IN ('Pending','In Progress')) AS tests_open,
+      (SELECT COUNT(*) FROM tests WHERE status IN (${ph(TEST_EDITABLE)})) AS tests_open,
       (SELECT COUNT(*) FROM tests WHERE status IN (${ph(TEST_OPEN)}) AND due_date < ?) AS tests_overdue,
       (SELECT COUNT(*) FROM tests WHERE status = 'Submitted') AS awaiting_review,
       (SELECT COUNT(*) FROM tests WHERE status = 'Reviewed') AS awaiting_approval,
@@ -46,7 +46,7 @@ export default function routes(r) {
       (SELECT COUNT(*) FROM samples WHERE reported_at >= ?) AS reported_90d,
       (SELECT COUNT(*) FROM samples WHERE reported_at >= ? AND substr(reported_at, 1, 10) <= due_date) AS on_time_90d,
       (SELECT AVG(julianday(reported_at) - julianday(received_at)) FROM samples WHERE reported_at >= ?) AS avg_tat_90d`,
-    ...SAMPLE_OPEN, new Date(Date.parse(`${addDays(t, -7)}T00:00:00`)).toISOString(), ...TEST_OPEN, t, since90, since90, since90);
+    ...SAMPLE_OPEN, new Date(Date.parse(`${addDays(t, -7)}T00:00:00`)).toISOString(), ...TEST_EDITABLE, ...TEST_OPEN, t, since90, since90, since90);
 
     if (money) {
       const monthStart = `${t.slice(0, 7)}-01`;
@@ -83,17 +83,17 @@ export default function routes(r) {
 
     return {
       kpis,
-      myTests: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status IN ('Pending','In Progress') ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date LIMIT 12`, me.id),
+      myTests: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date LIMIT 12`, me.id, ...TEST_EDITABLE),
       myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN ('Returned by reviewer','Rejected at approval'))`, me.id).map((x) => x.id),
       myDrafts: all(`SELECT id, code, title, updated_at FROM notebook_entries WHERE author_id = ? AND status = 'Draft' ORDER BY updated_at DESC LIMIT 5`, me.id),
       alerts,
       pipeline: all(`SELECT status, COUNT(*) AS n FROM tests WHERE status IN (${ph(TEST_OPEN)}) GROUP BY status`, ...TEST_OPEN),
       workload: all(`SELECT u.id, u.full_name, u.initials,
-          SUM(CASE WHEN t.status IN ('Pending','In Progress') THEN 1 ELSE 0 END) AS open,
-          SUM(CASE WHEN t.status IN ('Pending','In Progress') AND t.due_date < ? THEN 1 ELSE 0 END) AS overdue
+          SUM(CASE WHEN t.status IN (${ph(TEST_EDITABLE)}) THEN 1 ELSE 0 END) AS open,
+          SUM(CASE WHEN t.status IN (${ph(TEST_EDITABLE)}) AND t.due_date < ? THEN 1 ELSE 0 END) AS overdue
         FROM users u LEFT JOIN tests t ON t.analyst_id = u.id
         WHERE u.active = 1 AND u.role IN ('analyst','scientist')
-        GROUP BY u.id ORDER BY open DESC, u.full_name`, t),
+        GROUP BY u.id ORDER BY open DESC, u.full_name`, ...TEST_EDITABLE, ...TEST_EDITABLE, t),
       dueSoon: all(`SELECT s.id, s.code, s.description, s.due_date, s.status, s.priority, c.code AS client_code,
           (SELECT COUNT(*) FROM tests x WHERE x.sample_id = s.id AND x.status != 'Cancelled') AS test_count,
           (SELECT COUNT(*) FROM tests x WHERE x.sample_id = s.id AND x.status = 'Approved') AS tests_approved

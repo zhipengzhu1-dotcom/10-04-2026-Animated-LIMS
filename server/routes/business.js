@@ -5,9 +5,9 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
-import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN, TEST_OPEN } from '../lookups.js';
+import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, today, addDays, round } from '../util.js';
-import { TEST_SELECT } from '../workflow.js';
+import { TEST_SELECT, TEST_OPEN } from '../workflow.js';
 
 const yearStart = () => `${today().slice(0, 4)}-01-01`;
 const NET = `(SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoice_lines l WHERE l.invoice_id = i.id)`;

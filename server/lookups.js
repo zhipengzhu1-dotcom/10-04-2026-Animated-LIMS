@@ -76,7 +76,6 @@ export const SAMPLE_OPEN = ['Received', 'In Testing', 'In Review', 'Approved'];
 export const CUSTODY_ACTIONS = ['Moved', 'Removed for testing', 'Returned to storage', 'Aliquoted', 'Returned to client', 'Disposed'];
 
 export const TEST_STATUSES = ['Pending', 'In Progress', 'Submitted', 'Reviewed', 'Approved', 'Cancelled'];
-export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 
 export const INVESTIGATION_TYPES = { OOS: 'OOS', OOT: 'OOT', Deviation: 'DEV', 'Lab Incident': 'INC', 'Client Complaint': 'CC' };
 export const INVESTIGATION_STATUSES = ['Open', 'Under Investigation', 'CAPA', 'Closed'];
