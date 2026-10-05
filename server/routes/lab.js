@@ -137,8 +137,11 @@ function getTest(id) {
   return mustGet(`${TEST_SELECT} WHERE t.id = ?`, id, 'Test');
 }
 
+// An investigation `v` open on Sample `s` or any of its Tests.
+const OPEN_ON_SAMPLE = `v.status != 'Closed' AND (v.sample_id = s.id OR v.test_id IN (SELECT id FROM tests WHERE sample_id = s.id))`;
+
 function openSampleInvestigation(sampleId) {
-  return get(`SELECT code FROM investigations WHERE status != 'Closed' AND (sample_id = ? OR test_id IN (SELECT id FROM tests WHERE sample_id = ?)) LIMIT 1`, sampleId, sampleId);
+  return get(`SELECT v.code FROM investigations v JOIN samples s ON s.id = ? WHERE ${OPEN_ON_SAMPLE} LIMIT 1`, sampleId);
 }
 
 function openInvestigation(testId) {
@@ -544,7 +547,7 @@ export default function routes(r) {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
         addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
         assign: can(ctx.user, 'tests.assign'),
-        issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved',
+        issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved' && !openSampleInvestigation(id),
         dispose: can(ctx.user, 'samples.dispose'),
         cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
@@ -727,7 +730,7 @@ export default function routes(r) {
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
     }
-    if (can(ctx.user, 'reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' ORDER BY s.due_date`);
+    if (can(ctx.user, 'reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }

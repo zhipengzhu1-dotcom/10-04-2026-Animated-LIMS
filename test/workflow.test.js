@@ -389,6 +389,40 @@ test('an OOS cannot be hidden by cancelling the test, and blocks the certificate
   assert.equal(report.status, 400);
 });
 
+test('the certificate is offered and queued only while no investigation is open on the Sample or its Tests', async () => {
+  const tom = await as('tom.fletcher');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  const offered = async () => (await daniel.ok('GET', `/api/samples/${sampleId}`)).can.issue;
+  const queued = async () => (await daniel.ok('GET', '/api/reviews')).toIssue.some((s) => s.id === sampleId);
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+
+  const onSample = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge at 9 °C overnight', sample_id: sampleId });
+  const onTest = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance', test_id: testId });
+  const close = (id) => daniel.ok('POST', `/api/investigations/${id}/close`, { root_cause: 'Door left ajar', conclusion: 'No product impact', password: PASSWORD });
+  for (const open of [onSample, onTest]) {
+    assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved', 'the Sample is otherwise ready');
+    assert.equal(await offered(), false, `issue is not offered while ${open.code} is open`);
+    assert.equal(await queued(), false, `the certificate queue omits the Sample while ${open.code} is open`);
+    const refused = await daniel.post(`/api/samples/${sampleId}/report`, { password: PASSWORD });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(`${open.code} is still open`));
+    await close(open.id);
+  }
+
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
 // Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
 async function oosTest(analystUsername) {
   const analyst = await as(analystUsername);
