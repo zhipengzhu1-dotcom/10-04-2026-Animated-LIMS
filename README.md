@@ -66,6 +66,7 @@ The sign-in page has one-click buttons for these accounts while demo mode is on.
 | Training records binder | **Training matrix**: only qualified people can be assigned a method |
 | Typed Certificate of Analysis | **CoA**: generated from approved data, e-signed by QA, printed or saved as PDF |
 | Invoicing spreadsheet | **Invoices**: approved work becomes invoice lines in two clicks; nothing is billed twice or forgotten |
+| Who's-on-what board | **Workload**: open, overdue and returned tests per analyst, and the projects each one leads or has tests on |
 | Whiteboard / weekly meeting | **Dashboard and Insights**: workload, due dates, alerts, turnaround, on-time %, OOS rate, revenue, unbilled work |
 
 **Finding things:** press **⌘K** (or Ctrl+K, or `/`) anywhere to search. A USB barcode scanner works too: scan a sample label into the search box and the sample opens.
