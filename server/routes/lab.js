@@ -10,7 +10,7 @@ import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad, forbidden } from '../http.js';
-import { assertCan, can, verifySignature, applySignature } from '../auth.js';
+import { assertCan, can, rolesWith, verifySignature, applySignature } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
   SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, TEST_OPEN, SAMPLE_OPEN,
@@ -233,7 +233,7 @@ export function assignTests(ctx, body) {
   const ids = idList(body.test_ids);
   if (!ids.length) throw bad('Select at least one test');
   const analyst = body.analyst_id ? get('SELECT * FROM users WHERE id = ?', +body.analyst_id) : null;
-  if (body.analyst_id && (!analyst || !analyst.active || !['analyst', 'scientist', 'manager'].includes(analyst.role))) throw bad('Choose an active analyst');
+  if (body.analyst_id && (!analyst || !analyst.active || !can(analyst, 'tests.perform'))) throw bad('Choose an active analyst');
   const due = body.due_date ? clean(body, { due_date: { type: 'date' } }).due_date : undefined;
   tx(() => {
     for (const id of ids) {
@@ -671,6 +671,10 @@ export default function routes(r) {
       v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
       v.can = { close: mayCloseInvestigation(me, v) };
     }
+    const performers = rolesWith('tests.perform');
+    const perform = can(me, 'tests.perform');
+    const approver = can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id;
+    const open = investigations.some((v) => v.status !== 'Closed');
     return {
       test,
       method,
@@ -685,17 +689,18 @@ export default function routes(r) {
            WHERE tm.inventory_id = i.id AND mm.code = ?) AS used_with_method
         FROM inventory i WHERE i.status = 'Active' OR i.id IN (SELECT inventory_id FROM test_materials WHERE test_id = ?)
         ORDER BY used_with_method DESC, i.category, i.name`, test.method_code, id).map((m) => ({ ...m, problem: materialProblem(m) })),
-      analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN ('analyst','scientist','manager') ORDER BY full_name`)
+      analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
       can: {
         assign: can(me, 'tests.assign') && ['Pending', 'In Progress'].includes(test.status),
-        claim: can(me, 'tests.perform') && !test.analyst_id && test.status === 'Pending' && qualifiedMe,
-        start: mine && test.status === 'Pending' && qualifiedMe,
-        edit: mine && ['Pending', 'In Progress'].includes(test.status) && qualifiedMe,
-        submit: mine && test.status === 'In Progress' && qualifiedMe,
+        claim: perform && !test.analyst_id && test.status === 'Pending' && qualifiedMe,
+        start: perform && mine && test.status === 'Pending' && qualifiedMe,
+        edit: perform && mine && ['Pending', 'In Progress'].includes(test.status) && qualifiedMe,
+        submit: perform && mine && test.status === 'In Progress' && qualifiedMe,
         review: can(me, 'tests.review') && test.status === 'Submitted' && !mine,
-        approve: can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id,
-        cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !investigations.some((v) => v.status !== 'Closed'),
+        accept: approver && !open,
+        return: approver,
+        cancel: can(me, 'tests.cancel') && !['Approved', 'Cancelled'].includes(test.status) && !open,
         raise: can(me, 'investigations.raise'),
       },
       qualifiedMe,
