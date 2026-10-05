@@ -1,13 +1,13 @@
 // Clients, projects and invoicing — the money side of the lab.
 
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
-import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN, TEST_OPEN } from '../lookups.js';
+import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, today, addDays, round } from '../util.js';
-import { TEST_SELECT } from './lab.js';
+import { TEST_SELECT, TEST_OPEN } from '../workflow.js';
 
 const yearStart = () => `${today().slice(0, 4)}-01-01`;
 const NET = `(SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoice_lines l WHERE l.invoice_id = i.id)`;
@@ -106,7 +106,7 @@ function addWorkLine(ctx, invoiceId, line, order) {
 
 function releaseTests(ctx, invoiceId, summary, testIds = null) {
   const tests = testIds
-    ? all(`SELECT id FROM tests WHERE invoice_id = ? AND id IN (${testIds.map(() => '?').join(',')})`, invoiceId, ...testIds)
+    ? all(`SELECT id FROM tests WHERE invoice_id = ? AND id IN (${ph(testIds)})`, invoiceId, ...testIds)
     : all('SELECT id FROM tests WHERE invoice_id = ?', invoiceId);
   for (const t of tests) update(ctx, 'tests', t.id, { invoice_id: null }, { summary });
   return tests.length;
@@ -176,7 +176,7 @@ export default function routes(r) {
     return all(`
       SELECT c.*,
         (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status IN ('Quoted','Active','On Hold')) AS open_projects,
-        (SELECT COUNT(*) FROM samples s WHERE s.client_id = c.id AND s.status IN (${SAMPLE_OPEN.map(() => '?').join(',')})) AS samples_in_lab,
+        (SELECT COUNT(*) FROM samples s WHERE s.client_id = c.id AND s.status IN (${ph(SAMPLE_OPEN)})) AS samples_in_lab,
         (SELECT MAX(received_at) FROM samples s WHERE s.client_id = c.id) AS last_sample_at
         ${showMoney ? `, (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id
             WHERE i.client_id = c.id AND i.status IN ('Sent','Paid') AND i.issued_date >= ?) AS revenue_ytd` : ''}
@@ -197,7 +197,7 @@ export default function routes(r) {
           (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.client_id = ? AND i.status IN ('Sent','Paid') AND i.issued_date >= ?) AS revenue_ytd,
           (SELECT COALESCE(SUM(l.quantity * l.unit_price * (1 + i.tax_rate / 100.0)), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id WHERE i.client_id = ? AND i.status = 'Sent') AS outstanding,
           (SELECT COALESCE(SUM(t.price), 0) FROM tests t JOIN samples s ON s.id = t.sample_id WHERE s.client_id = ? AND t.status = 'Approved' AND t.invoice_id IS NULL) AS unbilled,
-          (SELECT COALESCE(SUM(t.price), 0) FROM tests t JOIN samples s ON s.id = t.sample_id WHERE s.client_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')})) AS wip`,
+          (SELECT COALESCE(SUM(t.price), 0) FROM tests t JOIN samples s ON s.id = t.sample_id WHERE s.client_id = ? AND t.status IN (${ph(TEST_OPEN)})) AS wip`,
       id, yearStart(), id, id, id, ...TEST_OPEN) : null,
       can: { edit: can(ctx.user, 'clients.edit') },
     };

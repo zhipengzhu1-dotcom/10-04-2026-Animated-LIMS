@@ -46,6 +46,8 @@ export const PERMISSIONS = {
   'portal.manage': ['admin', 'manager', 'business'],
 };
 
+export const rolesWith = (perm) => PERMISSIONS[perm] || [];
+
 export const PROJECT_TYPES = ['Method Development', 'Method Validation', 'Method Transfer', 'Routine / Release Testing', 'Stability Study', 'Reference Standard Characterisation', 'Other'];
 export const PROJECT_STATUSES = ['Quoted', 'Active', 'On Hold', 'Completed', 'Cancelled'];
 
@@ -76,7 +78,6 @@ export const SAMPLE_OPEN = ['Received', 'In Testing', 'In Review', 'Approved'];
 export const CUSTODY_ACTIONS = ['Moved', 'Removed for testing', 'Returned to storage', 'Aliquoted', 'Returned to client', 'Disposed'];
 
 export const TEST_STATUSES = ['Pending', 'In Progress', 'Submitted', 'Reviewed', 'Approved', 'Cancelled'];
-export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
 
 export const INVESTIGATION_TYPES = { OOS: 'OOS', OOT: 'OOT', Deviation: 'DEV', 'Lab Incident': 'INC', 'Client Complaint': 'CC' };
 export const INVESTIGATION_STATUSES = ['Open', 'Under Investigation', 'CAPA', 'Closed'];
@@ -127,6 +128,7 @@ export const MONEY_FIELDS = ['budget', 'price', 'unit_price', 'lines', 'tax_rate
 export function lookups() {
   return {
     roles: ROLES,
+    testPerformerRoles: rolesWith('tests.perform'),
     projectTypes: PROJECT_TYPES,
     projectStatuses: PROJECT_STATUSES,
     techniques: TECHNIQUES,

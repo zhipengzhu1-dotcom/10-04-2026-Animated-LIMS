@@ -8,9 +8,8 @@ import { insert, update } from './repo.js';
 import { setSettings, resetSettingsCache } from './settings.js';
 import { hashPassword } from './auth.js';
 import { setClock, localDate, today, initialsOf } from './util.js';
-import {
-  receiveSamples, assignTests, startTest, saveResults, submitTest, reviewTest, approveTest, issueReport,
-} from './routes/lab.js';
+import { receiveSamples } from './routes/lab.js';
+import { assignTests, startTest, saveResults, submitTest, reviewTest, approveTest, issueReport } from './workflow.js';
 import { createMethod, setMethodStatus, newMethodVersion, createInstrument, logInstrument, createInventory } from './routes/resources.js';
 import { createClient, createProject, createInvoice, setInvoiceStatus } from './routes/business.js';
 import { createPortalAccount, submitSamples, submitRequest, acknowledgeSubmission, receiveSubmission, respondToRequest, createThread, postMessage } from './routes/portal.js';

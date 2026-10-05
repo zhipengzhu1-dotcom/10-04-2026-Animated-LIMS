@@ -15,6 +15,7 @@ import labRoutes from './server/routes/lab.js';
 import resourceRoutes from './server/routes/resources.js';
 import businessRoutes from './server/routes/business.js';
 import qualityRoutes from './server/routes/quality.js';
+import attachmentRoutes from './server/routes/attachments.js';
 import dashboardRoutes from './server/routes/dashboard.js';
 import documentRoutes, { handleDav } from './server/routes/documents.js';
 import portalRoutes from './server/routes/portal.js';
@@ -28,7 +29,7 @@ if (major < 22 || (major === 22 && minor < 13)) {
 openDb();
 
 const router = new Router();
-for (const register of [coreRoutes, labRoutes, resourceRoutes, businessRoutes, qualityRoutes, dashboardRoutes, documentRoutes, portalRoutes]) register(router);
+for (const register of [coreRoutes, labRoutes, resourceRoutes, businessRoutes, qualityRoutes, attachmentRoutes, dashboardRoutes, documentRoutes, portalRoutes]) register(router);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

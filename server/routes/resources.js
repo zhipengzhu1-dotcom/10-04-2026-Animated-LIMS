@@ -9,7 +9,7 @@ import {
   TECHNIQUES, INSTRUMENT_TYPES, INSTRUMENT_STATUSES, INSTRUMENT_LOG_KINDS, INVENTORY_CATEGORIES, INVENTORY_STATUSES,
 } from '../lookups.js';
 import { clean, nowIso, today, addDays, likeTerm } from '../util.js';
-import { TEST_SELECT } from './lab.js';
+import { TEST_SELECT } from '../workflow.js';
 
 // ---------------------------------------------------------------------------------------------
 // Methods

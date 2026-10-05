@@ -54,12 +54,12 @@ export async function worklist(ctx) {
   const defaultView = can('tests.perform') && !canAssign ? 'mine' : 'all';
   const view = ctx.query.view || defaultView;
   const params = { scope: 'open', method_id: ctx.query.method, analyst_id: ctx.query.analyst };
-  if (view === 'mine') params.mine = 1;
+  if (view === 'mine') params.work = 'assigned';
   if (view === 'unassigned') params.unassigned = 1;
   if (view === 'overdue') params.overdue = 1;
   if (view === 'review') { delete params.scope; params.status = 'Submitted,Reviewed'; }
   const [rows, methods] = await Promise.all([api.get('/api/tests', params), api.get('/api/methods')]);
-  const analysts = activeUsers(['analyst', 'scientist', 'manager']);
+  const analysts = activeUsers(state.lookups.testPerformerRoles);
 
   ctx.el.innerHTML = String(html`
     ${pageHead({
@@ -162,7 +162,8 @@ export async function detail(ctx) {
     ${d.can.start ? html`<button class="btn primary" data-act="start">${icon('play', { size: 15 })}Start test</button>` : ''}
     ${d.can.submit ? html`<button class="btn primary" data-act="submit">${icon('send', { size: 15 })}Submit for review</button>` : ''}
     ${d.can.review ? html`<button class="btn" data-act="review-return">${icon('undo', { size: 15 })}Return</button><button class="btn primary" data-act="review-ok">${icon('sign', { size: 15 })}Sign review</button>` : ''}
-    ${d.can.approve ? html`<button class="btn" data-act="approve-return">${icon('undo', { size: 15 })}Return</button><button class="btn primary" data-act="approve-ok" ${openInv.length ? raw('disabled title="Close the open investigation first"') : ''}>${icon('sign', { size: 15 })}Approve</button>` : ''}
+    ${d.can.return ? html`<button class="btn" data-act="approve-return">${icon('undo', { size: 15 })}Return</button>` : ''}
+    ${d.can.accept || d.can.return ? html`<button class="btn primary" data-act="approve-ok" ${d.can.accept ? '' : raw('disabled title="Close the open investigation first"')}>${icon('sign', { size: 15 })}Approve</button>` : ''}
     <div class="dropdown">
       <button class="btn" data-dd aria-label="More actions">${icon('more', { size: 16 })}</button>
       <div class="dropdown-menu" hidden>
@@ -192,10 +193,10 @@ export async function detail(ctx) {
     <div class="card stepper-card">${stepper(TEST_STEPS, t.status === 'Cancelled' ? null : t.status, { stopped: t.status === 'Cancelled' })}</div>
 
     ${returned ? html`<div class="notice warn mb">${icon('undo', { size: 16 })}<span><strong>Returned by ${returned.full_name}:</strong> “${returned.comment}” — correct and resubmit.</span></div>` : ''}
-    ${openInv.length ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
+    ${d.can.return && !d.can.accept ? html`<div class="notice bad mb">${icon('alert', { size: 16 })}<span>Investigation ${openInv.map((v) => html`<a href="/investigations/${v.id}"><strong>${v.code}</strong></a> `)}is open — this result cannot be approved until it is closed.</span></div>` : ''}
     ${t.analyst_id === state.me.id && !d.qualifiedMe && !['Approved', 'Cancelled'].includes(t.status) ? html`<div class="notice warn mb">${icon('training', { size: 16 })}<span>Your training on ${t.method_code} is not current. Ask your manager to update the training record before you record results.</span></div>` : ''}
     ${d.can.review ? html`<div class="notice info mb">${icon('review', { size: 16 })}<span><strong>Peer review:</strong> check the results against the raw data${t.raw_data_ref ? html` (${t.raw_data_ref})` : ''}, the calculations and the specification, then sign or return it to ${t.analyst_name}.</span></div>` : ''}
-    ${d.can.approve ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
+    ${d.can.return ? html`<div class="notice info mb">${icon('shield', { size: 16 })}<span><strong>QA approval:</strong> reviewed by ${t.reviewer_name}. Approve to release the result for the certificate.</span></div>` : ''}
 
     <div class="split">
       <div class="stack">
@@ -243,7 +244,7 @@ export async function detail(ctx) {
             <span class="muted small">${icon('shield', { size: 13 })} Every change is recorded. Changing a recorded result asks for a reason.</span>
             <span class="btn-group" style="margin-left:auto">
               <button type="submit" class="btn" data-save>${icon('check', { size: 15 })}Save</button>
-              ${t.status === 'In Progress' || t.status === 'Pending' ? html`<button type="button" class="btn primary" data-act="submit">${icon('send', { size: 15 })}Save & submit for review</button>` : ''}
+              <button type="button" class="btn primary" data-act="submit">${icon('send', { size: 15 })}Save & submit for review</button>
             </span>
           </div></div>` : ''}
         </form>
@@ -267,7 +268,7 @@ export async function detail(ctx) {
         ${card({ title: 'Signatures', body: signatureList(d.signatures) })}
         ${d.investigations.map((v) => card({
           title: html`<a href="/investigations/${v.id}" class="code">${v.code}</a> ${statusBadge(v.status)}`,
-          actions: d.can.closeInvestigation && v.type === 'OOS' && v.status !== 'Closed' ? html`<button class="btn sm primary" data-act="close-investigation">${icon('sign', { size: 14 })}Close</button>` : '',
+          actions: v.can.close ? html`<button class="btn sm primary" data-act="close-investigation" data-id="${v.id}">${icon('sign', { size: 14 })}Close</button>` : '',
           body: kv([
             ['Raised', fmtDateTime(v.raised_at)],
             ['Description', v.description ? html`<div style="white-space:pre-wrap">${v.description}</div>` : null],
@@ -395,21 +396,24 @@ export async function detail(ctx) {
     'approve-ok': () => signDecision('approve', true),
     'approve-return': () => signDecision('approve', false),
     assign: async () => { if (await assignDialog([t.id], [t])) ctx.refresh(); },
-    'close-investigation': () => esign({
-      title: `Close ${openInv.find((v) => v.type === 'OOS').code}`,
-      action: 'investigation.close.oos',
-      description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked and the result can go to approval.`,
-      fields: html`
-        ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true })}
-        ${field({ label: 'Conclusion', name: 'conclusion', type: 'textarea', rows: 3, required: true, span: 2, placeholder: 'e.g. Confirmed OOS — result valid' })}`,
-      confirmLabel: 'Sign & close',
-      onSign: async (sig) => {
-        await api.post(`/api/tests/${t.id}/investigation/close`, { root_cause: sig.root_cause, conclusion: sig.conclusion, password: sig.password });
-        toast('Investigation closed');
-        refreshNav();
-        ctx.refresh();
-      },
-    }),
+    'close-investigation': (a) => {
+      const v = d.investigations.find((x) => x.id === +a.dataset.id);
+      return esign({
+        title: `Close ${v.code}`,
+        action: v.type === 'OOS' ? 'investigation.close.oos' : 'investigation.close',
+        description: html`${t.code} · ${t.method_code} on ${t.sample_code}. Once closed the investigation is locked; the result can go to approval when no investigation on it is open.`,
+        fields: html`
+          ${field({ label: 'Root cause', name: 'root_cause', type: 'textarea', rows: 3, required: true, span: 2, autofocus: true, value: v.root_cause })}
+          ${field({ label: 'Conclusion', name: 'conclusion', type: 'textarea', rows: 3, required: true, span: 2, placeholder: 'e.g. Confirmed OOS — result valid', value: v.conclusion })}`,
+        confirmLabel: 'Sign & close',
+        onSign: async (sig) => {
+          await api.post(`/api/investigations/${v.id}/close`, { root_cause: sig.root_cause, conclusion: sig.conclusion, password: sig.password });
+          toast('Investigation closed');
+          refreshNav();
+          ctx.refresh();
+        },
+      });
+    },
     cancel: async () => {
       const reason = await promptReason('Why is this test being cancelled? It will no longer be billed or reported');
       if (!reason) return;

@@ -1,4 +1,4 @@
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, ph, tx } from '../db.js';
 import { insert, update } from '../repo.js';
 import { audit, verifyChain } from '../audit.js';
 import { HttpError, bad, forbidden, isLoopback, notFound } from '../http.js';
@@ -6,12 +6,12 @@ import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
-import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
+import { ROLES, lookups, RECORD_ACCESS, MONEY_FIELDS, rolesWith } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
-import { TEST_QUEUES } from './lab.js';
+import { TEST_QUEUES, TEST_OPEN } from '../workflow.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 
@@ -111,7 +111,7 @@ export default function routes(r) {
       return n;
     };
     return {
-      myTests: queued('assigned'),
+      myTests: can(ctx.user, 'tests.perform') ? queued('assigned') : 0,
       reviews: reviews(),
       investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n,
       portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
@@ -139,7 +139,7 @@ export default function routes(r) {
       openTests: all(`
         SELECT t.id, t.code, t.status, t.due_date, s.code AS sample_code, m.code AS method_code, m.title AS method_title
         FROM tests t JOIN samples s ON s.id = t.sample_id JOIN methods m ON m.id = t.method_id
-        WHERE t.analyst_id = ? AND t.status IN (${TEST_OPEN.map(() => '?').join(',')}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
+        WHERE t.analyst_id = ? AND t.status IN (${ph(TEST_OPEN)}) ORDER BY t.due_date`, user.id, ...TEST_OPEN),
       stats,
     };
   });
@@ -188,7 +188,8 @@ export default function routes(r) {
 
   // ---------- Training / method qualifications ----------
   r.get('/api/qualifications', () => ({
-    users: all(`SELECT id, full_name, initials, role, title FROM users WHERE active = 1 AND role IN ('analyst','scientist','manager') ORDER BY role DESC, full_name`),
+    users: all(`SELECT id, full_name, initials, role, title FROM users
+      WHERE active = 1 AND role IN (${ph(rolesWith('tests.perform'))}) ORDER BY role DESC, full_name`, ...rolesWith('tests.perform')),
     methods: all(`
       SELECT m.code, m.title, m.technique, m.status FROM methods m
       WHERE m.version = (SELECT MAX(version) FROM methods x WHERE x.code = m.code) AND m.status != 'Retired'
