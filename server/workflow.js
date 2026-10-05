@@ -84,6 +84,55 @@ export function getTest(id) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Test rules: one per action, given the Test and the person. Nothing means allowed; otherwise the refusal to throw,
+// `forbidden` (not allowed for you, 403) or `bad` (not possible now, 400). The action throws it and the Test page
+// offers the action when there is none. Readiness checks the person can fix stay in the action.
+// ---------------------------------------------------------------------------------------------
+
+export const TEST_RULES = {
+  assign(t, me) {
+    if (!can(me, 'tests.assign')) return forbidden();
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`${t.code} is ${t.status.toLowerCase()} and can't be reassigned`);
+  },
+  claim(t, me) {
+    if (!can(me, 'tests.perform')) return forbidden();
+    if (t.analyst_id) return bad(`${t.code} is already assigned to ${t.analyst_name}`);
+    if (t.status !== 'Pending') return bad('Only pending tests can be picked up');
+    if (!isQualified(me.id, t.method_code)) return forbidden(`You are not qualified on ${t.method_code}`);
+  },
+  start(t, me) {
+    if (!can(me, 'tests.perform')) return forbidden();
+    if (t.status !== 'Pending') return bad('This test has already been started');
+    if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can start this test');
+    if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current`);
+  },
+  record(t, me) {
+    if (!can(me, 'tests.perform')) return forbidden();
+    if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can record results for this test');
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
+    if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current`);
+  },
+  submit(t, me) {
+    if (!can(me, 'tests.perform')) return forbidden();
+    if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can submit this test');
+    if (t.status !== 'In Progress') return bad('Only tests in progress can be submitted');
+    if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current — you can't sign this test`);
+  },
+};
+
+function guard(refusal) {
+  if (refusal) throw refusal;
+}
+
+/** The one way a Test's status changes: audited as a status change, with its Sample's status re-derived in the same transaction. */
+function changeStatus(ctx, t, patch, meta) {
+  tx(() => {
+    update(ctx, 'tests', t.id, patch, { ...meta, action: 'STATUS' });
+    refreshSampleStatus(ctx, t.sample_id);
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
 // Sample actions
 // ---------------------------------------------------------------------------------------------
 
@@ -106,23 +155,22 @@ export function issueReport(ctx, sampleId, body) {
 // ---------------------------------------------------------------------------------------------
 
 export function assignTests(ctx, body) {
-  assertCan(ctx, 'tests.assign');
   const ids = idList(body.test_ids);
   if (!ids.length) throw bad('Select at least one test');
+  const tests = ids.map(getTest);
+  for (const t of tests) guard(TEST_RULES.assign(t, ctx.user));
   const analyst = body.analyst_id ? get('SELECT * FROM users WHERE id = ?', +body.analyst_id) : null;
   if (body.analyst_id && (!analyst || !analyst.active || !can(analyst, 'tests.perform'))) throw bad('Choose an active analyst');
   const due = body.due_date ? clean(body, { due_date: { type: 'date' } }).due_date : undefined;
   tx(() => {
-    for (const id of ids) {
-      const t = getTest(id);
-      if (!['Pending', 'In Progress'].includes(t.status)) throw bad(`${t.code} is ${t.status.toLowerCase()} and can't be reassigned`);
-      if (t.analyst_id && t.analyst_id !== analyst?.id && get('SELECT 1 FROM results WHERE test_id = ? AND entered_at IS NOT NULL', id)) {
+    for (const t of tests) {
+      if (t.analyst_id && t.analyst_id !== analyst?.id && get('SELECT 1 FROM results WHERE test_id = ? AND entered_at IS NOT NULL', t.id)) {
         throw bad(`${t.code} already has results entered by ${t.analyst_name} — it can't be ${analyst ? 'reassigned' : 'unassigned'}`);
       }
       if (analyst && !isQualified(analyst.id, t.method_code)) {
         throw bad(`${analyst.full_name} is not qualified on ${t.method_code}. Record their training under Team → Training first.`);
       }
-      update(ctx, 'tests', id, { analyst_id: analyst?.id ?? null, due_date: due }, {
+      update(ctx, 'tests', t.id, { analyst_id: analyst?.id ?? null, due_date: due }, {
         summary: analyst ? `Assigned to ${analyst.full_name}` : 'Unassigned',
       });
     }
@@ -131,34 +179,22 @@ export function assignTests(ctx, body) {
 }
 
 export function claimTest(ctx, id) {
-  assertCan(ctx, 'tests.perform');
   const t = getTest(id);
-  if (t.analyst_id) throw bad(`${t.code} is already assigned to ${t.analyst_name}`);
-  if (t.status !== 'Pending') throw bad('Only pending tests can be picked up');
-  if (!isQualified(ctx.user.id, t.method_code)) throw forbidden(`You are not qualified on ${t.method_code}`);
+  guard(TEST_RULES.claim(t, ctx.user));
   update(ctx, 'tests', id, { analyst_id: ctx.user.id }, { summary: `Picked up by ${ctx.user.full_name}` });
   return { ok: true };
 }
 
 export function startTest(ctx, id) {
-  assertCan(ctx, 'tests.perform');
   const t = getTest(id);
-  if (t.status !== 'Pending') throw bad('This test has already been started');
-  if (t.analyst_id !== ctx.user.id) throw forbidden('Only the assigned analyst can start this test');
-  if (!isQualified(ctx.user.id, t.method_code)) throw forbidden(`Your qualification on ${t.method_code} is not current`);
-  tx(() => {
-    update(ctx, 'tests', id, { status: 'In Progress', started_at: nowIso() }, { action: 'STATUS', summary: 'Testing started' });
-    refreshSampleStatus(ctx, t.sample_id);
-  });
+  guard(TEST_RULES.start(t, ctx.user));
+  changeStatus(ctx, t, { status: 'In Progress', started_at: nowIso() }, { summary: 'Testing started' });
   return { ok: true };
 }
 
 export function saveResults(ctx, id, body) {
-  assertCan(ctx, 'tests.perform');
   const t = getTest(id);
-  if (t.analyst_id !== ctx.user.id) throw forbidden('Only the assigned analyst can record results for this test');
-  if (!['Pending', 'In Progress'].includes(t.status)) throw bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
-  if (!isQualified(ctx.user.id, t.method_code)) throw forbidden(`Your qualification on ${t.method_code} is not current`);
+  guard(TEST_RULES.record(t, ctx.user));
 
   const fields = clean(body, {
     instrument_id: { type: 'id' },
@@ -230,14 +266,13 @@ export function saveResults(ctx, id, body) {
       run('DELETE FROM test_materials WHERE test_id = ?', id);
       for (const mid of newMaterials) run('INSERT INTO test_materials (test_id, inventory_id) VALUES (?, ?)', id, mid);
     }
-    const patch = { ...fields };
-    if (t.status === 'Pending') Object.assign(patch, { status: 'In Progress', started_at: nowIso() });
-    update(ctx, 'tests', id, patch, {
+    const meta = {
       summary: updates.length ? 'Results recorded' : 'Test details updated',
       reason: modifiesRecorded ? reason : null,
       extraChanges: extra,
-    });
-    if (t.status === 'Pending') refreshSampleStatus(ctx, t.sample_id);
+    };
+    if (t.status === 'Pending') changeStatus(ctx, t, { ...fields, status: 'In Progress', started_at: nowIso() }, meta);
+    else update(ctx, 'tests', id, fields, meta);
   });
   return { ok: true };
 }
@@ -254,11 +289,8 @@ function raiseOos(ctx, t, fails) {
 }
 
 export function submitTest(ctx, id, body) {
-  assertCan(ctx, 'tests.perform');
   const t = getTest(id);
-  if (t.analyst_id !== ctx.user.id) throw forbidden('Only the assigned analyst can submit this test');
-  if (t.status !== 'In Progress') throw bad('Only tests in progress can be submitted');
-  if (!isQualified(ctx.user.id, t.method_code)) throw forbidden(`Your qualification on ${t.method_code} is not current — you can't sign this test`);
+  guard(TEST_RULES.submit(t, ctx.user));
   const results = all('SELECT * FROM results WHERE test_id = ? ORDER BY sort_order, id', id);
   const pending = results.filter((r) => r.outcome === 'Pending');
   if (pending.length) throw bad(`Complete every result before submitting: ${pending.map((r) => r.analyte).join(', ')}`);
@@ -275,9 +307,8 @@ export function submitTest(ctx, id, body) {
   const fails = results.filter((r) => r.outcome === 'Fail');
   return tx(() => {
     applySignature(ctx, 'tests', id, 'test.submit', { comment: body.comment || null, code: t.code });
-    update(ctx, 'tests', id, { status: 'Submitted', submitted_at: nowIso(), oos: fails.length ? 1 : 0 }, { action: 'STATUS', summary: 'Submitted for review' });
+    changeStatus(ctx, t, { status: 'Submitted', submitted_at: nowIso(), oos: fails.length ? 1 : 0 }, { summary: 'Submitted for review' });
     const investigation = fails.length && !openTestInvestigation(id) ? raiseOos(ctx, t, fails) : null;
-    refreshSampleStatus(ctx, t.sample_id);
     return { ok: true, investigation };
   });
 }

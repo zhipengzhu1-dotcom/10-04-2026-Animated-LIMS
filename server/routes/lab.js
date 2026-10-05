@@ -12,7 +12,7 @@ import {
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
-  TEST_SELECT, TEST_QUEUES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
+  TEST_SELECT, TEST_QUEUES, TEST_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport,
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, mayCloseInvestigation, openSampleInvestigation, openTestInvestigation } from './quality.js';
@@ -335,7 +335,7 @@ export default function routes(r) {
       v.can = { close: mayCloseInvestigation(me, v) };
     }
     const performers = rolesWith('tests.perform');
-    const perform = can(me, 'tests.perform');
+    const allowed = (action) => !TEST_RULES[action](test, me);
     const approver = can(me, 'tests.approve') && test.status === 'Reviewed' && !mine && test.reviewed_by !== me.id;
     const open = !!openTestInvestigation(id);
     return {
@@ -355,11 +355,11 @@ export default function routes(r) {
       analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
       can: {
-        assign: can(me, 'tests.assign') && ['Pending', 'In Progress'].includes(test.status),
-        claim: perform && !test.analyst_id && test.status === 'Pending' && qualifiedMe,
-        start: perform && mine && test.status === 'Pending' && qualifiedMe,
-        edit: perform && mine && ['Pending', 'In Progress'].includes(test.status) && qualifiedMe,
-        submit: perform && mine && test.status === 'In Progress' && qualifiedMe,
+        assign: allowed('assign'),
+        claim: allowed('claim'),
+        start: allowed('start'),
+        edit: allowed('record'),
+        submit: allowed('submit'),
         review: can(me, 'tests.review') && test.status === 'Submitted' && !mine,
         accept: approver && !open,
         return: approver,
