@@ -7,12 +7,19 @@
 // within expiry, a reason for every change to a recorded result, and automatic OOS investigations.
 
 import { all, get, run, tx } from './db.js';
-import { insert, update, nextCode, mustGet } from './repo.js';
+import { update, mustGet } from './repo.js';
 import { bad, forbidden } from './http.js';
 import { assertCan, can, verifySignature, applySignature } from './auth.js';
-import { clean, nowIso, today, addBusinessDays, idList, round, sameValue, fixed, specText } from './util.js';
+import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
+import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
 
 const ph = (arr) => arr.map(() => '?').join(',');
+
+// Groups of Test statuses other areas need: results and attachments can still change; work not yet approved or
+// cancelled; and submitted for review or beyond, which makes the Sample "In Review" once every Test is there.
+export const TEST_EDITABLE = ['Pending', 'In Progress'];
+export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
+export const TEST_SUBMITTED = ['Submitted', 'Reviewed', 'Approved'];
 
 export const TEST_SELECT = `
   SELECT t.*, s.code AS sample_code, s.description AS sample_description, s.batch_no, s.priority, s.client_id, s.project_id,
@@ -67,24 +74,13 @@ export function refreshSampleStatus(ctx, sampleId) {
   const tests = all(`SELECT status FROM tests WHERE sample_id = ? AND status != 'Cancelled'`, sampleId);
   let status = 'Received';
   if (tests.length && tests.every((t) => t.status === 'Approved')) status = 'Approved';
-  else if (tests.length && tests.every((t) => ['Submitted', 'Reviewed', 'Approved'].includes(t.status))) status = 'In Review';
+  else if (tests.length && tests.every((t) => TEST_SUBMITTED.includes(t.status))) status = 'In Review';
   else if (tests.some((t) => t.status !== 'Pending')) status = 'In Testing';
   if (status !== s.status) update(ctx, 'samples', sampleId, { status }, { action: 'STATUS', summary: `Sample status → ${status}` });
 }
 
 export function getTest(id) {
   return mustGet(`${TEST_SELECT} WHERE t.id = ?`, id, 'Test');
-}
-
-// An investigation `v` open on Sample `s` or any of its Tests.
-export const OPEN_ON_SAMPLE = `v.status != 'Closed' AND (v.sample_id = s.id OR v.test_id IN (SELECT id FROM tests WHERE sample_id = s.id))`;
-
-export function openSampleInvestigation(sampleId) {
-  return get(`SELECT v.code FROM investigations v JOIN samples s ON s.id = ? WHERE ${OPEN_ON_SAMPLE} LIMIT 1`, sampleId);
-}
-
-function openInvestigation(testId) {
-  return get(`SELECT id, code, status FROM investigations WHERE test_id = ? AND status != 'Closed' ORDER BY id DESC LIMIT 1`, testId);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -96,7 +92,7 @@ function openInvestigation(testId) {
 export const TEST_RULES = {
   assign(t, me) {
     if (!can(me, 'tests.assign')) return forbidden();
-    if (!['Pending', 'In Progress'].includes(t.status)) return bad(`${t.code} is ${t.status.toLowerCase()} and can't be reassigned`);
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`${t.code} is ${t.status.toLowerCase()} and can't be reassigned`);
   },
   claim(t, me) {
     if (!can(me, 'tests.perform')) return forbidden();
@@ -113,7 +109,7 @@ export const TEST_RULES = {
   record(t, me) {
     if (!can(me, 'tests.perform')) return forbidden();
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can record results for this test');
-    if (!['Pending', 'In Progress'].includes(t.status)) return bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
     if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current`);
   },
   submit(t, me) {
@@ -282,18 +278,14 @@ export function saveResults(ctx, id, body) {
 }
 
 function raiseOos(ctx, t, fails) {
-  const s = get('SELECT * FROM samples WHERE id = ?', t.sample_id);
   const owner = get(`SELECT id FROM users WHERE role = 'manager' AND active = 1 ORDER BY id LIMIT 1`);
   const lines = fails.map((r) => `- **${r.analyte}**: ${r.result_type === 'numeric' ? `${fixed(r.value_num, r.decimals)} ${r.unit || ''}` : r.value_text} (specification ${specText(r)})`).join('\n');
-  const code = nextCode('OOS', { pad: 3 });
-  const id = insert(ctx, 'investigations', {
-    code, type: 'OOS', severity: 'Major', status: 'Open',
-    title: `OOS — ${fails.map((f) => f.analyte).join(', ')} — ${s.code}`,
-    test_id: t.id, sample_id: s.id, project_id: s.project_id, instrument_id: t.instrument_id,
-    owner_id: owner?.id ?? null, raised_by: ctx.user.id, raised_at: nowIso(), due_date: addBusinessDays(today(), 20),
-    description: `Out-of-specification result(s) for ${t.method_code} v${t.method_version} (${t.method_title}) on sample ${s.code}${s.batch_no ? `, batch ${s.batch_no}` : ''}:\n\n${lines}\n\nPhase I laboratory investigation is required before this test can be approved.`,
-  }, { summary: 'OOS investigation opened automatically when the result was submitted' });
-  return { id, code };
+  return raiseInvestigation(ctx, {
+    type: 'OOS', severity: 'Major',
+    title: `OOS — ${fails.map((f) => f.analyte).join(', ')} — ${t.sample_code}`.slice(0, 500),
+    test_id: t.id, instrument_id: t.instrument_id, owner_id: owner?.id ?? null,
+    description: `Out-of-specification result(s) for ${t.method_code} v${t.method_version} (${t.method_title}) on sample ${t.sample_code}${t.batch_no ? `, batch ${t.batch_no}` : ''}:\n\n${lines}\n\nPhase I laboratory investigation is required before this test can be approved.`,
+  }, 'OOS investigation opened automatically when the result was submitted');
 }
 
 export function submitTest(ctx, id, body) {
@@ -316,7 +308,7 @@ export function submitTest(ctx, id, body) {
   return tx(() => {
     applySignature(ctx, 'tests', id, 'test.submit', { comment: body.comment || null, code: t.code });
     changeStatus(ctx, t, { status: 'Submitted', submitted_at: nowIso(), oos: fails.length ? 1 : 0 }, { summary: 'Submitted for review' });
-    const investigation = fails.length && !openInvestigation(id) ? raiseOos(ctx, t, fails) : null;
+    const investigation = fails.length && !openTestInvestigation(id) ? raiseOos(ctx, t, fails) : null;
     return { ok: true, investigation };
   });
 }
@@ -349,7 +341,7 @@ export function approveTest(ctx, id, body) {
   const comment = String(body.comment || '').trim() || null;
   if (!accept && !comment) throw bad('Explain why the test is being returned', 'REASON_REQUIRED');
   if (accept) {
-    const inv = openInvestigation(id);
+    const inv = openTestInvestigation(id);
     if (inv) throw bad(`${inv.code} is still open — close the investigation before approving this result`);
   }
   verifySignature(ctx, body.password);
@@ -367,7 +359,7 @@ export function cancelTest(ctx, id, reason) {
   const t = getTest(id);
   if (['Approved', 'Cancelled'].includes(t.status)) throw bad(`An ${t.status.toLowerCase()} test can't be cancelled`);
   // An out-of-specification result can never be made to disappear by cancelling and retesting.
-  const inv = openInvestigation(id);
+  const inv = openTestInvestigation(id);
   if (inv) throw bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
   if (!String(reason || '').trim()) throw bad('A reason is required to cancel a test', 'REASON_REQUIRED');
   tx(() => {
@@ -380,7 +372,7 @@ export function cancelTest(ctx, id, reason) {
 // Tests waiting on a user: assigned to them, awaiting their peer review, awaiting their QA approval.
 // Each gives [SQL condition on tests aliased `t`, ...params]; the badges, the Reviews queue and the Samples work filters share them.
 export const TEST_QUEUES = {
-  assigned: (me) => [`t.analyst_id = ? AND t.status IN ('Pending', 'In Progress')`, me],
+  assigned: (me) => [`t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)})`, me, ...TEST_EDITABLE],
   review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
   approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
 };

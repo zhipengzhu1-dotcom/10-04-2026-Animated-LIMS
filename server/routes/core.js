@@ -6,12 +6,12 @@ import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, rolesWith, verifyPassword,
 } from '../auth.js';
 import { getSettings, setSettings, DEFAULTS } from '../settings.js';
-import { ROLES, lookups, TEST_OPEN, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
+import { ROLES, lookups, RECORD_ACCESS, MONEY_FIELDS } from '../lookups.js';
 import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from '../util.js';
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
-import { TEST_QUEUES } from '../workflow.js';
+import { TEST_QUEUES, TEST_OPEN } from '../workflow.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 

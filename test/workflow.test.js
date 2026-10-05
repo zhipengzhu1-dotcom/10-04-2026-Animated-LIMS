@@ -536,6 +536,69 @@ async function oosTest(analystUsername) {
   return { sampleId, testId, investigation };
 }
 
+test('the OOS investigation raised on submit takes the same defaults as one raised by hand', async () => {
+  const tom = await as('tom.fletcher');
+  const priya = await as('priya.raman');
+  const project = (await priya.ok('GET', '/api/projects?status=all')).find((p) => p.client_id);
+  const kf = (await priya.ok('GET', '/api/methods?usable=1')).find((x) => x.code === 'ATM-0002' && x.status === 'Effective');
+  const received = await priya.ok('POST', '/api/samples/receive', { client_id: project.client_id, project_id: project.id, samples: [{ description: 'OOS defaults' }], method_ids: [kf.id] });
+  const sampleId = received.samples[0].id;
+  const testId = (await priya.ok('GET', `/api/samples/${sampleId}`)).tests[0].id;
+  const users = await priya.ok('GET', '/api/users');
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [testId], analyst_id: users.find((u) => u.username === 'tom.fletcher').id });
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  const kf01 = d.instruments.find((i) => i.code === 'KF-01').id;
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: kf01, results: [{ id: d.results[0].id, value: '0.9' }] });
+  const { investigation } = await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  const auto = (await priya.ok('GET', `/api/investigations/${investigation.id}`)).investigation;
+  const byHand = await tom.ok('POST', '/api/investigations', { type: 'Deviation', severity: 'Major', title: 'By hand', description: 'Compare defaults', test_id: testId });
+  const manual = (await priya.ok('GET', `/api/investigations/${byHand.id}`)).investigation;
+  assert.match(auto.code, /^OOS-/);
+  assert.equal(auto.type, 'OOS');
+  assert.equal(auto.severity, 'Major');
+  assert.equal(auto.status, 'Open');
+  assert.equal(auto.due_date, manual.due_date, 'due date as for any Major investigation');
+  assert.equal(auto.test_id, testId);
+  assert.equal(auto.sample_id, sampleId);
+  assert.equal(auto.project_id, project.id);
+  assert.equal(manual.sample_id, sampleId);
+  assert.equal(manual.project_id, project.id);
+  assert.equal(auto.instrument_id, kf01);
+  assert.equal(auto.owner_id, users.find((u) => u.role === 'manager' && u.active).id, 'owned by the first active manager');
+  assert.equal(auto.raised_by, users.find((u) => u.username === 'tom.fletcher').id);
+  assert.match(auto.title, /^OOS — Water content — S-/);
+});
+
+test('files attach to a Test until it is submitted, and not from then on', async () => {
+  const tom = await as('tom.fletcher');
+  const attach = (testId) => fetch(`${BASE}/api/attachments?entity=tests&id=${testId}`, {
+    method: 'POST', headers: { 'X-Requested-With': 'aliquot', Cookie: tom.cookie, 'Content-Type': 'text/plain', 'X-Filename': 'trace.txt' }, body: 'trace',
+  });
+  const { testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  assert.equal((await attach(testId)).status, 200, 'pending');
+  await tom.ok('POST', `/api/tests/${testId}/start`);
+  assert.equal((await attach(testId)).status, 200, 'in progress');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  const [mine] = await tom.ok('GET', `/api/attachments?entity=tests&id=${testId}`);
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  const refused = async (status) => {
+    const res = await attach(testId);
+    assert.equal(res.status, 400, status);
+    assert.match((await res.json()).error, new RegExp(`test is ${status} — attachments are locked`));
+    const remove = await tom.post(`/api/attachments/${mine.id}/remove`, { reason: 'wrong file' });
+    assert.equal(remove.status, 400, `removal while ${status}`);
+  };
+  await refused('submitted');
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await refused('reviewed');
+  await (await as('daniel.okafor')).ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  await refused('approved');
+  const cancelled = await freshTest('ATM-0002', 'tom.fletcher');
+  await (await as('priya.raman')).ok('POST', `/api/tests/${cancelled.testId}/cancel`, { reason: 'Not needed' });
+  assert.equal((await attach(cancelled.testId)).status, 400, 'cancelled');
+});
+
 test('an OOS investigation is closed from the Test page with an e-signature', async () => {
   const daniel = await as('daniel.okafor');
   const { sampleId, testId, investigation } = await oosTest('priya.raman');
