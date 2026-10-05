@@ -330,11 +330,9 @@ export function saveResults(ctx, id, body) {
   if (modifiesRecorded && !reason) throw bad('You are changing a result that was already recorded — give a reason for the change', 'REASON_REQUIRED');
 
   tx(() => {
+    // Result lines and materials are audited as part of the Test's own entry (`extraChanges`), with the reason.
     for (const u of updates) {
-      run(
-        'UPDATE results SET value_num = ?, value_text = ?, outcome = ?, entered_by = ?, entered_at = ? WHERE id = ?',
-        u.valueNum, u.valueText, u.outcome, ctx.user.id, nowIso(), u.row.id,
-      );
+      update(ctx, 'results', u.row.id, { value_num: u.valueNum, value_text: u.valueText, outcome: u.outcome, entered_by: ctx.user.id, entered_at: nowIso() }, { audit: false });
     }
     if (newMaterials) {
       run('DELETE FROM test_materials WHERE test_id = ?', id);
