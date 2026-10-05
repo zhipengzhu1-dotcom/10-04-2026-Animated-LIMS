@@ -140,6 +140,13 @@ const WORK_FILTERS = {
   approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
 };
 
+function workFilter(ctx, name) {
+  const rule = Object.hasOwn(WORK_FILTERS, name) && WORK_FILTERS[name];
+  if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
+  assertCan(ctx, rule.perm);
+  return rule.match(ctx.user.id);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------------------------
@@ -157,10 +164,7 @@ export default function routes(r) {
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
     if (q.work) {
-      const rule = Object.hasOwn(WORK_FILTERS, q.work) && WORK_FILTERS[q.work];
-      if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
-      assertCan(ctx, rule.perm);
-      const [sql, ...args] = rule.match(ctx.user.id);
+      const [sql, ...args] = workFilter(ctx, q.work);
       where.push(`EXISTS (SELECT 1 FROM tests t WHERE t.sample_id = s.id AND ${sql})`);
       params.push(...args);
     }
@@ -284,7 +288,7 @@ export default function routes(r) {
     const params = [];
     if (q.scope === 'open') { where.push(`t.status IN (${ph(TEST_OPEN)})`); params.push(...TEST_OPEN); }
     if (q.status) { const list = String(q.status).split(','); where.push(`t.status IN (${ph(list)})`); params.push(...list); }
-    if (q.mine) { where.push('t.analyst_id = ?'); params.push(ctx.user.id); }
+    if (q.work) { const [sql, ...args] = workFilter(ctx, q.work); where.push(sql); params.push(...args); }
     if (q.analyst_id) { where.push('t.analyst_id = ?'); params.push(+q.analyst_id); }
     if (q.unassigned) where.push('t.analyst_id IS NULL');
     if (q.method_id) { where.push('t.method_id = ?'); params.push(+q.method_id); }

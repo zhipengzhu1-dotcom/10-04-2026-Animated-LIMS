@@ -54,7 +54,7 @@ export async function worklist(ctx) {
   const defaultView = can('tests.perform') && !canAssign ? 'mine' : 'all';
   const view = ctx.query.view || defaultView;
   const params = { scope: 'open', method_id: ctx.query.method, analyst_id: ctx.query.analyst };
-  if (view === 'mine') params.mine = 1;
+  if (view === 'mine') params.work = 'assigned';
   if (view === 'unassigned') params.unassigned = 1;
   if (view === 'overdue') params.overdue = 1;
   if (view === 'review') { delete params.scope; params.status = 'Submitted,Reviewed'; }

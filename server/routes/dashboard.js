@@ -4,7 +4,7 @@ import { all, get } from '../db.js';
 import { can } from '../auth.js';
 import { SAMPLE_OPEN } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
-import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN } from '../workflow.js';
+import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES } from '../workflow.js';
 
 const ph = (a) => a.map(() => '?').join(',');
 
@@ -26,6 +26,11 @@ function lastMonthStart(date) {
 }
 
 const fillMonths = (months, rows, key = 'v') => months.map((m) => ({ month: m, value: rows.find((r) => r.month === m)?.[key] ?? 0 }));
+
+function myTests(me) {
+  const [sql, ...params] = TEST_QUEUES.assigned(me);
+  return all(`${TEST_SELECT} WHERE ${sql} ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date, t.id LIMIT 12`, ...params);
+}
 
 export default function routes(r) {
   r.get('/api/dashboard', (ctx) => {
@@ -83,7 +88,7 @@ export default function routes(r) {
 
     return {
       kpis,
-      myTests: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date LIMIT 12`, me.id, ...TEST_EDITABLE),
+      myTests: can(me, 'tests.perform') ? myTests(me.id) : [],
       myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND t.status = 'In Progress' AND EXISTS (SELECT 1 FROM signatures g WHERE g.entity = 'tests' AND g.entity_id = t.id AND g.meaning IN ('Returned by reviewer','Rejected at approval'))`, me.id).map((x) => x.id),
       myDrafts: all(`SELECT id, code, title, updated_at FROM notebook_entries WHERE author_id = ? AND status = 'Draft' ORDER BY updated_at DESC LIMIT 5`, me.id),
       alerts,
