@@ -389,6 +389,83 @@ test('an OOS cannot be hidden by cancelling the test, and blocks the certificate
   assert.equal(report.status, 400);
 });
 
+// Receives one Sample with two Tests, one of them started, so cancelling has more than one open Test to touch.
+async function twoTestSample() {
+  const priya = await as('priya.raman');
+  const clients = await priya.ok('GET', '/api/clients');
+  const methods = await priya.ok('GET', '/api/methods?usable=1');
+  const ids = ['ATM-0001', 'ATM-0002'].map((code) => methods.find((x) => x.code === code && x.status === 'Effective').id);
+  const res = await priya.ok('POST', '/api/samples/receive', { client_id: clients[0].id, samples: [{ description: 'Cancel under investigation' }], method_ids: ids });
+  const sampleId = res.samples[0].id;
+  const [first] = (await priya.ok('GET', `/api/samples/${sampleId}`)).tests;
+  await priya.ok('POST', `/api/tests/${first.id}/claim`);
+  await priya.ok('POST', `/api/tests/${first.id}/start`);
+  return { sampleId, testIds: (await priya.ok('GET', `/api/samples/${sampleId}`)).tests.map((t) => t.id) };
+}
+
+for (const on of ['Test', 'Sample']) {
+  test(`a Sample is not cancelled while an Investigation is open on its ${on}, and is once it closes`, async () => {
+    const priya = await as('priya.raman');
+    const daniel = await as('daniel.okafor');
+    const { sampleId, testIds } = await twoTestSample();
+    const before = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(before.can.cancel, true);
+
+    const target = on === 'Test' ? { test_id: testIds[1] } : { sample_id: sampleId };
+    const inv = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Pipette out of calibration', description: 'Found during daily check', ...target });
+
+    const refused = await priya.post(`/api/samples/${sampleId}/cancel`, { reason: 'Client withdrew the order' });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(inv.code));
+    const after = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(after.sample.status, before.sample.status, 'the Sample is unchanged');
+    assert.deepEqual(after.tests.map((t) => t.status), before.tests.map((t) => t.status), 'every Test is unchanged');
+    assert.deepEqual(after.tests.map((t) => t.status), ['In Progress', 'Pending']);
+    assert.equal(after.can.cancel, false, 'the Sample page offers no cancel the server would refuse');
+
+    await daniel.ok('POST', `/api/investigations/${inv.id}/close`, { root_cause: 'Calibration lapsed', conclusion: 'No impact on this sample', password: PASSWORD });
+    assert.equal((await priya.ok('GET', `/api/samples/${sampleId}`)).can.cancel, true);
+    await priya.ok('POST', `/api/samples/${sampleId}/cancel`, { reason: 'Client withdrew the order' });
+    const cancelled = await priya.ok('GET', `/api/samples/${sampleId}`);
+    assert.equal(cancelled.sample.status, 'Cancelled');
+    assert.deepEqual(cancelled.tests.map((t) => t.status), ['Cancelled', 'Cancelled']);
+  });
+}
+
+test('the certificate is offered and queued only while no investigation is open on the Sample or its Tests', async () => {
+  const tom = await as('tom.fletcher');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await daniel.ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+
+  const offered = async () => (await daniel.ok('GET', `/api/samples/${sampleId}`)).can.issue;
+  const queued = async () => (await daniel.ok('GET', '/api/reviews')).toIssue.some((s) => s.id === sampleId);
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+
+  const onSample = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge at 9 °C overnight', sample_id: sampleId });
+  const onTest = await daniel.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Daily check out of tolerance', test_id: testId });
+  const close = (id) => daniel.ok('POST', `/api/investigations/${id}/close`, { root_cause: 'Door left ajar', conclusion: 'No product impact', password: PASSWORD });
+  for (const open of [onSample, onTest]) {
+    assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved', 'the Sample is otherwise ready');
+    assert.equal(await offered(), false, `issue is not offered while ${open.code} is open`);
+    assert.equal(await queued(), false, `the certificate queue omits the Sample while ${open.code} is open`);
+    const refused = await daniel.post(`/api/samples/${sampleId}/report`, { password: PASSWORD });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, new RegExp(`${open.code} is still open`));
+    await close(open.id);
+  }
+
+  assert.equal(await offered(), true);
+  assert.equal(await queued(), true);
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
+});
+
 // Drives a fresh Karl Fischer test to an out-of-spec submission and through peer review.
 async function oosTest(analystUsername) {
   const analyst = await as(analystUsername);
