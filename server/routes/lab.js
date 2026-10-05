@@ -546,7 +546,7 @@ export default function routes(r) {
         assign: can(ctx.user, 'tests.assign'),
         issue: can(ctx.user, 'reports.issue') && sample.status === 'Approved',
         dispose: can(ctx.user, 'samples.dispose'),
-        cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status),
+        cancel: can(ctx.user, 'tests.cancel') && SAMPLE_OPEN.includes(sample.status) && !openSampleInvestigation(id),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
@@ -599,6 +599,8 @@ export default function routes(r) {
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
     if (!SAMPLE_OPEN.includes(s.status)) throw bad(`Sample is already ${s.status.toLowerCase()}`);
+    const inv = openSampleInvestigation(id);
+    if (inv) throw bad(`${inv.code} is open for this sample — it must be investigated and closed before the sample can be cancelled`);
     tx(() => {
       for (const t of all(`SELECT id FROM tests WHERE sample_id = ? AND status IN (${ph(TEST_OPEN)})`, id, ...TEST_OPEN)) {
         update(ctx, 'tests', t.id, { status: 'Cancelled' }, { action: 'STATUS', summary: 'Test cancelled with sample', reason });
