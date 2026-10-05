@@ -80,10 +80,10 @@
 .op-photo { position: relative; height: 100px; border: 1px solid var(--lk-line); background: color-mix(in srgb, var(--lk-bg) 50%, transparent); display: flex; align-items: flex-end; justify-content: center; overflow: hidden; color: var(--lk-ink); }
 .op-photo svg { width: 92%; height: auto; display: block; transition: opacity var(--t-3), transform var(--t-4) var(--ease); }
 .op-photo em { position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%); background: var(--signal); color: #121211; font: 700 8px/14px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; font-style: normal; padding: 0 4px; white-space: nowrap; }
-.op-initials { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 800 40px/1 var(--font); background: var(--lk-slab); color: var(--lk-slab-text); animation: lk-unseal var(--t-4) var(--ease) both; }
+.op-initials { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 800 40px/1 var(--font); background: var(--lk-slab); color: var(--lk-slab-text); animation: lk-reveal var(--t-4) var(--ease) both; }
 .op-photo.known svg { opacity: 0; transform: scale(1.06); }
 .op-photo.known em { background: var(--lime); }
-@keyframes lk-unseal { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
+@keyframes lk-reveal { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 .op-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .op-tags { display: flex; gap: 8px; align-items: center; }
 .op-tag { background: var(--lk-ink); color: var(--lk-bg); font: 800 11.5px/19.5px var(--font); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 6px; white-space: nowrap; }
