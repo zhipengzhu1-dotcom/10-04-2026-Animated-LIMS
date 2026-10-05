@@ -4,7 +4,7 @@ import { all, get } from '../db.js';
 import { can } from '../auth.js';
 import { SAMPLE_OPEN, TEST_OPEN } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
-import { TEST_SELECT } from './lab.js';
+import { TEST_SELECT } from '../workflow.js';
 
 const ph = (a) => a.map(() => '?').join(',');
 

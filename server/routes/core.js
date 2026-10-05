@@ -11,7 +11,7 @@ import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from 
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
-import { TEST_QUEUES } from './lab.js';
+import { TEST_QUEUES } from '../workflow.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 
