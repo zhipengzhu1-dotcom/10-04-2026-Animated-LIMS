@@ -72,7 +72,7 @@ export function mountLock(root) {
   const lock = root.querySelector('.lock');
   // three.js arrives asynchronously; until it does, the helix controls go to a stand-in that does nothing.
   let live = noHelix;
-  const pending = createHelix(lock.querySelector('.lock-helix'), { cx: 0.42, cy: 0.5, span: 1.9, colours: HELIX_TOKENS });
+  const pending = createHelix(lock.querySelector('.lock-helix'), { cx: 0.42, cy: 0.5, span: 1.9, bleed: true, colours: HELIX_TOKENS });
   pending.then((h) => { live = h; h.setMode(lock.dataset.state); });
   const helix = { pulse: () => live.pulse(), flyIn: () => live.flyIn() };
   const hm = lock.querySelector('[data-hm]');

@@ -1,15 +1,15 @@
 // The helix sculpture: a solid DNA double helix modelled in Blender and exported to /assets/helix.glb. Shared by the
 // lock screen and the Full HUD backdrop. three.js and the model load lazily, so screens without the sculpture never
 // fetch them. Without WebGL (or under a failed load) the canvas is swapped for a still line drawing.
-//   const h = await createHelix(canvas, { cx: 0.5, cy: 0.5, span: 1.8, tilt: 0.32, colours: { ink, ink2, ink3, paper, signal, alarm } });
+//   const h = await createHelix(canvas, { cx: 0.5, cy: 0.5, span: 1.8, bleed: false, tilt: 0.32, colours: { ink, ink2, ink3, paper, signal, alarm } });
 //   h.setMode('idle' | 'verify' | 'denied' | 'granted');  h.pulse();  const { handoff, landed } = h.flyIn();  h.settle();  h.destroy();
 // flyIn replays replication ahead of the camera: the middle melts into a bubble, two forks run out to the ends snapping
 // the hydrogen bonds and overwinding the duplex ahead of them, the unwound strands splay up and down off screen, and the
 // camera dives through the gap they leave. `handoff` resolves mid-dive, once the strands have parted toward the edges, so
 // the next screen can rise beneath them as they sweep off; `landed` resolves when the dive is over.
 // `colours` names the CSS custom properties to read each colour from (Aliquot passes HELIX_TOKENS from lock.js).
-// CSS custom properties on the canvas (--helix-cx, --helix-cy, --helix-span) override the placement options, so media
-// queries can move the sculpture.
+// CSS custom properties on the canvas (--helix-cx, --helix-cy, --helix-span, --helix-bleed) override the placement
+// options, so media queries can move the sculpture.
 
 const TAU = Math.PI * 2;
 const TURNS = 4.5;
@@ -397,12 +397,22 @@ export async function createHelix(canvas, opts = {}) {
     const cx = num('--helix-cx', opts.cx ?? 0.5);
     const cy = num('--helix-cy', opts.cy ?? 0.5);
     const span = num('--helix-span', opts.span ?? 1.8);
+    const bleed = num('--helix-bleed', opts.bleed ? 1 : 0);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const tanHalf = Math.tan((FOV * Math.PI) / 360);
     // Far enough that the helix spans `span` of the width and never overflows the height.
     const halfHeight = halfLen * Math.sin(lean) + radius;
     distance = Math.max(halfLen / (span * tanHalf * camera.aspect), halfHeight / (0.92 * tanHalf));
+    // With `bleed`, close enough that both ends run off the canvas, so the helix reads as endless: an end is gone once
+    // its tip, a radius past the axis, clears the nearer of its side and top or bottom edge. The leaning helix runs from
+    // top left to bottom right; 0.9 keeps the pointer's tilt from swinging a tip back into view.
+    if (bleed) {
+      const along = halfLen * Math.cos(lean) - radius;
+      const down = halfLen * Math.sin(lean) - radius;
+      const off = (side, edge) => Math.max(along / (side * tanHalf * camera.aspect), down / (edge * tanHalf));
+      distance = Math.min(distance, 0.9 * Math.min(off(2 * (1 - cx), 2 * (1 - cy)), off(2 * cx, 2 * cy)));
+    }
     camera.setViewOffset(w, h, (0.5 - cx) * w, (0.5 - cy) * h, w, h);
     camera.updateProjectionMatrix();
     if (!raf) frame(performance.now());
