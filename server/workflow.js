@@ -38,11 +38,10 @@ export const TEST_SELECT = `
   LEFT JOIN users ap ON ap.id = t.approved_by
   LEFT JOIN instruments i ON i.id = t.instrument_id`;
 
+const CURRENT_QUALIFICATION = 'q.revoked = 0 AND (q.expires_at IS NULL OR q.expires_at >= ?)';
+
 export function isQualified(userId, methodCode) {
-  return !!get(
-    `SELECT 1 FROM qualifications WHERE user_id = ? AND method_code = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at >= ?)`,
-    userId, methodCode, today(),
-  );
+  return !!get(`SELECT 1 FROM qualifications q WHERE q.user_id = ? AND q.method_code = ? AND ${CURRENT_QUALIFICATION}`, userId, methodCode, today());
 }
 
 export function evaluateNumeric(row, value) {
@@ -429,7 +428,11 @@ export function cancelTest(ctx, id, reason) {
 // Tests waiting on a user: assigned to them, awaiting their peer review, awaiting their QA approval.
 // Each gives [SQL condition on tests aliased `t`, ...params]; the badges, the Reviews queue and the Samples work filters share them.
 export const TEST_QUEUES = {
-  assigned: (me) => [`t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)})`, me, ...TEST_EDITABLE],
+  assigned: (me) => [
+    `t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) AND EXISTS (SELECT 1 FROM qualifications q JOIN methods qm ON qm.code = q.method_code
+      WHERE qm.id = t.method_id AND q.user_id = t.analyst_id AND ${CURRENT_QUALIFICATION})`,
+    me, ...TEST_EDITABLE, today(),
+  ],
   review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
   approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
 };

@@ -122,8 +122,8 @@ const sampleStatus = async (sampleId) => (await (await as('priya.raman')).ok('GE
 
 // ----- People -----
 
-// Each person signs in as `username`; the analyst after a role change is the Test's own analyst, moved to QA once their
-// Tests were assigned and worked, and moved back afterwards so the next Test can be prepared.
+// Each person signs in as `username`. The analyst after a role change, and after their qualification lapses, is the
+// Test's own analyst, changed once their Tests were assigned and worked and changed back so the next Test can be prepared.
 const PEOPLE = {
   'the analyst': { username: ANALYST },
   'a reviewer who is not the analyst': { username: 'daniel.okafor' },
@@ -132,18 +132,32 @@ const PEOPLE = {
   'a scientist not qualified on the Method': { username: 'sarah.lindqvist' },
   'a person with none of the permissions': { username: 'grace.holloway' },
   'the analyst after a role change': { username: ANALYST, role: 'qa' },
+  'the analyst after their qualification lapses': { username: ANALYST, lapsed: 'ATM-0002' },
 };
 
 async function within(person, fn) {
   const c = await as(person.username);
-  if (!person.role) return fn(c);
-  const admin = await as('admin');
-  await admin.ok('PUT', `/api/users/${lab.users[person.username]}`, { role: person.role });
-  try {
-    return await fn(c);
-  } finally {
-    await admin.ok('PUT', `/api/users/${lab.users[person.username]}`, { role: 'analyst' });
+  const userId = lab.users[person.username];
+  if (person.role) {
+    const admin = await as('admin');
+    await admin.ok('PUT', `/api/users/${userId}`, { role: person.role });
+    try {
+      return await fn(c);
+    } finally {
+      await admin.ok('PUT', `/api/users/${userId}`, { role: 'analyst' });
+    }
   }
+  if (person.lapsed) {
+    const priya = await as('priya.raman');
+    const q = (await priya.ok('GET', '/api/qualifications')).qualifications.find((x) => x.user_id === userId && x.method_code === person.lapsed);
+    await priya.ok('POST', `/api/qualifications/${q.id}/revoke`, { reason: 'Retraining required' });
+    try {
+      return await fn(c);
+    } finally {
+      await priya.ok('POST', '/api/qualifications', { user_id: userId, method_code: person.lapsed });
+    }
+  }
+  return fn(c);
 }
 
 const refused = (r) => [400, 403].includes(r.status);
