@@ -4,15 +4,15 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { startServer } from './server.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 4900 + Math.floor(Math.random() * 90);
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE;
 const VISITOR = '203.0.113.21';
 
 let server;
@@ -43,22 +43,12 @@ before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-demo-'));
   const first = seed();
   assert.equal(first.status, 0, first.stderr);
-  server = spawn(process.execPath, ['server.js'], {
-    cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, CLOUDFLARE_TUNNEL: '1' },
-    stdio: 'ignore',
-  });
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`${BASE}/api/setup`)).ok) return;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error('Server did not start');
+  server = await startServer(dataDir, { CLOUDFLARE_TUNNEL: '1' });
+  BASE = server.base;
 });
 
-after(() => {
-  server?.kill();
+after(async () => {
+  await server?.stop();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 

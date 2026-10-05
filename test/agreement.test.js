@@ -5,15 +5,12 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer } from './server.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 4600 + Math.floor(Math.random() * 90);
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE;
 const PASSWORD = 'demo1234';
 let server;
 let dataDir;
@@ -55,18 +52,10 @@ const lab = {};
 
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-test-'));
-  server = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  server.stderr.on('data', (d) => { log += d; });
-  for (let i = 0; i < 50; i++) {
-    try {
-      const r = await fetch(`${BASE}/api/setup`);
-      if (r.ok) break;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  server = await startServer(dataDir);
+  BASE = server.base;
   const setup = await new Client().post('/api/setup', { mode: 'demo' });
-  assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${log}`);
+  assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${server.log()}`);
 
   const priya = await as('priya.raman');
   lab.client = (await priya.ok('GET', '/api/clients'))[0].id;
@@ -74,8 +63,8 @@ before(async () => {
   lab.users = Object.fromEntries((await priya.ok('GET', '/api/users')).map((u) => [u.username, u.id]));
 });
 
-after(() => {
-  server?.kill();
+after(async () => {
+  await server?.stop();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 

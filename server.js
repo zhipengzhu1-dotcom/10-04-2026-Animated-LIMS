@@ -186,11 +186,13 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 
 server.listen(PORT, HOST, () => {
+  // PORT=0 lets the system pick a free port; tests read it back from this banner.
+  const { port } = server.address();
   // Team addresses only apply when listening on every interface (not e.g. HOST=127.0.0.1).
-  const addresses = !['0.0.0.0', '::'].includes(HOST) ? [] : Object.values(os.networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => `http://${a.address}:${PORT}`);
+  const addresses = !['0.0.0.0', '::'].includes(HOST) ? [] : Object.values(os.networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => `http://${a.address}:${port}`);
   console.log('');
   console.log('  Aliquot is running');
-  console.log(`  On this computer:   http://localhost:${PORT}`);
+  console.log(`  On this computer:   http://localhost:${port}`);
   for (const a of addresses) console.log(`  For your team:      ${a}`);
   console.log(`  Data folder:        ${DATA_DIR}`);
   console.log('');

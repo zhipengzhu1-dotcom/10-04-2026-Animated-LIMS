@@ -8,7 +8,6 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { MIGRATIONS } from '../server/schema.js';
 import { openDb, closeDb } from '../server/db.js';
 import { verifyChain } from '../server/audit.js';
+import { startServer } from './server.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(ROOT, 'test', 'fixtures');
@@ -41,25 +41,6 @@ function snapshot(file) {
   } finally {
     db.close();
   }
-}
-
-async function startServer(dataDir) {
-  const port = 4100 + Math.floor(Math.random() * 90);
-  const proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  proc.stdout.on('data', (d) => { log += d; });
-  proc.stderr.on('data', (d) => { log += d; });
-  const exited = new Promise((resolve) => proc.once('exit', resolve));
-  for (let i = 0; i < 100; i++) {
-    if (proc.exitCode !== null) break;
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/api/setup`)).ok) return { stop: async () => { proc.kill(); await exited; } };
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  proc.kill();
-  await exited;
-  throw new Error(`Server did not start on the upgraded database:\n${log}`);
 }
 
 if (!sources.length) {

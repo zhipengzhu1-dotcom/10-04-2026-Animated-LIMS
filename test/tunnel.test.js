@@ -4,38 +4,24 @@
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer } from './server.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VISITOR = '203.0.113.7';
 const ADMIN = { lab_name: 'Tunnel Lab', full_name: 'Olive Operator', username: 'operator', password: 'Correct-Horse-9' };
 
-async function startServer(env) {
-  const port = 4200 + Math.floor(Math.random() * 700);
+async function startLab(env) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-tunnel-'));
-  const proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  proc.stdout.on('data', (d) => { log += d; });
-  proc.stderr.on('data', (d) => { log += d; });
-  const exited = new Promise((resolve) => proc.once('exit', resolve));
-  const stop = async () => {
-    proc.kill();
-    await exited;
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  };
-  for (let i = 0; i < 100; i++) {
-    if (proc.exitCode !== null) break;
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/api/setup`)).ok) return { base: `http://127.0.0.1:${port}`, stop };
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
+  const removeData = () => fs.rmSync(dataDir, { recursive: true, force: true });
+  try {
+    const server = await startServer(dataDir, env);
+    return { base: server.base, stop: async () => { await server.stop(); removeData(); } };
+  } catch (e) {
+    removeData();
+    throw e;
   }
-  await stop();
-  throw new Error(`Server did not start:\n${log}`);
 }
 
 function client(base) {
@@ -61,7 +47,7 @@ describe('behind the tunnel', () => {
   let server;
   let req;
   before(async () => {
-    server = await startServer({ CLOUDFLARE_TUNNEL: '1' });
+    server = await startLab({ CLOUDFLARE_TUNNEL: '1' });
     req = client(server.base);
   });
   after(() => server?.stop());
@@ -101,7 +87,7 @@ describe('not behind the tunnel', () => {
   let server;
   let req;
   before(async () => {
-    server = await startServer({ CLOUDFLARE_TUNNEL: '' });
+    server = await startLab({ CLOUDFLARE_TUNNEL: '' });
     req = client(server.base);
   });
   after(() => server?.stop());

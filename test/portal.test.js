@@ -5,15 +5,12 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer } from './server.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 4000 + Math.floor(Math.random() * 90);
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE;
 const PASSWORD = 'demo1234';
 const LAURA = 'customer@example.com'; // Acme
 const FELIX = 'felix.romero@bluestone-bio.example'; // Bluestone
@@ -59,15 +56,10 @@ let ids; // ids belonging to clients other than Acme, for ID-guessing attacks
 
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-portal-test-'));
-  server = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ALIQUOT_DATA: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  server.stderr.on('data', (d) => { log += d; });
-  for (let i = 0; i < 50; i++) {
-    try { if ((await fetch(`${BASE}/api/setup`)).ok) break; } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  server = await startServer(dataDir);
+  BASE = server.base;
   const setup = await new Client().post('/api/setup', { mode: 'demo' });
-  assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${log}`);
+  assert.equal(setup.status, 200, `demo setup failed: ${JSON.stringify(setup.data)} ${server.log()}`);
 
   manager = await staff('priya.raman');
   const clients = await manager.ok('GET', '/api/clients');
@@ -90,8 +82,8 @@ before(async () => {
   for (const k of ['foreignSample', 'foreignThread', 'foreignSubmission', 'foreignRequest']) assert.ok(ids[k], `demo data should contain a ${k}`);
 });
 
-after(() => {
-  server?.kill();
+after(async () => {
+  await server?.stop();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
