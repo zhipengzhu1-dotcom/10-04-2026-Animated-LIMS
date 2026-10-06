@@ -37,7 +37,7 @@ export const ATTACHMENT_RULES = {
     if (a.removed) return bad('Already removed');
     const locked = ATTACHABLE[a.entity].attach(recordOf(a.entity, a.entity_id), me);
     if (locked) return locked;
-    if (a.uploaded_by !== me.id && !['admin', 'manager'].includes(me.role)) return forbidden('Only the uploader or a manager can remove this file');
+    if (a.uploaded_by !== me.id && !can(me, 'attachments.remove')) return forbidden('Only the uploader, or someone allowed to remove others\' files, can remove this file');
   },
 };
 

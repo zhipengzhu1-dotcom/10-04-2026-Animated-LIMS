@@ -640,6 +640,27 @@ test('files on a Project lock once it is completed', async () => {
   await expectFilesLock(marco, 'projects', id, complete, 'The project is completed — attachments are locked');
 });
 
+test('removing someone else\'s file needs attachments.remove', async () => {
+  const [tom, sarah, priya] = await Promise.all(['tom.fletcher', 'sarah.lindqvist', 'priya.raman'].map(as));
+  for (const [c, granted] of [[priya, true], [await as('admin'), true], [sarah, false], [tom, false]]) {
+    assert.equal((await c.ok('GET', '/api/auth/me')).permissions.includes('attachments.remove'), granted);
+  }
+  const { sampleId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const url = `/api/attachments?entity=samples&id=${sampleId}`;
+  const res = await fetch(BASE + url, {
+    method: 'POST', headers: { 'X-Requested-With': 'aliquot', Cookie: tom.cookie, 'Content-Type': 'text/plain', 'X-Filename': 'receipt.txt' }, body: 'receipt',
+  });
+  const { id } = await res.json();
+  const offered = async (c) => (await c.ok('GET', url)).files.find((f) => f.id === id).can.remove;
+  assert.equal(await offered(tom), true, 'the uploader');
+  assert.equal(await offered(sarah), false, 'someone who may attach files here but not remove others\'');
+  assert.equal(await offered(priya), true, 'a manager, who holds attachments.remove');
+  const refused = await sarah.post(`/api/attachments/${id}/remove`, { reason: 'Duplicate' });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.data.error, 'Only the uploader, or someone allowed to remove others\' files, can remove this file');
+  await priya.ok('POST', `/api/attachments/${id}/remove`, { reason: 'Duplicate' });
+});
+
 test('an OOS investigation is closed from the Test page with an e-signature', async () => {
   const daniel = await as('daniel.okafor');
   const { sampleId, testId, investigation } = await oosTest('priya.raman');

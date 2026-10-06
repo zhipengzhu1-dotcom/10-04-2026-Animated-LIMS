@@ -39,6 +39,8 @@ export const PERMISSIONS = {
   'users.manage': ['admin'],
   'qualifications.manage': ['admin', 'manager', 'qa'],
   'audit.view': ['admin', 'manager', 'qa'],
+  // Removing a file someone else attached; anyone may remove their own while the record allows it.
+  'attachments.remove': ['admin', 'manager'],
   'settings.edit': ['admin'],
   // Sees every work queue (Worklist, Reviews & approvals, Workload) without being able to act on it.
   'work.oversee': ['admin'],
