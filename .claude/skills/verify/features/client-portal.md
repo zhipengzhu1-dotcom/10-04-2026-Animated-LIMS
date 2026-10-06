@@ -12,7 +12,7 @@ A separate sign-in at `/portal/` where a client's contacts follow their own samp
   - `select[name=project_id]` lists only the client's open Projects (Quoted, Active, On Hold), from `GET /api/portal/lookups` → `projects`. A closed Project, or another client's, is refused with 400 "Project not found".
   - Other fields: `select[name=sample_type]`, `select[name=storage]`, `input[name=priority]`, `input[name=courier]`, `input[name=tracking_no]`, `input[name=ship_date]`, `textarea[name=notes]`.
 - Requests for method development, validation, transfer or other work: `#/requests`, new at `#/requests/new` (form `#request`, "Send request"). The client's request detail is read-only. The lab moves a request only forward: Submitted → Under review → Proposal sent → Accepted, or Declined while open; Accept only from Proposal sent, and a response that keeps the status is a reply.
-- Withdraw a submission: `.js-withdraw` on `#/submissions/<id>`, shown only when the server sends `can.withdraw` (`GET /api/portal/submissions/<id>` → `can`), which is while the submission is Submitted. Toast "Submission withdrawn"; the status becomes Withdrawn and the button goes.
+- Withdraw a submission: `.js-withdraw` on `#/submissions/<id>`, shown only when the server sends `can.withdraw` (`GET /api/portal/submissions/<id>` → `can`), which is while the submission is Submitted. Toast "Submission withdrawn"; the status becomes Withdrawn and the button goes. The client sees the staff status Acknowledged as "Expected" (pill) and "Confirmed" (step), so look for those words on screen and `Acknowledged` in the API.
 - Messages:
   - `#/messages` lists threads.
   - "New" (`.threads-card a[href="#/messages/new"]`; the bare selector matches more than one link) opens form `#newthread` with `input[name=subject]`, `select[name=sample_id]` and `textarea[name=body]`, then "Send".
@@ -48,8 +48,8 @@ End state that proves it:
 - **Messages:** after sending, the new `.msg.client .bubble` appears in `#msgs`. The staff badge is `[data-badge=portal]` in the sidebar, the same number as `GET /api/nav` → `portal`. It counts Submitted submissions, Submitted method requests, and threads with unread client messages. A new submission without notes adds 1, because its automatic thread holds only a system event; with notes it adds 2, because the notes are posted as a client message. A new client thread adds 1. Withdrawing takes the submission's 1 off again.
 - **Isolation:** a contact from another company (e.g. `felix.romero@bluestone-bio.example`) must not see Acme's records. Under Felix's portal session:
   - GET `/api/portal/samples/<acme id>`, `/samples/<id>/coa`, `/threads/<id>`, `/submissions/<id>` and `/requests/<id>` return 404, and so do POST `/threads/<id>/messages` and POST `/submissions/<id>/withdraw`.
-- **Withdraw:** the API then returns `status: "Withdrawn"` and `can.withdraw: false`; the staff list `GET /api/portal-admin/submissions?status=Withdrawn` holds it and the default open list does not; the audit has `STATUS` on `portal_submissions` "Withdrawn by the client". A second withdraw returns 400 ("This submission is withdrawn — contact the laboratory to change it").
   - His lists are not empty: they hold Bluestone's own seeded rows. Check that they contain no Acme codes or subjects.
+- **Withdraw:** the API then returns `status: "Withdrawn"` and `can.withdraw: false`; the staff list `GET /api/portal-admin/submissions?status=Withdrawn` holds it and the default open list does not; the audit has `STATUS` on `portal_submissions` "Withdrawn by the client". A second withdraw returns 400 ("This submission is withdrawn — contact the laboratory to change it").
 
 ## Gotchas
 
