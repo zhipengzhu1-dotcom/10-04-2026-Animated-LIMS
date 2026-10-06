@@ -650,7 +650,7 @@ test('reopening a Completed Project makes it Active, editable and able to receiv
 // Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;
 // the uploader attaches a file while it is open, then `then` moves it on, so removal can be tried once it is locked.
 let unique = 0;
-const code = (prefix) => `${prefix}${process.pid % 1000}${++unique}`;
+const code = (prefix) => `${prefix}${process.pid % 1000}-${++unique}`;
 const signedAs = (username, url, body = {}) => async (id) => (await as(username)).ok('POST', url(id), { ...body, password: PASSWORD });
 const newMethod = async () => (await (await as('sarah.lindqvist')).ok('POST', '/api/methods', { title: 'Water by coulometric KF', technique: 'Karl Fischer', analytes: [{ name: 'Water', unit: '%', spec_max: 0.5 }] })).id;
 const makeEffective = signedAs('daniel.okafor', (id) => `/api/methods/${id}/status`, { status: 'Effective' });
