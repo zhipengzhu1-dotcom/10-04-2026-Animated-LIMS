@@ -225,7 +225,7 @@ const SURFACES = {
 // The Queues each sidebar badge counts, as [Queue table, Queue].
 const BADGES = {
   myTests: [['TEST_QUEUES', 'assigned']],
-  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval']],
+  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['SAMPLE_QUEUES', 'certificate']],
 };
 
 /** Whether each surface of each Queue lists the record, for `records` keyed by Queue table, as `c` sees them. */
