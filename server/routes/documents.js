@@ -30,7 +30,7 @@ export const TEMPLATES = {
 // ---------------------------------------------------------------------------------------------
 
 const DOC_SELECT = `
-  SELECT d.*, n.status AS entry_status, n.author_id, n.code AS entry_code, n.title AS entry_title
+  SELECT d.*, n.code AS entry_code, n.title AS entry_title
   FROM notebook_documents d JOIN notebook_entries n ON n.id = d.entry_id`;
 
 const getDoc = (id) => get(`${DOC_SELECT} WHERE d.id = ?`, id);
@@ -230,7 +230,8 @@ async function dav(req, res, url) {
   const base = `/dav/${token}/`;
   const href = base + encodeURIComponent(doc.filename);
   const collection = !name;
-  const editable = doc.entry_status === 'Draft' && doc.author_id === user.id;
+  // Office takes 403 as read-only, so any refusal of the entry's edit rule is a 403 here.
+  const refusal = ENTRY_RULES.edit(entryOf(doc), user);
 
   if (!collection && name !== doc.filename) {
     // Office never needs other files here; refuse rather than accept stray temp files.
@@ -267,7 +268,7 @@ async function dav(req, res, url) {
     }
     case 'LOCK': {
       const body = (await drain(req)).toString('utf8');
-      if (!editable) throw new HttpError(403, 'This entry is signed — the document is read-only');
+      if (refusal) throw new HttpError(403, refusal.message);
       const existing = activeLock(doc.id);
       if (existing && existing.userId !== user.id) throw new HttpError(423, 'Locked');
       const timeout = Math.min(Number(/Second-(\d+)/i.exec(req.headers.timeout || '')?.[1]) || LOCK_SECONDS, LOCK_SECONDS);
@@ -292,9 +293,9 @@ async function dav(req, res, url) {
       return;
     }
     case 'PUT': {
-      if (!editable) {
+      if (refusal) {
         await drain(req);
-        throw new HttpError(403, 'This entry has been signed — changes can no longer be saved');
+        throw new HttpError(403, refusal.message);
       }
       const existing = activeLock(doc.id);
       if (existing && existing.userId !== user.id) throw new HttpError(423, 'Locked');

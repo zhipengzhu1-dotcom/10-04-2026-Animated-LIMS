@@ -896,6 +896,38 @@ test('an author whose role lost notebook.write is refused editing and signing th
   assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
 });
 
+// Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.
+const LOCK_INFO = '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype><D:owner>Tom</D:owner></D:lockinfo>';
+const dav = async (link, method, body) => {
+  const res = await fetch(BASE + link.path, { method, headers: { Timeout: 'Second-600' }, body });
+  return { status: res.status, text: await res.text() };
+};
+
+test('a WebDAV lock on a signed entry\'s document is refused', async () => {
+  const tom = await as(ANALYST);
+  const e = await prepareEntry([]);
+  const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
+  await signEntry(e.id);
+  // Signing ends every Office link to the entry's documents, so the lock is refused before any rule is asked.
+  assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 404, text: 'This link has expired. Open the document again from Aliquot.' });
+  const again = await tom.post(`/api/notebook-documents/${e.docId}/edit-link`);
+  assert.equal(again.status, 400, 'nor can a new link be opened');
+  assert.equal(again.data.error, 'Signed entries are locked — add an addendum instead');
+});
+
+test('a WebDAV lock or save by an author whose role lost notebook.write is refused', async () => {
+  const tom = await as(ANALYST);
+  const e = await prepareEntry([]);
+  const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
+  await within({ username: ANALYST, role: 'business' }, async () => {
+    assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 403, text: 'You do not have permission to do that.' });
+    assert.deepEqual(await dav(link, 'PUT', 'a changed workbook'), { status: 403, text: 'You do not have permission to do that.' });
+  });
+  const versions = await tom.ok('GET', `/api/notebook-documents/${e.docId}/versions`);
+  assert.deepEqual(versions.map((v) => v.version), [1]);
+  assert.equal((await dav(link, 'LOCK', LOCK_INFO)).status, 200, 'the same link works once the role allows writing again');
+});
+
 // ----- Sample status on the happy path -----
 
 test('the Sample status follows each transition, return and cancel of its Tests', async () => {
