@@ -39,6 +39,7 @@ const methodSchema = {
 export const METHOD_RULES = {
   attach(m, me) {
     if (!can(me, 'methods.edit')) return forbidden();
+    if (['Effective', 'Retired'].includes(m.status)) return bad(`The method is ${m.status.toLowerCase()} — attachments are locked`);
   },
 };
 

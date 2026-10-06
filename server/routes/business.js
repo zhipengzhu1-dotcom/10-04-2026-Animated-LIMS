@@ -70,6 +70,7 @@ const projectSchema = {
 export const PROJECT_RULES = {
   attach(p, me) {
     if (!can(me, 'projects.edit')) return forbidden();
+    if (['Completed', 'Cancelled'].includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
   },
 };
 

@@ -185,6 +185,7 @@ export const SAMPLE_RULES = {
   },
   attach(s, me) {
     if (!can(me, 'samples.edit')) return forbidden();
+    if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);
   },
 };
 
