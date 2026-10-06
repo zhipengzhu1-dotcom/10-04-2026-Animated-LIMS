@@ -972,6 +972,96 @@ test('the Sample status follows each transition, return and cancel of its Tests'
   await expect('Cancelled', 'cancelling the Sample');
 });
 
+// ----- Client portal sweeps -----
+
+const LAURA = 'customer@example.com'; // a contact at the Sample's client
+const FELIX = 'felix.romero@bluestone-bio.example'; // a contact at another client
+
+const contacts = {};
+async function asContact(email) {
+  if (!contacts[email]) {
+    const c = new Client();
+    await c.ok('POST', '/api/portal/login', { email, password: PASSWORD });
+    contacts[email] = c;
+  }
+  return contacts[email];
+}
+
+// Laura announces a shipment of one sample for Karl Fischer; the lab and Laura move it on.
+async function prepareSubmission(steps) {
+  const { id } = await (await asContact(LAURA)).ok('POST', '/api/portal/submissions', { samples: [{ description: 'Submission sweep' }], method_ids: [lab.kf] });
+  for (const step of steps) await step(id);
+  return id;
+}
+
+const SUBMISSION_ACTIONS = {
+  acknowledge: (c, id) => c.post(`/api/portal-admin/submissions/${id}/acknowledge`, { note: 'Expecting it Tuesday' }),
+  decline: (c, id) => c.post(`/api/portal-admin/submissions/${id}/decline`, { reason: 'We do not run that test' }),
+  receive: (c, id) => c.post(`/api/portal-admin/submissions/${id}/receive`, {}),
+};
+
+const CLIENT_SUBMISSION_ACTIONS = {
+  withdraw: (c, id) => c.post(`/api/portal/submissions/${id}/withdraw`),
+};
+
+const staffDoes = (username, action) => async (id) => assert.ok((await SUBMISSION_ACTIONS[action](await as(username), id)).status < 300, `${username} ${action}`);
+
+const SUBMISSION_STATES = {
+  submitted: [],
+  acknowledged: [staffDoes('priya.raman', 'acknowledge')],
+  received: [staffDoes('priya.raman', 'acknowledge'), staffDoes('priya.raman', 'receive')],
+  declined: [staffDoes('priya.raman', 'decline')],
+  withdrawn: [async (id) => (await asContact(LAURA)).ok('POST', `/api/portal/submissions/${id}/withdraw`)],
+};
+
+const SUBMISSION_PEOPLE = {
+  'a manager, who responds and receives': 'priya.raman',
+  'QA, who responds but does not receive': 'daniel.okafor',
+  'an analyst, who receives but does not respond': ANALYST,
+  'the administrator, who does neither': 'admin',
+};
+
+/** Reads `can` as `c`, tries every withheld action on the record and every offered one on a fresh record. */
+async function sweepRecord({ label, c, table, actions, can, id, prepare }) {
+  const names = Object.keys(actions);
+  assert.deepEqual(names.filter((a) => typeof can?.[a] !== 'boolean'), [], `${label}: every action has a flag`);
+  for (const action of names.filter((a) => !can[a])) {
+    const r = await actions[action](c, id);
+    assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+  }
+  for (const action of names) {
+    note(table, action, can[action]);
+    if (!can[action]) continue;
+    const r = await actions[action](c, await prepare());
+    assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+  }
+}
+
+for (const [state, steps] of Object.entries(SUBMISSION_STATES)) {
+  test(`a client submission ${state}: offers and refusals agree for lab staff and client contacts`, async () => {
+    const prepare = () => prepareSubmission(steps);
+    for (const [who, username] of Object.entries(SUBMISSION_PEOPLE)) {
+      const c = await as(username);
+      const id = await prepare();
+      const { can } = await c.ok('GET', `/api/portal-admin/submissions/${id}`);
+      await sweepRecord({ label: `Submission ${state}, ${who}`, c, table: 'SUBMISSION_RULES', actions: SUBMISSION_ACTIONS, can, id, prepare });
+    }
+
+    const laura = await asContact(LAURA);
+    const id = await prepare();
+    const { can } = await laura.ok('GET', `/api/portal/submissions/${id}`);
+    await sweepRecord({ label: `Submission ${state}, a contact of its client`, c: laura, table: 'CLIENT_SUBMISSION_RULES', actions: CLIENT_SUBMISSION_ACTIONS, can, id, prepare });
+
+    // Another client's contact is told the submission does not exist, so learns nothing about it.
+    const felix = await asContact(FELIX);
+    const theirs = await prepare();
+    assert.equal((await felix.get(`/api/portal/submissions/${theirs}`)).status, 404, `Submission ${state}, a contact of another client: read`);
+    const r = await CLIENT_SUBMISSION_ACTIONS.withdraw(felix, theirs);
+    assert.equal(r.status, 404, `Submission ${state}, a contact of another client: withdraw (${describe(r)})`);
+    assert.equal(r.data.error, 'Submission not found');
+  });
+}
+
 // ----- Coverage -----
 
 /** Every rules table exported by a server module, by name. Importing them opens no database. */

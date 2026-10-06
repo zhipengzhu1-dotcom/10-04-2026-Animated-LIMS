@@ -185,10 +185,10 @@ async function submissionsTab(ctx, body, tools) {
 
 export async function submission(ctx) {
   ensureStyles();
-  const { submission: s, thread_id, projects } = await api.get(`/api/portal-admin/submissions/${ctx.params.id}`);
+  const d = await api.get(`/api/portal-admin/submissions/${ctx.params.id}`);
+  const { submission: s, thread_id, projects } = d;
   const thread = thread_id ? await api.get(`/api/portal-admin/threads/${thread_id}`) : null;
   ctx.title(s.code);
-  const open = ['Submitted', 'Acknowledged'].includes(s.status);
   const stopped = ['Declined', 'Withdrawn'].includes(s.status);
   ctx.el.innerHTML = String(html`
     ${pageHead({
@@ -197,9 +197,9 @@ export async function submission(ctx) {
       badges: html`${badge(s.status, SUB_TONE[s.status])} ${s.priority !== 'Standard' ? badge(s.priority) : ''}`,
       sub: html`${s.client_name} · ${s.submitted_by || 'client'} <span class="muted">(${s.submitted_by_email || ''})</span> · submitted ${fmtDateTime(s.created_at)}`,
       actions: html`
-        ${s.status === 'Submitted' && can('portal.respond') ? html`<button class="btn" data-act="ack">${icon('check', { size: 15 })}Acknowledge</button>` : ''}
-        ${open && can('portal.respond') ? html`<button class="btn" data-act="decline">Decline</button>` : ''}
-        ${open && can('samples.receive') ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
+        ${d.can.acknowledge ? html`<button class="btn" data-act="ack">${icon('check', { size: 15 })}Acknowledge</button>` : ''}
+        ${d.can.decline ? html`<button class="btn" data-act="decline">Decline</button>` : ''}
+        ${d.can.receive ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
     })}
     <div class="card stepper-card">${stepper(['Submitted', 'Acknowledged', 'Received'], stopped ? 'Submitted' : s.status, { stopped: stopped ? s.status : undefined })}</div>
     <div class="split-wide" style="margin-top:var(--gap, 12px)">
