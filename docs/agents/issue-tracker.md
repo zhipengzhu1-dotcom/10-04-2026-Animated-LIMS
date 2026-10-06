@@ -12,6 +12,7 @@ Issues and specs for this repo live as GitHub issues in **`zhipengzhu1-dotcom/10
 - **Comment on an issue**: `gh issue comment <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --add-label "..."` / `--remove-label "..."`. Create a missing label first with `gh label create <name> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS`.
 - **Close**: `gh issue close <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --comment "..."`
+- **Land a spec**: push its integration branch and open a PR into `main` whose body says `Closes #<spec>` and `Closes #<ticket>` for every ticket; merging the PR closes them. Leave the issues open until then.
 
 ## Pull requests as a triage surface
 
