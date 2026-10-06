@@ -35,6 +35,23 @@ const notebookSchema = {
 };
 
 export const ENTRY_RULES = {
+  edit(n, me) {
+    if (n.author_id !== me.id) return forbidden('Only the author can edit this entry');
+    if (n.status !== 'Draft') return bad('Signed entries are locked — add an addendum instead');
+  },
+  sign(n, me) {
+    if (n.author_id !== me.id) return forbidden('Only the author can sign this entry');
+    if (n.status !== 'Draft') return bad('This entry has already been signed');
+  },
+  witness(n, me) {
+    if (!can(me, 'notebook.witness')) return forbidden();
+    if (n.author_id === me.id) return forbidden('You cannot witness your own entry');
+    if (n.status !== 'Signed') return bad('Only signed entries can be witnessed');
+  },
+  addendum(n, me) {
+    if (!can(me, 'notebook.write')) return forbidden();
+    if (n.status === 'Draft') return bad('Edit the draft directly instead of adding an addendum');
+  },
   attach(n, me) {
     if (!can(me, 'notebook.write')) return forbidden();
     if (n.author_id !== me.id) return forbidden('Only the author can attach files to this entry');
@@ -54,8 +71,7 @@ export function createEntry(ctx, body) {
 
 export function signEntry(ctx, id, body) {
   const n = mustGet('SELECT * FROM notebook_entries WHERE id = ?', id, 'Entry');
-  if (n.author_id !== ctx.user.id) throw forbidden('Only the author can sign this entry');
-  if (n.status !== 'Draft') throw bad('This entry has already been signed');
+  guard(ENTRY_RULES.sign(n, ctx.user));
   if (!n.body.trim()) throw bad('The entry is empty');
   verifySignature(ctx, body.password);
   tx(() => {
@@ -67,10 +83,8 @@ export function signEntry(ctx, id, body) {
 }
 
 export function witnessEntry(ctx, id, body) {
-  assertCan(ctx, 'notebook.witness');
   const n = mustGet('SELECT * FROM notebook_entries WHERE id = ?', id, 'Entry');
-  if (n.author_id === ctx.user.id) throw forbidden('You cannot witness your own entry');
-  if (n.status !== 'Signed') throw bad('Only signed entries can be witnessed');
+  guard(ENTRY_RULES.witness(n, ctx.user));
   verifySignature(ctx, body.password);
   tx(() => {
     applySignature(ctx, 'notebook_entries', id, 'notebook.witness', { comment: body.comment || null, code: n.code });
@@ -161,12 +175,7 @@ export default function routes(r) {
       addenda: all('SELECT a.*, u.full_name AS author_name FROM notebook_addenda a JOIN users u ON u.id = a.author_id WHERE a.entry_id = ? ORDER BY a.id', id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'notebook_entries' AND entity_id = ? ORDER BY id`, id),
       documents: listDocuments(id),
-      can: {
-        edit: entry.author_id === ctx.user.id && entry.status === 'Draft',
-        sign: entry.author_id === ctx.user.id && entry.status === 'Draft',
-        witness: can(ctx.user, 'notebook.witness') && entry.status === 'Signed' && entry.author_id !== ctx.user.id,
-        addendum: can(ctx.user, 'notebook.write') && entry.status !== 'Draft',
-      },
+      can: flags(ENTRY_RULES, entry, ctx.user),
     };
   });
 
@@ -175,8 +184,7 @@ export default function routes(r) {
   r.put('/api/notebook/:id', (ctx) => {
     const id = +ctx.params.id;
     const n = mustGet('SELECT * FROM notebook_entries WHERE id = ?', id, 'Entry');
-    if (n.author_id !== ctx.user.id) throw forbidden('Only the author can edit this entry');
-    if (n.status !== 'Draft') throw bad('Signed entries are locked — add an addendum instead');
+    guard(ENTRY_RULES.edit(n, ctx.user));
     const b = clean(ctx.body, notebookSchema, { partial: true });
     // Draft autosaves would flood the audit trail with full-text diffs; log that the body changed, with its new length.
     const extra = {};
@@ -193,10 +201,9 @@ export default function routes(r) {
   r.post('/api/notebook/:id/witness', (ctx) => witnessEntry(ctx, +ctx.params.id, ctx.body));
 
   r.post('/api/notebook/:id/addenda', (ctx) => {
-    assertCan(ctx, 'notebook.write');
     const id = +ctx.params.id;
     const n = mustGet('SELECT * FROM notebook_entries WHERE id = ?', id, 'Entry');
-    if (n.status === 'Draft') throw bad('Edit the draft directly instead of adding an addendum');
+    guard(ENTRY_RULES.addendum(n, ctx.user));
     const text = String(ctx.body.body || '').trim();
     if (!text) throw bad('The addendum is empty');
     insert(ctx, 'notebook_addenda', { entry_id: id, author_id: ctx.user.id, body: text, created_at: nowIso() }, { code: n.code, summary: 'Addendum added' });

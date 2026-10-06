@@ -812,6 +812,65 @@ for (const [entity, record] of Object.entries(FILE_RECORDS)) {
   }
 }
 
+// ----- Notebook entry sweep -----
+
+// The analyst writes each entry, with one workbook, and signs it; a scientist witnesses it.
+async function prepareEntry(steps) {
+  const tom = await as(ANALYST);
+  const { id } = await tom.ok('POST', '/api/notebook', { title: 'KF titre check', body: 'Titre 4.98 mg/mL' });
+  const { id: docId } = await tom.ok('POST', `/api/notebook/${id}/documents`, { template: 'xlsx', name: 'Titre workbook' });
+  for (const step of steps) await step(id);
+  return { id, docId };
+}
+
+const signEntry = signedAs(ANALYST, (id) => `/api/notebook/${id}/sign`);
+
+const ENTRY_STATES = {
+  draft: [],
+  signed: [signEntry],
+  witnessed: [signEntry, signedAs('sarah.lindqvist', (id) => `/api/notebook/${id}/witness`)],
+};
+
+const ENTRY_ACTIONS = {
+  edit: (c, e) => c.put(`/api/notebook/${e.id}`, { body: 'Titre 4.97 mg/mL' }),
+  sign: (c, e) => c.post(`/api/notebook/${e.id}/sign`, { password: PASSWORD }),
+  witness: (c, e) => c.post(`/api/notebook/${e.id}/witness`, { password: PASSWORD }),
+  addendum: (c, e) => c.post(`/api/notebook/${e.id}/addenda`, { body: 'Burette recalibrated since' }),
+};
+
+const ENTRY_PEOPLE = {
+  'the author': { username: ANALYST },
+  'the author without notebook.write': { username: ANALYST, role: 'business' },
+  'a witness who is not the author': { username: 'sarah.lindqvist' },
+  'someone without the permissions': { username: 'grace.holloway' },
+};
+
+for (const [state, steps] of Object.entries(ENTRY_STATES)) {
+  test(`a notebook entry ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, person] of Object.entries(ENTRY_PEOPLE)) {
+      const label = `Entry ${state}, ${who}`;
+      const e = await prepareEntry(steps);
+      const { can } = await within(person, (c) => c.ok('GET', `/api/notebook/${e.id}`));
+
+      const actions = Object.keys(ENTRY_ACTIONS);
+      assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      await within(person, async (c) => {
+        for (const action of actions.filter((a) => !can[a])) {
+          const r = await ENTRY_ACTIONS[action](c, e);
+          assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+        }
+      });
+      for (const action of actions) {
+        note('ENTRY_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const fresh = await prepareEntry(steps);
+        const r = await within(person, (c) => ENTRY_ACTIONS[action](c, fresh));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
 // ----- Sample status on the happy path -----
 
 test('the Sample status follows each transition, return and cancel of its Tests', async () => {
