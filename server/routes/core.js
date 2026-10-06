@@ -13,6 +13,7 @@ import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
 import { TEST_QUEUES, TEST_RULES, TEST_OPEN } from '../workflow.js';
 import { INVESTIGATION_OPEN } from '../investigations.js';
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 
@@ -99,9 +100,8 @@ export default function routes(r) {
 
   // Counts for the sidebar badges.
   r.get('/api/nav', (ctx) => {
-    const me = ctx.user.id;
     const tests = (name) => queued(TEST_RULES, TEST_QUEUES[name], ctx.user).length;
-    const witness = can(ctx.user, 'notebook.witness') ? get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n : 0;
+    const witness = queued(ENTRY_RULES, ENTRY_QUEUES.witness, ctx.user).length;
     return {
       myTests: tests('assigned'),
       reviews: tests('review') + tests('approval') + witness,

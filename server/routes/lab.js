@@ -17,6 +17,7 @@ import {
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
 import { PROJECT_RULES } from './business.js';
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -332,16 +333,11 @@ export default function routes(r) {
   r.get('/api/reviews', (ctx) => {
     const lab = ctx.query.scope === 'lab';
     if (lab) assertCan(ctx, 'work.oversee');
-    const me = lab ? 0 : ctx.user.id;
     // Oversight shows each stage whoever could act on it; it is nobody's Queue.
     const tests = (name) => (lab ? TEST_QUEUES[name].stage() : queued(TEST_RULES, TEST_QUEUES[name], ctx.user));
-    const out = { toReview: tests('review'), toApprove: tests('approval'), toWitness: [], toIssue: [] };
+    const entries = (name) => (lab ? ENTRY_QUEUES[name].stage() : queued(ENTRY_RULES, ENTRY_QUEUES[name], ctx.user));
+    const out = { toReview: tests('review'), toApprove: tests('approval'), toWitness: entries('witness'), toIssue: [] };
     const sees = (perm) => lab || can(ctx.user, perm);
-    if (sees('notebook.witness')) {
-      out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
-        FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
-        WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
-    }
     if (sees('reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
