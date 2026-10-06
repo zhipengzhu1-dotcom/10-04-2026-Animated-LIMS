@@ -1,6 +1,6 @@
 # Lab notebook: write, sign, witness
 
-Electronic lab notebook entries (`ELN-YYYY-NNNN`). The author writes with autosave, signs "Authored" to lock the entry, and a colleague signs "Witnessed". Corrections after signing are addenda. Code: `public/js/views/notebook.js`, routes in `server/routes/quality.js`, rules in `ENTRY_RULES` (`server/notebook.js`). Permission `notebook.write`: manager, scientist, analyst, QA. `notebook.witness`: manager, scientist, QA (not analysts). The title input, editor and every action button come from the entry's `can` flags (`edit`, `sign`, `witness`, `addendum`, `attach`), so a button is shown exactly when the server would accept it.
+Electronic lab notebook entries (`ELN-YYYY-NNNN`). The author writes with autosave, signs "Authored" to lock the entry, and a colleague signs "Witnessed". Corrections after signing are addenda. Code: `public/js/views/notebook.js`, routes in `server/routes/quality.js`, rules in `ENTRY_RULES` (`server/notebook.js`). Permission `notebook.write`: manager, scientist, analyst, QA. `notebook.witness`: manager, scientist, QA (not analysts). The title input, editor and every action button come from the entry's `can` flags (`edit`, `sign`, `witness`, `addendum`, `attach`), so a button is shown exactly when the entry's rule allows the action. Readiness the author can fix is checked by the action itself: Sign on an empty entry is offered, and the server answers 400 "The entry is empty".
 
 ## Sub-features
 
@@ -16,7 +16,7 @@ Electronic lab notebook entries (`ELN-YYYY-NNNN`). The author writes with autosa
 
 - **Lab notebook** in the sidebar (`/notebook`) → "New entry", or open an entry `/notebook/<id>`.
 - Top bar **New** menu → Notebook entry.
-- Witness: `/reviews?tab=witness` → "Read & witness" (`a.btn[href="/notebook/<id>"]`).
+- Witness: `/reviews?tab=witness` → "Read & witness" (`a.btn[href="/notebook/<id>"]`). The tab is `ENTRY_QUEUES.witness`: the Signed entries the person may witness, so their own Signed entry is never on it, and each one also counts in the Reviews badge. The label follows the entry's `can.witness`. Where it is false, as in the administrator's oversight, the same link reads "Read".
 
 ## Driving it with agent-browser
 
