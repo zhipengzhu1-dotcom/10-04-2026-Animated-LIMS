@@ -24,6 +24,17 @@ export const TEST_RETURNED = [
   ...RETURN_MEANINGS,
 ];
 
+export const SAMPLE_SELECT = `
+  SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
+    u.full_name AS received_by_name,
+    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
+    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved,
+    (SELECT COALESCE(MAX(t.oos), 0) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS has_oos
+  FROM samples s
+  JOIN clients c ON c.id = s.client_id
+  LEFT JOIN projects p ON p.id = s.project_id
+  LEFT JOIN users u ON u.id = s.received_by`;
+
 export const TEST_SELECT = `
   SELECT t.*, s.code AS sample_code, s.description AS sample_description, s.batch_no, s.priority, s.client_id, s.project_id,
     c.code AS client_code, c.name AS client_name,
@@ -208,6 +219,11 @@ export const SAMPLE_RULES = {
     if (!can(me, 'samples.edit')) return forbidden();
     if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);
   },
+};
+
+// Each Queue names the rule it derives from and its stage, as for TEST_QUEUES.
+export const SAMPLE_QUEUES = {
+  certificate: { rule: 'issue', stage: () => all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' ORDER BY s.due_date, s.id`) },
 };
 
 /** The one way a Test's status changes: audited as a status change, with its Sample's status re-derived in the same transaction. */

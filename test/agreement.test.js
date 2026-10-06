@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startServer } from './server.js';
 import { ATTACHABLE } from '../server/routes/attachments.js';
-import { TEST_QUEUES } from '../server/workflow.js';
+import { SAMPLE_QUEUES, TEST_QUEUES } from '../server/workflow.js';
 import { ENTRY_QUEUES } from '../server/notebook.js';
 
 let BASE;
@@ -202,7 +202,7 @@ const badges = (c) => c.ok('GET', '/api/nav');
 
 // Every Queue in the registry is swept: on each surface showing it, a record is listed exactly when the person is
 // offered the Queue's rule on it, and each badge moves by the number of the person's Queues the record entered.
-const QUEUES = { TEST_QUEUES, ENTRY_QUEUES };
+const QUEUES = { TEST_QUEUES, SAMPLE_QUEUES, ENTRY_QUEUES };
 
 const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
@@ -219,6 +219,9 @@ const SURFACES = {
     review: { ...workFilters('review'), 'Reviews page review list': (c, t) => onReviews(c, 'toReview', t.testId) },
     approval: { ...workFilters('approval'), 'Reviews page approval list': (c, t) => onReviews(c, 'toApprove', t.testId) },
   },
+  SAMPLE_QUEUES: {
+    certificate: { 'Reviews page certificate list': (c, s) => onReviews(c, 'toIssue', s) },
+  },
   ENTRY_QUEUES: {
     witness: { 'Reviews page witness list': (c, e) => onReviews(c, 'toWitness', e.id) },
     // A new draft is its author's most recent, so it is among the Dashboard's first five.
@@ -229,7 +232,7 @@ const SURFACES = {
 // The Queues each sidebar badge counts, as [Queue table, Queue].
 const BADGES = {
   myTests: [['TEST_QUEUES', 'assigned']],
-  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['ENTRY_QUEUES', 'witness']],
+  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['SAMPLE_QUEUES', 'certificate'], ['ENTRY_QUEUES', 'witness']],
 };
 
 /** Whether each surface of each Queue lists the record, for `records` keyed by Queue table, as `c` sees them. */
@@ -245,18 +248,22 @@ async function queueViews(c, records) {
   return views;
 }
 
-/** Each surface agrees with its record's `can` (keyed by Queue table), and each badge moved by the Queues entered. */
+/**
+ * Each surface in `views` agrees with its record's `can`, and each badge moved by the Queues entered. `flags` is keyed by
+ * Queue table, one `can` or a list: a record whose surfaces are swept elsewhere still moves the badges.
+ */
 function assertQueues(label, flags, views, before, after) {
-  for (const [table, can] of Object.entries(flags)) {
+  for (const [table, byQueue] of Object.entries(views)) {
+    const can = flags[table];
     for (const [name, queue] of Object.entries(QUEUES[table])) {
       assert.equal(typeof can[queue.rule], 'boolean', `${label}: ${table}.${name} names ${queue.rule}, which has no flag`);
-      for (const [surface, shown] of Object.entries(views[table][name])) {
+      for (const [surface, shown] of Object.entries(byQueue[name])) {
         assert.equal(shown, can[queue.rule], `${label}: ${surface} (${name} Queue) vs can.${queue.rule}`);
       }
     }
   }
   for (const [badge, queues] of Object.entries(BADGES)) {
-    const entered = queues.filter(([table, name]) => flags[table]?.[QUEUES[table][name].rule]).length;
+    const entered = queues.reduce((n, [table, name]) => n + [flags[table] ?? []].flat().filter((can) => can[QUEUES[table][name].rule]).length, 0);
     assert.equal(after[badge] - before[badge], entered, `${label}: ${badge} badge vs the Queues it counts`);
   }
 }
@@ -275,15 +282,17 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
       const label = `Test ${state}, ${who}`;
       const before = await within(person, badges);
       const t = await prepareTest(steps);
-      const { can, views, after } = await within(person, async (c) => {
+      const { can, sampleCan, views, after } = await within(person, async (c) => {
         await dashboardAgrees(c, label);
         return {
           can: (await c.ok('GET', `/api/tests/${t.testId}`)).can,
-          views: await queueViews(c, { TEST_QUEUES: t }),
+          // An approved Test approves its Sample, which then enters the certificate Queue.
+          sampleCan: (await c.ok('GET', `/api/samples/${t.sampleId}`)).can,
+          views: await queueViews(c, { TEST_QUEUES: t, SAMPLE_QUEUES: t.sampleId }),
           after: await badges(c),
         };
       });
-      assertQueues(label, { TEST_QUEUES: can }, views, before, after);
+      assertQueues(label, { TEST_QUEUES: can, SAMPLE_QUEUES: sampleCan }, views, before, after);
 
       const actions = Object.keys(TEST_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
@@ -340,14 +349,18 @@ async function prepareSample({ tests, then }) {
 }
 
 for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
-  test(`a Sample ${state}: offers, refusals and the certificate queue agree for everyone`, async () => {
+  test(`a Sample ${state}: offers, refusals, queues and badges agree for everyone`, async () => {
     for (const username of SAMPLE_PEOPLE) {
       const label = `Sample ${state}, ${username}`;
       const c = await as(username);
+      const before = await badges(c);
       const s = await prepareSample(spec);
-      const { can } = await c.ok('GET', `/api/samples/${s}`);
-      const toIssue = (await c.ok('GET', '/api/reviews')).toIssue.some((x) => x.id === s);
-      assert.equal(toIssue, can.issue, `${label}: certificate queue vs can.issue`);
+      const { can, tests } = await c.ok('GET', `/api/samples/${s}`);
+      // The Test sweep compares the Tests with their Queues; here they only move the badges they count in.
+      const testCans = [];
+      for (const t of tests) testCans.push((await c.ok('GET', `/api/tests/${t.id}`)).can);
+      const views = await queueViews(c, { SAMPLE_QUEUES: s });
+      assertQueues(label, { SAMPLE_QUEUES: can, TEST_QUEUES: testCans }, views, before, await badges(c));
 
       const actions = Object.keys(SAMPLE_ACTIONS);
       for (const action of actions.filter((a) => !can[a])) {

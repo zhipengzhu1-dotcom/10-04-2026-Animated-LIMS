@@ -11,7 +11,7 @@ import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from 
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
-import { TEST_QUEUES, TEST_RULES, TEST_OPEN } from '../workflow.js';
+import { SAMPLE_QUEUES, SAMPLE_RULES, TEST_QUEUES, TEST_RULES, TEST_OPEN } from '../workflow.js';
 import { INVESTIGATION_OPEN } from '../investigations.js';
 import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
@@ -101,10 +101,11 @@ export default function routes(r) {
   // Counts for the sidebar badges.
   r.get('/api/nav', (ctx) => {
     const tests = (name) => queued(TEST_RULES, TEST_QUEUES[name], ctx.user).length;
+    const certificates = queued(SAMPLE_RULES, SAMPLE_QUEUES.certificate, ctx.user).length;
     const witness = queued(ENTRY_RULES, ENTRY_QUEUES.witness, ctx.user).length;
     return {
       myTests: tests('assigned'),
-      reviews: tests('review') + tests('approval') + witness,
+      reviews: tests('review') + tests('approval') + witness + certificates,
       investigations: get(`SELECT COUNT(*) n FROM investigations v WHERE ${INVESTIGATION_OPEN}`).n,
       portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
     };
