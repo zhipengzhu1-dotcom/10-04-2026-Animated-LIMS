@@ -14,6 +14,8 @@ import { stepper } from '../core/components.js';
 const SUB_TONE = { Submitted: 'blue', Acknowledged: 'teal', Received: 'green', Declined: 'red', Withdrawn: 'gray' };
 const REQ_TONE = { Submitted: 'blue', 'Under review': 'amber', 'Proposal sent': 'violet', Accepted: 'green', Declined: 'red' };
 const REQUEST_STATUSES = ['Submitted', 'Under review', 'Proposal sent', 'Accepted', 'Declined'];
+// Each status a request can move to, after the rule that offers the move.
+const REQUEST_MOVES = [['review', 'Under review'], ['propose', 'Proposal sent'], ['accept', 'Accepted'], ['decline', 'Declined']];
 
 // Conversation bubbles are specific to this view; the design system has no chat component.
 function ensureStyles() {
@@ -185,10 +187,10 @@ async function submissionsTab(ctx, body, tools) {
 
 export async function submission(ctx) {
   ensureStyles();
-  const { submission: s, thread_id, projects } = await api.get(`/api/portal-admin/submissions/${ctx.params.id}`);
+  const d = await api.get(`/api/portal-admin/submissions/${ctx.params.id}`);
+  const { submission: s, thread_id, projects } = d;
   const thread = thread_id ? await api.get(`/api/portal-admin/threads/${thread_id}`) : null;
   ctx.title(s.code);
-  const open = ['Submitted', 'Acknowledged'].includes(s.status);
   const stopped = ['Declined', 'Withdrawn'].includes(s.status);
   ctx.el.innerHTML = String(html`
     ${pageHead({
@@ -197,9 +199,9 @@ export async function submission(ctx) {
       badges: html`${badge(s.status, SUB_TONE[s.status])} ${s.priority !== 'Standard' ? badge(s.priority) : ''}`,
       sub: html`${s.client_name} · ${s.submitted_by || 'client'} <span class="muted">(${s.submitted_by_email || ''})</span> · submitted ${fmtDateTime(s.created_at)}`,
       actions: html`
-        ${s.status === 'Submitted' && can('portal.respond') ? html`<button class="btn" data-act="ack">${icon('check', { size: 15 })}Acknowledge</button>` : ''}
-        ${open && can('portal.respond') ? html`<button class="btn" data-act="decline">Decline</button>` : ''}
-        ${open && can('samples.receive') ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
+        ${d.can.acknowledge ? html`<button class="btn" data-act="ack">${icon('check', { size: 15 })}Acknowledge</button>` : ''}
+        ${d.can.decline ? html`<button class="btn" data-act="decline">Decline</button>` : ''}
+        ${d.can.receive ? html`<button class="btn primary" data-act="receive">${icon('tube', { size: 15 })}Receive samples</button>` : ''}`,
     })}
     <div class="card stepper-card">${stepper(['Submitted', 'Acknowledged', 'Received'], stopped ? 'Submitted' : s.status, { stopped: stopped ? s.status : undefined })}</div>
     <div class="split-wide" style="margin-top:var(--gap, 12px)">
@@ -319,10 +321,11 @@ async function requestsTab(ctx, body, tools) {
 
 export async function request(ctx) {
   ensureStyles();
-  const { request: q, thread_id } = await api.get(`/api/portal-admin/requests/${ctx.params.id}`);
+  const d = await api.get(`/api/portal-admin/requests/${ctx.params.id}`);
+  const { request: q, thread_id } = d;
   const thread = thread_id ? await api.get(`/api/portal-admin/threads/${thread_id}`) : null;
   ctx.title(q.code);
-  const open = ['Submitted', 'Under review', 'Proposal sent'].includes(q.status);
+  const moves = REQUEST_MOVES.filter(([action]) => d.can[action]).map(([, status]) => status);
   ctx.el.innerHTML = String(html`
     ${pageHead({
       back: { href: '/portal-inbox?tab=requests', label: 'Method requests' },
@@ -330,8 +333,8 @@ export async function request(ctx) {
       badges: badge(q.status, REQ_TONE[q.status]),
       sub: html`<span class="code">${q.code}</span> · ${q.type} · ${q.client_name} · ${q.submitted_by || ''} · ${fmtDateTime(q.created_at)}`,
       actions: html`
-        ${open && can('portal.respond') ? html`<button class="btn" data-act="respond">${icon('send', { size: 15 })}Respond / update status</button>` : ''}
-        ${!q.project_id && q.status !== 'Declined' && can('projects.edit') ? html`<button class="btn primary" data-act="project">${icon('folder', { size: 15 })}Open project</button>` : ''}`,
+        ${d.can.reply || moves.length ? html`<button class="btn" data-act="respond">${icon('send', { size: 15 })}Respond / update status</button>` : ''}
+        ${d.can.openProject ? html`<button class="btn primary" data-act="project">${icon('folder', { size: 15 })}Open project</button>` : ''}`,
     })}
     <div class="card stepper-card">${stepper(['Submitted', 'Under review', 'Proposal sent', q.status === 'Declined' ? 'Declined' : 'Accepted'], q.status, { stopped: q.status === 'Declined' ? 'Declined' : undefined })}</div>
     <div class="split-wide" style="margin-top:var(--gap, 12px)">
@@ -364,7 +367,7 @@ export async function request(ctx) {
       size: 'lg',
       submitLabel: 'Send to client',
       body: html`
-        ${field({ label: 'Status', name: 'status', type: 'select', options: REQUEST_STATUSES.filter((x) => x !== 'Submitted'), value: q.status === 'Submitted' ? 'Under review' : q.status, required: true })}
+        ${field({ label: 'Status', name: 'status', type: 'select', options: moves, empty: d.can.reply ? `No change (${q.status})` : undefined, value: d.can.review ? 'Under review' : '' })}
         <div></div>
         ${field({ label: 'Message to the client', name: 'response', type: 'textarea', rows: 6, span: 2, hint: 'Required for “Proposal sent” and “Declined”. Posted in the request’s conversation.' })}`,
       onSubmit: (d) => api.post(`/api/portal-admin/requests/${q.id}/status`, d),

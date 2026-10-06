@@ -285,6 +285,28 @@ test('method request: client asks → lab sends proposal → project opened for 
   assert.ok(projects.some((x) => x.code === p.code));
 });
 
+const newRequest = async () => (await (await portal(LAURA)).ok('POST', '/api/portal/requests', { type: 'Method validation', title: 'Validate HPLC assay' })).id;
+
+test('a request the lab has responded to is never moved back to Submitted', async () => {
+  const id = await newRequest();
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review', response: 'Looking at the scope now.' });
+  const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Submitted' });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'A request never goes back to Submitted');
+  assert.equal((await manager.ok('GET', `/api/portal-admin/requests/${id}`)).request.status, 'Under review');
+});
+
+test('a request is accepted only after a proposal was sent', async () => {
+  const id = await newRequest();
+  for (const step of [null, 'Under review']) {
+    if (step) await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: step });
+    const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Accepted' });
+    assert.equal(r.status, 400, `from ${step || 'Submitted'}`);
+    assert.equal(r.data.error, 'A request is accepted only after a proposal has been sent');
+  }
+  assert.equal((await manager.ok('GET', `/api/portal-admin/requests/${id}`)).request.status, 'Under review');
+});
+
 test('portal actions are written to the audit trail under the contact’s identity', async () => {
   const qa = await staff('daniel.okafor');
   const who = `portal:${LAURA}`;
