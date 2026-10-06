@@ -5,6 +5,7 @@ import { can } from '../auth.js';
 import { SAMPLE_OPEN, rolesWith } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
 import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES, TEST_RETURNED } from '../workflow.js';
+import { INVESTIGATION_OPEN } from '../investigations.js';
 
 function monthsBack(n) {
   const out = [];
@@ -46,7 +47,7 @@ export default function routes(r) {
       (SELECT COUNT(*) FROM tests WHERE status = 'Submitted') AS awaiting_review,
       (SELECT COUNT(*) FROM tests WHERE status = 'Reviewed') AS awaiting_approval,
       (SELECT COUNT(*) FROM tests WHERE analyst_id IS NULL AND status = 'Pending') AS unassigned,
-      (SELECT COUNT(*) FROM investigations WHERE status != 'Closed') AS open_investigations,
+      (SELECT COUNT(*) FROM investigations v WHERE ${INVESTIGATION_OPEN}) AS open_investigations,
       (SELECT COUNT(*) FROM samples WHERE reported_at >= ?) AS reported_90d,
       (SELECT COUNT(*) FROM samples WHERE reported_at >= ? AND substr(reported_at, 1, 10) <= due_date) AS on_time_90d,
       (SELECT AVG(julianday(reported_at) - julianday(received_at)) FROM samples WHERE reported_at >= ?) AS avg_tat_90d`,
@@ -77,7 +78,7 @@ export default function routes(r) {
     for (const m of all(`SELECT id, code, name, quantity, unit FROM inventory WHERE status = 'Active' AND min_quantity IS NOT NULL AND quantity <= min_quantity`)) {
       alerts.push({ level: 'amber', kind: 'Inventory', href: `/inventory/${m.id}`, code: m.code, text: `Low stock: ${m.name} (${m.quantity} ${m.unit || ''} left)` });
     }
-    for (const v of all(`SELECT id, code, title, due_date FROM investigations WHERE status != 'Closed' AND due_date < ?`, t)) {
+    for (const v of all(`SELECT v.id, v.code, v.title, v.due_date FROM investigations v WHERE ${INVESTIGATION_OPEN} AND v.due_date < ?`, t)) {
       alerts.push({ level: 'red', kind: 'Investigation', href: `/investigations/${v.id}`, code: v.code, text: `Past due (${v.due_date}): ${v.title}` });
     }
     for (const q of all(`SELECT q.method_code, q.expires_at, u.full_name, u.id FROM qualifications q JOIN users u ON u.id = q.user_id WHERE q.revoked = 0 AND u.active = 1 AND q.expires_at IS NOT NULL AND q.expires_at <= ?`, addDays(t, 30))) {

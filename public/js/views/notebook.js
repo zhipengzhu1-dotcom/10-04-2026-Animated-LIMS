@@ -157,7 +157,7 @@ export async function detail(ctx) {
     </div>`);
 
   const docs = mountDocuments(ctx.el, n, { docs: d.documents, editable: editing, isCurrent: ctx.isCurrent, beforeOpen: () => ctx.flush?.() });
-  wireRecordFooter(ctx.el, 'notebook_entries', n.id, { locked: !editing, lockedReason: n.status !== 'Draft' ? 'Signed entries are locked. Attach further files to an addendum record or a new entry.' : null });
+  wireRecordFooter(ctx.el, 'notebook_entries', n.id);
 
   if (editing) {
     const ta = ctx.el.querySelector('[data-body]');

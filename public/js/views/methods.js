@@ -56,18 +56,33 @@ export async function list(ctx) {
   f.addEventListener('input', debounce(() => table.filter(f.value), 120));
 }
 
+// One button per status change, keyed by the rule that offers it; the server's flags decide which show. A `sign` button asks for an e-signature.
+const STATUS_ACTIONS = {
+  backToDraft: { status: 'Draft', label: 'Back to draft' },
+  develop: { status: 'In Development', label: 'Back to development' },
+  validate: { status: 'In Validation', label: 'Move to validation' },
+  makeEffective: {
+    status: 'Effective', label: 'Approve & make effective', primary: true,
+    sign: {
+      title: 'Approve', action: 'method.approve', confirmLabel: 'Sign & approve', comment: { label: 'Approval reference (e.g. validation report number)' }, done: 'Method approved',
+      description: (m, versions) => html`The method becomes the controlled version for testing. ${versions.some((v) => v.status === 'Effective' && v.id !== m.id) ? 'The current effective version will be retired automatically.' : ''}`,
+    },
+  },
+  retire: {
+    status: 'Retired', label: 'Retire',
+    sign: {
+      title: 'Retire', action: 'method.retire', confirmLabel: 'Sign & retire', danger: true, comment: { label: 'Reason', required: true }, done: 'Method retired',
+      description: () => 'Retired methods can no longer be used for new tests.',
+    },
+  },
+};
+
 export async function detail(ctx) {
   const d = await api.get(`/api/methods/${ctx.params.id}`);
   const m = d.method;
   ctx.title(`${m.code} v${m.version}`);
   const oosRate = d.stats.runs ? (d.stats.oos / d.stats.runs) * 100 : null;
-  const transitionBtn = (target) => {
-    const needsSign = ['Effective', 'Retired'].includes(target);
-    if (needsSign && !d.can.approve) return '';
-    if (!needsSign && !can('methods.edit')) return '';
-    const label = { Effective: 'Approve & make effective', Retired: 'Retire', 'In Validation': 'Move to validation', 'In Development': 'Back to development', Draft: 'Back to draft' }[target] || target;
-    return html`<button class="btn ${target === 'Effective' ? 'primary' : ''}" data-status="${target}">${needsSign ? icon('sign', { size: 15 }) : ''}${label}</button>`;
-  };
+  const statusBtn = ([rule, a]) => (d.can[rule] ? html`<button class="btn ${a.primary ? 'primary' : ''}" data-move="${rule}">${a.sign ? icon('sign', { size: 15 }) : ''}${a.label}</button>` : '');
 
   ctx.el.innerHTML = String(html`
     ${pageHead({
@@ -76,9 +91,9 @@ export async function detail(ctx) {
       badges: html`${statusBadge(m.status)}`,
       meta: html`<span class="code">${m.code} v${m.version}</span><span>${icon('flask', { size: 14 })}${m.technique}</span>${m.client_name ? html`<span>${icon('building', { size: 14 })}${m.client_name}</span>` : ''}${m.reference ? html`<span>${icon('method', { size: 14 })}${m.reference}</span>` : ''}`,
       actions: html`
-        ${d.transitions.map(transitionBtn)}
+        ${Object.entries(STATUS_ACTIONS).map(statusBtn)}
         ${d.can.edit ? html`<a class="btn" href="/methods/${m.id}/edit">${icon('edit', { size: 15 })}Edit</a>` : ''}
-        ${d.can.newVersion && m.status !== 'Draft' ? html`<button class="btn" data-act="version">${icon('branch', { size: 15 })}New version</button>` : ''}`,
+        ${d.can.newVersion ? html`<button class="btn" data-act="version">${icon('branch', { size: 15 })}New version</button>` : ''}`,
     })}
     ${m.status === 'Effective' ? html`<div class="locked-banner">${icon('lock', { size: 14 })}<span>Effective since ${fmtDate(m.effective_date)}${m.approved_by_name ? `, approved by ${m.approved_by_name}` : ''}. Effective methods are locked — create a new version to change them.</span></div>` : ''}
     <div class="split">
@@ -127,28 +142,23 @@ export async function detail(ctx) {
       </div>
     </div>`);
 
-  wireRecordFooter(ctx.el, 'methods', m.id, { locked: !can('methods.edit') });
+  wireRecordFooter(ctx.el, 'methods', m.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
 
   ctx.el.addEventListener('click', async (e) => {
-    const sb = e.target.closest('[data-status]');
+    const sb = e.target.closest('[data-move]');
     if (sb) {
-      const target = sb.dataset.status;
-      if (['Effective', 'Retired'].includes(target)) {
+      const { status, sign } = STATUS_ACTIONS[sb.dataset.move];
+      if (sign) {
         const ok = await esign({
-          title: target === 'Effective' ? `Approve ${m.code} v${m.version}` : `Retire ${m.code} v${m.version}`,
-          action: target === 'Effective' ? 'method.approve' : 'method.retire',
-          description: target === 'Effective'
-            ? html`The method becomes the controlled version for testing. ${d.versions.some((v) => v.status === 'Effective' && v.id !== m.id) ? 'The current effective version will be retired automatically.' : ''}`
-            : 'Retired methods can no longer be used for new tests.',
-          confirmLabel: target === 'Effective' ? 'Sign & approve' : 'Sign & retire',
-          danger: target === 'Retired',
-          comment: { label: target === 'Effective' ? 'Approval reference (e.g. validation report number)' : 'Reason', required: target === 'Retired' },
-          onSign: (sig) => api.post(`/api/methods/${m.id}/status`, { status: target, ...sig }),
+          ...sign,
+          title: `${sign.title} ${m.code} v${m.version}`,
+          description: sign.description(m, d.versions),
+          onSign: (sig) => api.post(`/api/methods/${m.id}/status`, { status, ...sig }),
         });
-        if (ok) { toast(`Method ${target === 'Effective' ? 'approved' : 'retired'}`); ctx.refresh(); }
+        if (ok) { toast(sign.done); ctx.refresh(); }
       } else {
-        await busy(sb, async () => { await api.post(`/api/methods/${m.id}/status`, { status: target }); toast(`Moved to ${target}`); ctx.refresh(); });
+        await busy(sb, async () => { await api.post(`/api/methods/${m.id}/status`, { status }); toast(`Moved to ${status}`); ctx.refresh(); });
       }
     }
     if (e.target.closest('[data-act=version]')) {

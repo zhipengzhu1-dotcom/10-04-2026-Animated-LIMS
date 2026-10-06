@@ -1,70 +1,67 @@
-// File attachments on records, kept for the record when removed and locked once the record is signed off.
+// File attachments on records, kept for the record when removed, and locked when the record's own `attach` rule says so.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { all, get } from '../db.js';
+import { all } from '../db.js';
 import { insert, update, mustGet } from '../repo.js';
-import { bad, forbidden, notFound } from '../http.js';
+import { bad, forbidden, notFound, guard, flags, locks } from '../http.js';
 import { can } from '../auth.js';
-import { ATTACHABLE, RECORD_ACCESS } from '../lookups.js';
+import { RECORD_ACCESS } from '../lookups.js';
 import { nowIso } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
-import { TEST_EDITABLE } from '../workflow.js';
+import { TEST_RULES, SAMPLE_RULES } from '../workflow.js';
+import { INVESTIGATION_RULES } from '../investigations.js';
+import { ENTRY_RULES } from '../notebook.js';
+import { METHOD_RULES, INSTRUMENT_RULES, INVENTORY_RULES } from './resources.js';
+import { CLIENT_RULES, PROJECT_RULES, INVOICE_RULES } from './business.js';
 
-const canAny = (user, perms) => perms === null || perms.some((p) => can(user, p));
+/** Each record type that takes files, with the rules table whose `attach` rule decides when they can change. */
+export const ATTACHABLE = {
+  samples: SAMPLE_RULES, tests: TEST_RULES, methods: METHOD_RULES, notebook_entries: ENTRY_RULES, investigations: INVESTIGATION_RULES,
+  instruments: INSTRUMENT_RULES, inventory: INVENTORY_RULES, projects: PROJECT_RULES, clients: CLIENT_RULES, invoices: INVOICE_RULES,
+};
 
-function assertAttachmentAccess(ctx, entity, id, mode) {
-  if (!ATTACHABLE.includes(entity)) throw bad('Unknown record type');
-  const rule = RECORD_ACCESS[entity];
-  if (!canAny(ctx.user, rule.view)) throw forbidden();
-  if (mode === 'edit') {
-    if (!canAny(ctx.user, rule.edit)) throw forbidden('You cannot add or remove files on this record');
-    if (entity === 'tests') {
-      const t = get('SELECT analyst_id FROM tests WHERE id = ?', id);
-      if (t && t.analyst_id !== ctx.user.id && !can(ctx.user, 'tests.assign')) throw forbidden('Only the assigned analyst can attach files to this test');
-    }
-    if (entity === 'notebook_entries') {
-      const n = get('SELECT author_id FROM notebook_entries WHERE id = ?', id);
-      if (n && n.author_id !== ctx.user.id) throw forbidden('Only the author can attach files to this entry');
-    }
-  }
+/** The record whose files `ctx.user` asks about, once they may see it. */
+function viewable(ctx, entity, id) {
+  if (!Object.hasOwn(ATTACHABLE, entity)) throw bad('Unknown record type');
+  const { view } = RECORD_ACCESS[entity];
+  if (view && !view.some((p) => can(ctx.user, p))) throw forbidden();
+  return mustGet(`SELECT * FROM ${entity} WHERE id = ?`, id, 'Record');
 }
 
-/** Records that are signed off cannot gain or lose attachments. */
-function attachmentLock(entity, id) {
-  if (entity === 'invoices' && get(`SELECT 1 FROM invoices WHERE id = ? AND status != 'Draft'`, id)) return 'Issued invoices are locked';
-  if (entity === 'tests') {
-    const t = get('SELECT status FROM tests WHERE id = ?', id);
-    if (!t) return 'Record not found';
-    if (!TEST_EDITABLE.includes(t.status)) return `The test is ${t.status.toLowerCase()} — attachments are locked`;
-  }
-  if (entity === 'notebook_entries') {
-    const n = get('SELECT status FROM notebook_entries WHERE id = ?', id);
-    if (!n) return 'Record not found';
-    if (n.status !== 'Draft') return 'Signed notebook entries are locked — add an addendum instead';
-  }
-  if (entity === 'investigations' && get(`SELECT 1 FROM investigations WHERE id = ? AND status = 'Closed'`, id)) return 'Closed investigations are locked';
-  if (!get(`SELECT 1 FROM ${entity} WHERE id = ?`, id)) return 'Record not found';
-  return null;
-}
+// Each rule takes an attachment row carrying the record it is on as `record`.
+export const ATTACHMENT_RULES = {
+  remove(a, me) {
+    if (a.removed) return bad('Already removed');
+    const locked = ATTACHABLE[a.entity].attach(a.record, me);
+    if (locked) return locked;
+    if (a.uploaded_by !== me.id && !can(me, 'attachments.remove')) return forbidden('Only the uploader, or someone allowed to remove others\' files, can remove this file');
+  },
+};
 
 const safeMime = (m) => (/^[\w.+-]+\/[\w.+-]+$/.test(m || '') ? m : 'application/octet-stream');
 
 export default function routes(r) {
   r.get('/api/attachments', (ctx) => {
-    const { entity, id } = ctx.query;
-    assertAttachmentAccess(ctx, entity, +id, 'view');
-    return all(`SELECT a.id, a.filename, a.mime, a.size, a.sha256, a.uploaded_at, a.removed, a.removed_reason, u.full_name AS uploaded_by_name
-      FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by WHERE a.entity = ? AND a.entity_id = ? ORDER BY a.id DESC`, entity, +id);
+    const { entity } = ctx.query;
+    const id = +ctx.query.id;
+    const record = viewable(ctx, entity, id);
+    const files = all(`SELECT a.id, a.entity, a.entity_id, a.filename, a.mime, a.size, a.sha256, a.uploaded_by, a.uploaded_at, a.removed, a.removed_reason, u.full_name AS uploaded_by_name
+      FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by WHERE a.entity = ? AND a.entity_id = ? ORDER BY a.id DESC`, entity, id);
+    const { attach } = ATTACHABLE[entity];
+    return {
+      can: flags({ attach }, record, ctx.user),
+      locks: locks({ attach }, record, ctx.user, 'attach'),
+      files: files.map((f) => ({ ...f, can: flags(ATTACHMENT_RULES, { ...f, record }, ctx.user) })),
+    };
   });
 
   r.post('/api/attachments', async (ctx) => {
     const { entity } = ctx.query;
     const id = +ctx.query.id;
-    assertAttachmentAccess(ctx, entity, id, 'edit');
-    const lock = attachmentLock(entity, id);
-    if (lock) throw bad(lock);
+    const record = viewable(ctx, entity, id);
+    guard(ATTACHABLE[entity].attach(record, ctx.user));
     let filename = String(ctx.req.headers['x-filename'] || 'file');
     try { filename = decodeURIComponent(filename); } catch { /* keep the raw header value */ }
     filename = filename.replace(/[\\/\0\r\n]/g, '_').slice(0, 200) || 'file';
@@ -77,17 +74,16 @@ export default function routes(r) {
       await fs.promises.mkdir(path.dirname(abs), { recursive: true });
       await fs.promises.writeFile(abs, buf);
     }
-    const code = get(`SELECT * FROM ${entity} WHERE id = ?`, id);
     const newId = insert(ctx, 'attachments', {
       entity, entity_id: id, filename, mime: safeMime(ctx.req.headers['content-type']), size: buf.length, sha256, storage_path: rel,
       uploaded_by: ctx.user.id, uploaded_at: nowIso(),
-    }, { code: code?.code ?? null, summary: `File attached: ${filename}` });
+    }, { code: record.code ?? null, summary: `File attached: ${filename}` });
     return { id: newId };
   }, { raw: true, limit: MAX_UPLOAD_BYTES });
 
   r.get('/api/attachments/:id/file', (ctx) => {
     const a = mustGet('SELECT * FROM attachments WHERE id = ?', +ctx.params.id, 'Attachment');
-    assertAttachmentAccess(ctx, a.entity, a.entity_id, 'view');
+    viewable(ctx, a.entity, a.entity_id);
     const abs = path.join(DATA_DIR, a.storage_path);
     if (!fs.existsSync(abs)) throw notFound('File');
     const inline = ctx.query.inline && /^(image\/(png|jpeg|gif|webp)|application\/pdf|text\/plain)$/.test(a.mime);
@@ -104,11 +100,8 @@ export default function routes(r) {
 
   r.post('/api/attachments/:id/remove', (ctx) => {
     const a = mustGet('SELECT * FROM attachments WHERE id = ?', +ctx.params.id, 'Attachment');
-    if (a.removed) throw bad('Already removed');
-    assertAttachmentAccess(ctx, a.entity, a.entity_id, 'edit');
-    if (a.uploaded_by !== ctx.user.id && !['admin', 'manager'].includes(ctx.user.role)) throw forbidden('Only the uploader or a manager can remove this file');
-    const lock = attachmentLock(a.entity, a.entity_id);
-    if (lock) throw bad(lock);
+    const record = viewable(ctx, a.entity, a.entity_id);
+    guard(ATTACHMENT_RULES.remove({ ...a, record }, ctx.user));
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
     // The file itself is kept for the record; it is only hidden from the record's file list.

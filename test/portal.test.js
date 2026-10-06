@@ -242,6 +242,24 @@ test('sample submission: client submits → lab acknowledges → receives into r
   assert.ok(thread.messages.some((m) => m.side === 'system' && m.body.includes(rec.samples[0].code)));
 });
 
+test('a submission names only one of the client’s own open projects, the ones the portal offers', async () => {
+  const project = async (client_id) => (await manager.ok('POST', '/api/projects', { client_id, title: 'Submission target', type: 'Other', status: 'Active' })).id;
+  const open = await project(ids.acme);
+  const cancelled = await project(ids.acme);
+  await manager.ok('POST', `/api/projects/${cancelled}/cancel`, { reason: 'Client withdrew' });
+  const foreign = await project(ids.other);
+  const laura = await portal(LAURA);
+  const offered = (await laura.ok('GET', '/api/portal/lookups')).projects.map((p) => p.id);
+  assert.ok(offered.includes(open));
+  assert.ok(!offered.includes(cancelled) && !offered.includes(foreign));
+  await laura.ok('POST', '/api/portal/submissions', { project_id: open, samples: [{ description: 'Into an open project' }] });
+  for (const project_id of [cancelled, foreign]) {
+    const r = await laura.post('/api/portal/submissions', { project_id, samples: [{ description: 'Into a project not offered' }] });
+    assert.equal(r.status, 400);
+    assert.equal(r.data.error, 'Project not found');
+  }
+});
+
 test('messages: unread tracking on both sides; replies are plain text', async () => {
   const laura = await portal(LAURA);
   const { id } = await laura.ok('POST', '/api/portal/threads', { subject: 'Question about MF-2614', body: 'Hi,\n<b>bold?</b>' });
@@ -283,6 +301,41 @@ test('method request: client asks → lab sends proposal → project opened for 
   assert.equal(after.request.project_code, p.code);
   const projects = await laura.ok('GET', '/api/portal/projects');
   assert.ok(projects.some((x) => x.code === p.code));
+});
+
+const newRequest = async () => (await (await portal(LAURA)).ok('POST', '/api/portal/requests', { type: 'Method validation', title: 'Validate HPLC assay' })).id;
+
+test('a request the lab has responded to is never moved back to Submitted', async () => {
+  const id = await newRequest();
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review', response: 'Looking at the scope now.' });
+  const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Submitted' });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'A request never goes back to Submitted');
+  assert.equal((await manager.ok('GET', `/api/portal-admin/requests/${id}`)).request.status, 'Under review');
+});
+
+test('a request is accepted only after a proposal was sent', async () => {
+  const id = await newRequest();
+  for (const step of [null, 'Under review']) {
+    if (step) await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: step });
+    const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Accepted' });
+    assert.equal(r.status, 400, `from ${step || 'Submitted'}`);
+    assert.equal(r.data.error, 'A request is accepted only after a proposal has been sent');
+  }
+  assert.equal((await manager.ok('GET', `/api/portal-admin/requests/${id}`)).request.status, 'Under review');
+});
+
+test('a response that keeps the request’s status is a reply, refused once the request is closed', async () => {
+  const id = await newRequest();
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review' });
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review', response: 'Still reading the scope.' });
+  const after = await manager.ok('GET', `/api/portal-admin/requests/${id}`);
+  assert.equal(after.request.status, 'Under review');
+  assert.equal(after.request.response, 'Still reading the scope.');
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Declined', response: 'Out of our scope.' });
+  const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Declined', response: 'One more thing.' });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'This request is already declined');
 });
 
 test('portal actions are written to the audit trail under the contact’s identity', async () => {

@@ -142,7 +142,7 @@ export async function detail(ctx) {
       </div>
     </div>`);
 
-  wireRecordFooter(ctx.el, 'investigations', v.id, { locked: closed, lockedReason: closed ? 'Closed investigations are locked.' : null });
+  wireRecordFooter(ctx.el, 'investigations', v.id);
   const form = ctx.el.querySelector('form[data-inv]');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -4,7 +4,7 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad } from '../http.js';
+import { bad, guard, flags } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
@@ -13,9 +13,10 @@ import {
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
   TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
-  guard, unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
+  unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
+import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
+import { PROJECT_RULES } from './business.js';
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -74,6 +75,13 @@ export function createTest(ctx, sample, method, { due, priority }) {
 // Sample services
 // ---------------------------------------------------------------------------------------------
 
+/** Refuses filing a Sample of client `clientId` under Project `projectId` unless it is that client's and the Project's receive rule allows it. */
+function assertProjectTakes(ctx, projectId, clientId) {
+  const p = get('SELECT * FROM projects WHERE id = ?', projectId);
+  if (p.client_id !== clientId) throw bad('That project belongs to a different client');
+  guard(PROJECT_RULES.receive(p, ctx.user));
+}
+
 export function receiveSamples(ctx, body) {
   assertCan(ctx, 'samples.receive');
   const common = clean(body, {
@@ -88,11 +96,7 @@ export function receiveSamples(ctx, body) {
     due_date: { type: 'date' },
     notes: { type: 'text' },
   });
-  if (common.project_id) {
-    const p = get('SELECT client_id, status FROM projects WHERE id = ?', common.project_id);
-    if (p.client_id !== common.client_id) throw bad('That project belongs to a different client');
-    if (['Completed', 'Cancelled'].includes(p.status)) throw bad(`That project is ${p.status.toLowerCase()} — reopen it before receiving samples`);
-  }
+  if (common.project_id) assertProjectTakes(ctx, common.project_id, common.client_id);
   const rows = (Array.isArray(body.samples) ? body.samples : [])
     .filter((s) => s && typeof s === 'object' && Object.values(s).some((v) => String(v ?? '').trim()))
     .map((s, i) => clean(s, {
@@ -120,9 +124,8 @@ export function receiveSamples(ctx, body) {
 }
 
 export function addTestsToSample(ctx, sampleId, methodIds) {
-  assertCan(ctx, 'samples.receive');
   const s = mustGet('SELECT * FROM samples WHERE id = ?', sampleId, 'Sample');
-  if (!SAMPLE_OPEN.includes(s.status)) throw bad(`Sample is ${s.status.toLowerCase()} — tests can no longer be added`);
+  guard(SAMPLE_RULES.addTests(s, ctx.user));
   const methods = loadUsableMethods(idList(methodIds));
   if (!methods.length) throw bad('Choose at least one method');
   return tx(() => {
@@ -190,7 +193,6 @@ export default function routes(r) {
     const tests = all(`${TEST_SELECT} WHERE t.sample_id = ? ORDER BY t.id`, id);
     const results = tests.length ? all(`SELECT * FROM results WHERE test_id IN (${ph(tests)}) ORDER BY sort_order, id`, ...tests.map((t) => t.id)) : [];
     for (const t of tests) t.results = results.filter((x) => x.test_id === t.id);
-    const allowed = (action) => !SAMPLE_RULES[action](sample, ctx.user);
     return {
       sample,
       tests,
@@ -199,29 +201,20 @@ export default function routes(r) {
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
       investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'samples' AND entity_id = ? ORDER BY id`, id),
-      can: {
-        edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
-        addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
-        assign: allowed('assign'),
-        issue: allowed('issue'),
-        dispose: allowed('dispose'),
-        cancel: allowed('cancel'),
-        custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
-      },
+      can: flags(SAMPLE_RULES, sample, ctx.user),
     };
   });
 
   r.put('/api/samples/:id', (ctx) => {
-    assertCan(ctx, 'samples.edit');
     const id = +ctx.params.id;
     const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
-    if (!SAMPLE_OPEN.includes(s.status)) throw bad(`This sample is ${s.status.toLowerCase()} and can no longer be edited`);
+    guard(SAMPLE_RULES.edit(s, ctx.user));
     const b = clean(ctx.body, {
       description: { required: true }, sample_type: { type: 'enum', values: SAMPLE_TYPES }, batch_no: {}, client_ref: {},
       quantity: {}, container: {}, storage: { type: 'enum', values: STORAGE_CONDITIONS }, priority: { type: 'enum', values: PRIORITIES },
       due_date: { type: 'date' }, notes: { type: 'text' }, project_id: { type: 'id', ref: 'projects' },
     }, { partial: true });
-    if (b.project_id && get('SELECT client_id FROM projects WHERE id = ?', b.project_id).client_id !== s.client_id) throw bad('That project belongs to a different client');
+    if (b.project_id && b.project_id !== s.project_id) assertProjectTakes(ctx, b.project_id, s.client_id);
     const reason = String(ctx.body.reason || '').trim();
     if (s.status !== 'Received' && !reason) throw bad('Testing has started on this sample — give a reason for the change', 'REASON_REQUIRED');
     update(ctx, 'samples', id, b, { summary: 'Sample details edited', reason: reason || null });
@@ -232,12 +225,7 @@ export default function routes(r) {
     const id = +ctx.params.id;
     const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
     const b = clean(ctx.body, { action: { type: 'enum', values: CUSTODY_ACTIONS, required: true }, location: {}, note: { type: 'text' } });
-    if (b.action === 'Disposed') {
-      guard(SAMPLE_RULES.dispose(s, ctx.user));
-    } else {
-      assertCan(ctx, 'samples.edit');
-    }
-    if (['Disposed', 'Cancelled'].includes(s.status) && b.action !== 'Disposed') throw bad(`Sample is ${s.status.toLowerCase()}`);
+    guard(SAMPLE_RULES[b.action === 'Disposed' ? 'dispose' : 'custody'](s, ctx.user));
     tx(() => {
       run('INSERT INTO custody_events (sample_id, action, location, note, user_id, at) VALUES (?, ?, ?, ?, ?, ?)', id, b.action, b.location, b.note, ctx.user.id, nowIso());
       const patch = {};
@@ -315,10 +303,9 @@ export default function routes(r) {
     // Each Investigation can be closed from its card on the Test page, so its closure signature is shown here too.
     for (const v of investigations) {
       v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
-      v.can = { close: mayCloseInvestigation(me, v) };
+      v.can = flags(INVESTIGATION_RULES, v, me);
     }
     const performers = rolesWith('tests.perform');
-    const allowed = (action) => !TEST_RULES[action](test, me);
     return {
       test,
       method,
@@ -335,18 +322,7 @@ export default function routes(r) {
         ORDER BY used_with_method DESC, i.category, i.name`, test.method_code, id).map((m) => ({ ...m, problem: materialProblem(m) })),
       analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
-      can: {
-        assign: allowed('assign'),
-        claim: allowed('claim'),
-        start: allowed('start'),
-        edit: allowed('record'),
-        submit: allowed('submit'),
-        review: allowed('review'),
-        accept: allowed('accept'),
-        return: allowed('return'),
-        cancel: allowed('cancel'),
-        raise: can(me, 'investigations.raise'),
-      },
+      can: flags(TEST_RULES, test, me),
       qualifiedMe,
     };
   });

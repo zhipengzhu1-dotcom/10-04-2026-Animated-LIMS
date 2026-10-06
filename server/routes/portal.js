@@ -9,11 +9,11 @@ import crypto from 'node:crypto';
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { HttpError, bad, forbidden, notFound } from '../http.js';
+import { HttpError, bad, forbidden, notFound, guard, flags } from '../http.js';
 import { assertCan, can, checkPasswordPolicy, hashPassword, verifyPassword } from '../auth.js';
 import { portalAuth, portalLogin, portalLogout, portalCtx, publicPortalUser, portalDestroyOtherSessions } from '../portal-auth.js';
 import { getSettings } from '../settings.js';
-import { SAMPLE_TYPES, STORAGE_CONDITIONS, PRIORITIES, TECHNIQUES, SAMPLE_OPEN } from '../lookups.js';
+import { SAMPLE_TYPES, STORAGE_CONDITIONS, PRIORITIES, TECHNIQUES, SAMPLE_OPEN, PROJECT_OPEN } from '../lookups.js';
 import { clean, nowIso, idList, addDays, today, specText, fixed } from '../util.js';
 import { receiveSamples } from './lab.js';
 import { createProject } from './business.js';
@@ -155,11 +155,68 @@ function submissionView(sub, { forClient }) {
 // Services (also used by the demo seed)
 // ---------------------------------------------------------------------------------------------
 
-const openSubmission = (id) => {
-  const sub = mustGet('SELECT * FROM portal_submissions WHERE id = ?', id, 'Submission');
-  if (!SUBMISSION_OPEN.includes(sub.status)) throw bad(`This submission is ${sub.status.toLowerCase()}`);
-  return sub;
+const closedSubmission = (sub) => (SUBMISSION_OPEN.includes(sub.status) ? undefined : bad(`This submission is ${sub.status.toLowerCase()}`));
+
+export const SUBMISSION_RULES = {
+  acknowledge(sub, me) {
+    if (!can(me, 'portal.respond')) return forbidden();
+    if (sub.status === 'Acknowledged') return bad('Already acknowledged');
+    return closedSubmission(sub);
+  },
+  decline(sub, me) {
+    if (!can(me, 'portal.respond')) return forbidden();
+    return closedSubmission(sub);
+  },
+  receive(sub, me) {
+    if (!can(me, 'samples.receive')) return forbidden();
+    return closedSubmission(sub);
+  },
 };
+
+// The client's own actions take the signed-in portal user, never a staff user. Another client's submission is
+// refused as not found, so a contact cannot learn that it exists.
+export const CLIENT_SUBMISSION_RULES = {
+  withdraw(sub, pu) {
+    if (sub.client_id !== pu.client_id) return notFound('Submission');
+    if (sub.status !== 'Submitted') return bad(`This submission is ${sub.status.toLowerCase()} — contact the laboratory to change it`);
+  },
+};
+
+// A request moves only forward, one action per status it moves to. A response that changes no status is a reply.
+const REQUEST_MOVES = {
+  review: { from: ['Submitted'], to: 'Under review' },
+  propose: { from: ['Submitted', 'Under review'], to: 'Proposal sent' },
+  accept: { from: ['Proposal sent'], to: 'Accepted', refusal: 'A request is accepted only after a proposal has been sent' },
+  decline: { from: REQUEST_OPEN, to: 'Declined' },
+};
+const MOVE_TO = Object.fromEntries(Object.entries(REQUEST_MOVES).map(([action, { to }]) => [to, action]));
+
+const closedRequest = (q) => (REQUEST_OPEN.includes(q.status) ? undefined : bad(`This request is already ${q.status.toLowerCase()}`));
+
+const moveRule = ({ from, to, refusal }) => (q, me) => {
+  if (!can(me, 'portal.respond')) return forbidden();
+  if (from.includes(q.status)) return;
+  if (q.status === to) return bad(`This request is already ${to.toLowerCase()}`);
+  return closedRequest(q) ?? bad(refusal ?? `A request can't move from ${q.status} to ${to}`);
+};
+
+export const REQUEST_RULES = {
+  ...Object.fromEntries(Object.entries(REQUEST_MOVES).map(([action, move]) => [action, moveRule(move)])),
+  reply(q, me) {
+    if (!can(me, 'portal.respond')) return forbidden();
+    return closedRequest(q);
+  },
+  openProject(q, me) {
+    if (!can(me, 'projects.edit')) return forbidden();
+    if (q.project_id) return bad('A project already exists for this request');
+    if (q.status === 'Declined') return bad('This request was declined');
+  },
+};
+
+/** A client's open Projects: the ones a submission may name. */
+const openProjects = (clientId) => all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN (${ph(PROJECT_OPEN)}) ORDER BY code DESC`, clientId, ...PROJECT_OPEN);
+
+const getSubmission = (id) => mustGet('SELECT * FROM portal_submissions WHERE id = ?', id, 'Submission');
 
 /** Invites a client contact. Returns a one-time temporary password (shown once to staff, never stored in clear). */
 export function createPortalAccount(ctx, input, presetPassword = null) {
@@ -177,7 +234,7 @@ export function createPortalAccount(ctx, input, presetPassword = null) {
 /** A client contact announces a shipment. ctx is a portal audit context (see portalCtx). */
 export function submitSamples(ctx, pu, input) {
   const b = clean(input, submissionSchema);
-  if (b.project_id && !get(`SELECT 1 FROM projects WHERE id = ? AND client_id = ? AND status IN ('Quoted','Active','On Hold')`, b.project_id, pu.client_id)) throw bad('Project not found');
+  if (b.project_id && !openProjects(pu.client_id).some((p) => p.id === b.project_id)) throw bad('Project not found');
   const rows = cleanSampleRows(input.samples);
   const allowed = new Set(clientMethods(pu.client_id).map((m) => m.id));
   const methodIds = idList(input.method_ids);
@@ -213,9 +270,8 @@ export function submitRequest(ctx, pu, input) {
 }
 
 export function acknowledgeSubmission(ctx, id, rawNote) {
-  assertCan(ctx, 'portal.respond');
-  const sub = openSubmission(id);
-  if (sub.status !== 'Submitted') throw bad('Already acknowledged');
+  const sub = getSubmission(id);
+  guard(SUBMISSION_RULES.acknowledge(sub, ctx.user));
   const note = String(rawNote || '').trim();
   tx(() => {
     update(ctx, 'portal_submissions', sub.id, { status: 'Acknowledged', status_note: note || null, acknowledged_by: ctx.user.id, acknowledged_at: nowIso(), updated_at: nowIso() }, { action: 'STATUS', summary: 'Submission acknowledged' });
@@ -227,8 +283,8 @@ export function acknowledgeSubmission(ctx, id, rawNote) {
 
 /** Physical receipt: creates real samples (codes, custody, tests) through the normal receiving workflow. */
 export function receiveSubmission(ctx, id, input = {}) {
-  assertCan(ctx, 'samples.receive');
-  const sub = openSubmission(id);
+  const sub = getSubmission(id);
+  guard(SUBMISSION_RULES.receive(sub, ctx.user));
   const rows = json(sub.samples, []);
   const methodIds = input.method_ids !== undefined ? idList(input.method_ids) : json(sub.method_ids, []);
   return tx(() => {
@@ -254,18 +310,21 @@ export function receiveSubmission(ctx, id, input = {}) {
   });
 }
 
+const NEEDS_RESPONSE = { reply: 'Nothing to update', propose: 'Summarise the proposal for the client', decline: 'Give the client a reason' };
+
 export function respondToRequest(ctx, id, input) {
-  assertCan(ctx, 'portal.respond');
   const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', id, 'Request');
-  const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES, required: true }, response: { type: 'text', max: 10000 } });
-  if (!REQUEST_OPEN.includes(q.status)) throw bad(`This request is already ${q.status.toLowerCase()}`);
-  if (b.status === q.status && !b.response) throw bad('Nothing to update');
-  if (['Proposal sent', 'Declined'].includes(b.status) && !b.response) throw bad(b.status === 'Declined' ? 'Give the client a reason' : 'Summarise the proposal for the client');
+  const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES }, response: { type: 'text', max: 10000 } });
+  const action = !b.status || b.status === q.status ? 'reply' : MOVE_TO[b.status];
+  if (!action) throw bad('A request never goes back to Submitted');
+  guard(REQUEST_RULES[action](q, ctx.user));
+  if (!b.response && NEEDS_RESPONSE[action]) throw bad(NEEDS_RESPONSE[action]);
+  const status = b.status ?? q.status;
   tx(() => {
     update(ctx, 'portal_requests', q.id, {
-      status: b.status, response: b.response ?? q.response, responded_by: b.response ? ctx.user.id : q.responded_by, responded_at: b.response ? nowIso() : q.responded_at, updated_at: nowIso(),
-    }, { action: 'STATUS', summary: `Request ${b.status.toLowerCase()}` });
-    if (b.status !== q.status) notice({ request_id: q.id }, `Status: ${b.status}`);
+      status, response: b.response ?? q.response, responded_by: b.response ? ctx.user.id : q.responded_by, responded_at: b.response ? nowIso() : q.responded_at, updated_at: nowIso(),
+    }, { action: 'STATUS', summary: `Request ${status.toLowerCase()}` });
+    if (status !== q.status) notice({ request_id: q.id }, `Status: ${status}`);
     const thread = get('SELECT id FROM portal_threads WHERE request_id = ?', q.id);
     if (b.response && thread) postMessage(thread.id, { user: ctx.user, body: b.response });
   });
@@ -322,7 +381,7 @@ export default function routes(r) {
       sampleTypes: SAMPLE_TYPES, storageConditions: STORAGE_CONDITIONS, priorities: PRIORITIES, techniques: TECHNIQUES,
       requestTypes: REQUEST_TYPES, validationParameters: VALIDATION_PARAMETERS, regulatoryContexts: REGULATORY_CONTEXTS,
       methods: clientMethods(pu.client_id),
-      projects: all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN ('Quoted','Active','On Hold') ORDER BY code DESC`, pu.client_id),
+      projects: openProjects(pu.client_id),
     };
   }, open);
 
@@ -421,16 +480,15 @@ export default function routes(r) {
     const sub = get('SELECT * FROM portal_submissions WHERE id = ? AND client_id = ?', +ctx.params.id, pu.client_id);
     if (!sub) throw notFound('Submission');
     const thread = get('SELECT id FROM portal_threads WHERE submission_id = ? AND client_id = ?', sub.id, pu.client_id);
-    return { submission: submissionView(sub, { forClient: true }), thread_id: thread?.id ?? null };
+    return { submission: submissionView(sub, { forClient: true }), thread_id: thread?.id ?? null, can: flags(CLIENT_SUBMISSION_RULES, sub, pu) };
   }, open);
 
   r.post('/api/portal/submissions', (ctx) => submitSamples(portalCtx(ctx, portalAuth(ctx)), ctx.portal, ctx.body), open);
 
   r.post('/api/portal/submissions/:id/withdraw', (ctx) => {
     const pu = portalAuth(ctx);
-    const sub = get('SELECT * FROM portal_submissions WHERE id = ? AND client_id = ?', +ctx.params.id, pu.client_id);
-    if (!sub) throw notFound('Submission');
-    if (sub.status !== 'Submitted') throw bad(`This submission is ${sub.status.toLowerCase()} — contact the laboratory to change it`);
+    const sub = getSubmission(+ctx.params.id);
+    guard(CLIENT_SUBMISSION_RULES.withdraw(sub, pu));
     tx(() => {
       update(portalCtx(ctx, pu), 'portal_submissions', sub.id, { status: 'Withdrawn', updated_at: nowIso() }, { action: 'STATUS', summary: 'Withdrawn by the client' });
       notice({ submission_id: sub.id }, `${pu.full_name} withdrew this submission.`);
@@ -569,15 +627,16 @@ export default function routes(r) {
     return {
       submission: submissionView(sub, { forClient: false }),
       thread_id: thread?.id ?? null,
-      projects: all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN ('Quoted','Active','On Hold') ORDER BY code DESC`, sub.client_id),
+      can: flags(SUBMISSION_RULES, sub, ctx.user),
+      projects: openProjects(sub.client_id),
     };
   }, staff);
 
   r.post('/api/portal-admin/submissions/:id/acknowledge', (ctx) => { acknowledgeSubmission(ctx, +ctx.params.id, ctx.body.note); return { ok: true }; }, staff);
 
   r.post('/api/portal-admin/submissions/:id/decline', (ctx) => {
-    assertCan(ctx, 'portal.respond');
-    const sub = openSubmission(+ctx.params.id);
+    const sub = getSubmission(+ctx.params.id);
+    guard(SUBMISSION_RULES.decline(sub, ctx.user));
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('Give the client a reason', 'REASON_REQUIRED');
     tx(() => {
@@ -609,15 +668,14 @@ export default function routes(r) {
       LEFT JOIN users rb ON rb.id = q.responded_by LEFT JOIN projects p ON p.id = q.project_id WHERE q.id = ?`, +ctx.params.id, 'Request');
     q.parameters = json(q.parameters, []);
     const thread = get('SELECT id FROM portal_threads WHERE request_id = ?', q.id);
-    return { request: q, thread_id: thread?.id ?? null };
+    return { request: q, thread_id: thread?.id ?? null, can: flags(REQUEST_RULES, q, ctx.user) };
   }, staff);
 
   r.post('/api/portal-admin/requests/:id/status', (ctx) => { respondToRequest(ctx, +ctx.params.id, ctx.body); return { ok: true }; }, staff);
 
   r.post('/api/portal-admin/requests/:id/project', (ctx) => {
     const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', +ctx.params.id, 'Request');
-    if (q.project_id) throw bad('A project already exists for this request');
-    if (q.status === 'Declined') throw bad('This request was declined');
+    guard(REQUEST_RULES.openProject(q, ctx.user));
     return tx(() => {
       const p = createProject(ctx, {
         client_id: q.client_id, title: ctx.body.title || q.title, type: PROJECT_TYPE_FOR[q.type] || 'Other', status: ctx.body.status || 'Quoted',

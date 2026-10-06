@@ -178,7 +178,7 @@ async function showVersions(doc) {
 }
 
 /**
- * Wires the documents card. entry: the notebook entry; editable: author + draft.
+ * Wires the documents card. entry: the notebook entry; editable: the entry's `edit` flag.
  * Returns { docs(): current list, refresh() }.
  */
 export function mountDocuments(root, entry, { docs: initial, editable, isCurrent, beforeOpen }) {

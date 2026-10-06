@@ -385,7 +385,7 @@ export async function detail(ctx) {
           <div class="dropdown-menu" hidden>
             ${d.can.edit ? html`<button data-act="edit">${icon('edit')}Edit details</button>` : ''}
             ${d.can.custody ? html`<button data-act="custody">${icon('pin')}Record movement</button>` : ''}
-            ${can('investigations.raise') ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
+            ${d.can.raise ? html`<button data-act="investigate">${icon('alert')}Raise investigation</button>` : ''}
             ${can('notebook.write') ? html`<button data-act="note">${icon('book')}New notebook entry</button>` : ''}
             ${d.can.cancel ? html`<hr><button data-act="cancel">${icon('xCircle')}Cancel sample</button>` : ''}
             ${d.can.dispose ? html`<button data-act="dispose">${icon('trash')}Dispose</button>` : ''}
@@ -440,7 +440,7 @@ export async function detail(ctx) {
       </div>
     </div>`);
 
-  wireRecordFooter(ctx.el, 'samples', s.id, { locked: stopped });
+  wireRecordFooter(ctx.el, 'samples', s.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => {
     if (!e.target.closest('a, button')) navigate(el.dataset.href);
   }));

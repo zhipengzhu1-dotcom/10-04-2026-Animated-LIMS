@@ -3,12 +3,11 @@
 import { all, get, ph } from '../db.js';
 import { can } from '../auth.js';
 import { forbidden } from '../http.js';
-import { rolesWith } from '../lookups.js';
+import { PROJECT_OPEN, rolesWith } from '../lookups.js';
 import { today, addDays } from '../util.js';
 import { TEST_EDITABLE, TEST_OPEN, TEST_RETURNED } from '../workflow.js';
 
 const [RETURNED_SQL, ...RETURNED_PARAMS] = TEST_RETURNED;
-const CLOSED_PROJECT = ['Completed', 'Cancelled'];
 
 export default function routes(r) {
   r.get('/api/workload', (ctx) => {
@@ -35,14 +34,14 @@ export default function routes(r) {
         (SELECT COUNT(*) FROM tests pt JOIN samples ps ON ps.id = pt.sample_id WHERE ps.project_id = p.id AND pt.status != 'Cancelled') AS test_count,
         (SELECT COUNT(*) FROM tests pt JOIN samples ps ON ps.id = pt.sample_id WHERE ps.project_id = p.id AND pt.status = 'Approved') AS tests_done
       FROM (
-        SELECT lead_id AS user_id, id AS project_id, 1 AS lead, 0 AS open_tests FROM projects WHERE lead_id IS NOT NULL AND status NOT IN (${ph(CLOSED_PROJECT)})
+        SELECT lead_id AS user_id, id AS project_id, 1 AS lead, 0 AS open_tests FROM projects WHERE lead_id IS NOT NULL AND status IN (${ph(PROJECT_OPEN)})
         UNION ALL
         SELECT t.analyst_id, s.project_id, 0, COUNT(*) FROM tests t JOIN samples s ON s.id = t.sample_id
         WHERE ${isOpen} AND t.analyst_id IS NOT NULL AND s.project_id IS NOT NULL GROUP BY t.analyst_id, s.project_id
       ) x
       JOIN projects p ON p.id = x.project_id JOIN clients c ON c.id = p.client_id
       GROUP BY x.user_id, p.id
-      ORDER BY lead DESC, p.due_date IS NULL, p.due_date, p.id`, ...CLOSED_PROJECT, ...TEST_EDITABLE);
+      ORDER BY lead DESC, p.due_date IS NULL, p.due_date, p.id`, ...PROJECT_OPEN, ...TEST_EDITABLE);
     for (const { user_id, lead, ...project } of links) byId.get(user_id)?.projects.push({ ...project, lead: !!lead });
 
     return {

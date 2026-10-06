@@ -752,7 +752,7 @@ async function submitForm() {
 }
 
 async function submissionDetail(id) {
-  const { submission: s, thread_id } = await api(`/submissions/${id}`);
+  const { submission: s, thread_id, can } = await api(`/submissions/${id}`);
   const order = ['Submitted', 'Acknowledged', 'Received'];
   const at = { Submitted: s.created_at, Acknowledged: s.acknowledged_at, Received: s.received_at };
   const stopped = ['Declined', 'Withdrawn'].includes(s.status);
@@ -763,7 +763,7 @@ async function submissionDetail(id) {
       <a class="back" href="#/samples?tab=shipments">${ic('arrowLeft', 15)} Shipments</a>
       <div class="page-head">
         <div><div class="eyebrow">Sample submission</div><h1 class="mono" style="font-family:var(--font)">${s.code}</h1><p class="sub">${plural(s.samples.length, 'sample')} · submitted ${fmtDateTime(s.created_at)}</p></div>
-        <div class="row">${thread_id ? html`<a class="btn" href="${`#/messages/${thread_id}`}">${ic('message', 16)} Conversation</a>` : ''}${s.status === 'Submitted' ? html`<button class="btn js-withdraw" type="button">Withdraw</button>` : ''}</div>
+        <div class="row">${thread_id ? html`<a class="btn" href="${`#/messages/${thread_id}`}">${ic('message', 16)} Conversation</a>` : ''}${can.withdraw ? html`<button class="btn js-withdraw" type="button">Withdraw</button>` : ''}</div>
       </div>
       <div class="stack">
         <section class="card card-pad">

@@ -39,6 +39,8 @@ export const PERMISSIONS = {
   'users.manage': ['admin'],
   'qualifications.manage': ['admin', 'manager', 'qa'],
   'audit.view': ['admin', 'manager', 'qa'],
+  // Removing a file someone else attached; anyone may remove their own while the record allows it.
+  'attachments.remove': ['admin', 'manager'],
   'settings.edit': ['admin'],
   // Sees every work queue (Worklist, Reviews & approvals, Workload) without being able to act on it.
   'work.oversee': ['admin'],
@@ -52,6 +54,10 @@ export const rolesWith = (perm) => PERMISSIONS[perm] || [];
 
 export const PROJECT_TYPES = ['Method Development', 'Method Validation', 'Method Transfer', 'Routine / Release Testing', 'Stability Study', 'Reference Standard Characterisation', 'Other'];
 export const PROJECT_STATUSES = ['Quoted', 'Active', 'On Hold', 'Completed', 'Cancelled'];
+// A Project in any other status is closed: read-only, and takes no samples.
+export const PROJECT_OPEN = ['Quoted', 'Active', 'On Hold'];
+// A new Project starts in one of these; every later status change is an action of its own.
+export const PROJECT_START_STATUSES = ['Quoted', 'Active'];
 
 export const TECHNIQUES = ['HPLC-UV', 'UPLC-UV', 'LC-MS', 'GC-FID', 'GC-Headspace', 'GC-MS', 'ICP-MS', 'ICP-OES', 'Karl Fischer', 'UV-Vis', 'FTIR', 'Dissolution', 'pH / Potentiometry', 'Titration', 'Gravimetric', 'TOC', 'Particle Size', 'Physical / Visual', 'Other'];
 export const METHOD_STATUSES = ['Draft', 'In Development', 'In Validation', 'Effective', 'Retired'];
@@ -105,23 +111,21 @@ export const SIGNATURE_MEANINGS = {
   'investigation.close': { meaning: 'Closed', explanation: 'Investigation reviewed and closed' },
 };
 
-export const ATTACHABLE = ['samples', 'tests', 'methods', 'notebook_entries', 'investigations', 'instruments', 'inventory', 'projects', 'clients', 'invoices'];
-
-// Who may see a record type's files/history (null = any signed-in user) and who may add files to it.
+// Who may see a record type's files and history (null = any signed-in user). Who may change its files is the record's `attach` rule.
 export const RECORD_ACCESS = {
-  samples: { view: null, edit: ['samples.edit'] },
-  tests: { view: null, edit: ['tests.perform', 'tests.assign'] },
-  methods: { view: null, edit: ['methods.edit'] },
-  notebook_entries: { view: null, edit: ['notebook.write'] },
-  investigations: { view: null, edit: ['investigations.raise', 'investigations.close'] },
-  instruments: { view: null, edit: ['instruments.log'] },
-  inventory: { view: null, edit: ['inventory.edit'] },
-  projects: { view: null, edit: ['projects.edit'] },
-  clients: { view: null, edit: ['clients.edit'] },
-  invoices: { view: ['billing.view'], edit: ['billing.edit'] },
-  users: { view: ['audit.view', 'users.manage'], edit: [] },
-  qualifications: { view: ['audit.view', 'qualifications.manage'], edit: [] },
-  attachments: { view: null, edit: [] },
+  samples: { view: null },
+  tests: { view: null },
+  methods: { view: null },
+  notebook_entries: { view: null },
+  investigations: { view: null },
+  instruments: { view: null },
+  inventory: { view: null },
+  projects: { view: null },
+  clients: { view: null },
+  invoices: { view: ['billing.view'] },
+  users: { view: ['audit.view', 'users.manage'] },
+  qualifications: { view: ['audit.view', 'qualifications.manage'] },
+  attachments: { view: null },
 };
 
 // Money fields hidden from history for people without billing access.
@@ -133,6 +137,7 @@ export function lookups() {
     testPerformerRoles: rolesWith('tests.perform'),
     projectTypes: PROJECT_TYPES,
     projectStatuses: PROJECT_STATUSES,
+    projectStartStatuses: PROJECT_START_STATUSES,
     techniques: TECHNIQUES,
     methodStatuses: METHOD_STATUSES,
     instrumentTypes: INSTRUMENT_TYPES,

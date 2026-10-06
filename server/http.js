@@ -22,6 +22,18 @@ export const forbidden = (message = 'You do not have permission to do that.') =>
 export const notFound = (what = 'Record') => new HttpError(404, `${what} not found`, 'NOT_FOUND');
 export const conflict = (message) => new HttpError(409, message, 'CONFLICT');
 
+// A rule takes a record and a person and returns nothing when the action is allowed, else the refusal it throws.
+
+export function guard(refusal) {
+  if (refusal) throw refusal;
+}
+
+/** The `can` object for `record`: one boolean per rule in `rules`. */
+export const flags = (rules, record, person) => Object.fromEntries(Object.entries(rules).map(([name, rule]) => [name, !rule(record, person)]));
+
+/** The `locks` object for `record`: each named rule's refusal message, or null when it allows the action. */
+export const locks = (rules, record, person, ...names) => Object.fromEntries(names.map((name) => [name, rules[name](record, person)?.message ?? null]));
+
 export class Router {
   constructor() {
     this.routes = [];
