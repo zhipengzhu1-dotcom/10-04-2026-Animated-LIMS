@@ -7,7 +7,7 @@ Issues and specs for this repo live as GitHub issues in **`zhipengzhu1-dotcom/10
 ## Conventions
 
 - **Create an issue**: `gh issue create --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --comments`, filtering comments by `jq` and also fetching labels.
+- **Read an issue**, one call for its title, body, labels and comments: `gh issue view <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --json title,body,labels,comments --jq '{title, body, labels: [.labels[].name], comments: [.comments[].body]}'`.
 - **List issues**: `gh issue list --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS --add-label "..."` / `--remove-label "..."`. Create a missing label first with `gh label create <name> --repo zhipengzhu1-dotcom/10-04-2026-Animated-LIMS`.
