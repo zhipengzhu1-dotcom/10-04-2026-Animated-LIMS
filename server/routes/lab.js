@@ -125,10 +125,10 @@ export function addTestsToSample(ctx, sampleId, methodIds) {
   });
 }
 
-/** The Tests in the signed-in person's Test Queue `name`: none for someone without its permission, never a refusal. */
-function workFilter(ctx, name) {
+/** The distinct `key` of each Test in the signed-in person's Test Queue `name`: none without its permission, never a refusal. */
+function workFilter(ctx, name, key) {
   if (!Object.hasOwn(TEST_QUEUES, name)) throw bad(`Work filter must be one of: ${Object.keys(TEST_QUEUES).join(', ')}`);
-  return queued(TEST_RULES, TEST_QUEUES[name], ctx.user);
+  return [...new Set(queued(TEST_RULES, TEST_QUEUES[name], ctx.user).map((t) => t[key]))];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -147,11 +147,7 @@ export default function routes(r) {
     if (q.project_id) { where.push('s.project_id = ?'); params.push(+q.project_id); }
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
-    if (q.work) {
-      const ids = [...new Set(workFilter(ctx, q.work).map((t) => t.sample_id))];
-      where.push(`s.id IN (${ph(ids)})`);
-      params.push(...ids);
-    }
+    if (q.work) { const ids = workFilter(ctx, q.work, 'sample_id'); where.push(`s.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.q) {
       const t = likeTerm(q.q);
       where.push(`(s.code LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\' OR s.batch_no LIKE ? ESCAPE '\\' OR s.client_ref LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')`);
@@ -256,7 +252,7 @@ export default function routes(r) {
     const params = [];
     if (q.scope === 'open') { where.push(`t.status IN (${ph(TEST_OPEN)})`); params.push(...TEST_OPEN); }
     if (q.status) { const list = String(q.status).split(','); where.push(`t.status IN (${ph(list)})`); params.push(...list); }
-    if (q.work) { const ids = workFilter(ctx, q.work).map((t) => t.id); where.push(`t.id IN (${ph(ids)})`); params.push(...ids); }
+    if (q.work) { const ids = workFilter(ctx, q.work, 'id'); where.push(`t.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.analyst_id) { where.push('t.analyst_id = ?'); params.push(+q.analyst_id); }
     if (q.unassigned) where.push('t.analyst_id IS NULL');
     if (q.method_id) { where.push('t.method_id = ?'); params.push(+q.method_id); }
