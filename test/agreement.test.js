@@ -903,12 +903,11 @@ const dav = async (link, method, body) => {
   return { status: res.status, text: await res.text() };
 };
 
-test('a WebDAV lock on a signed entry\'s document is refused', async () => {
+test('signing an entry expires its documents\' Office links, and no new one can be opened', async () => {
   const tom = await as(ANALYST);
   const e = await prepareEntry([]);
   const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
   await signEntry(e.id);
-  // Signing ends every Office link to the entry's documents, so the lock is refused before any rule is asked.
   assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 404, text: 'This link has expired. Open the document again from Aliquot.' });
   const again = await tom.post(`/api/notebook-documents/${e.docId}/edit-link`);
   assert.equal(again.status, 400, 'nor can a new link be opened');
