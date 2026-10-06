@@ -1062,6 +1062,55 @@ for (const [state, steps] of Object.entries(SUBMISSION_STATES)) {
   });
 }
 
+// Laura asks for method work; the manager moves the request on through the same actions the sweep tries.
+async function prepareRequest(steps) {
+  const { id } = await (await asContact(LAURA)).ok('POST', '/api/portal/requests', { type: 'Method validation', title: 'Request sweep' });
+  for (const step of steps) {
+    const r = await REQUEST_ACTIONS[step](await as('priya.raman'), id);
+    assert.ok(r.status < 300, `priya.raman ${step} → ${describe(r)}`);
+  }
+  return id;
+}
+
+const requestStatus = (status) => (c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { status, response: `${status}: details by email` });
+
+const REQUEST_ACTIONS = {
+  review: requestStatus('Under review'),
+  propose: requestStatus('Proposal sent'),
+  accept: requestStatus('Accepted'),
+  decline: requestStatus('Declined'),
+  reply: (c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { response: 'Can you send the current procedure?' }),
+  openProject: (c, id) => c.post(`/api/portal-admin/requests/${id}/project`, { status: 'Quoted' }),
+};
+
+const REQUEST_STATES = {
+  submitted: [],
+  'under review': ['review'],
+  'proposal sent': ['propose'],
+  accepted: ['propose', 'accept'],
+  'accepted with a Project': ['propose', 'accept', 'openProject'],
+  declined: ['decline'],
+};
+
+const REQUEST_PEOPLE = {
+  'a manager, who responds and opens Projects': 'priya.raman',
+  'QA, who responds but does not open Projects': 'daniel.okafor',
+  'the administrator, who opens Projects but does not respond': 'admin',
+  'an analyst, who does neither': ANALYST,
+};
+
+for (const [state, steps] of Object.entries(REQUEST_STATES)) {
+  test(`a client request ${state}: offers and refusals agree for lab staff`, async () => {
+    const prepare = () => prepareRequest(steps);
+    for (const [who, username] of Object.entries(REQUEST_PEOPLE)) {
+      const c = await as(username);
+      const id = await prepare();
+      const { can } = await c.ok('GET', `/api/portal-admin/requests/${id}`);
+      await sweepRecord({ label: `Request ${state}, ${who}`, c, table: 'REQUEST_RULES', actions: REQUEST_ACTIONS, can, id, prepare });
+    }
+  });
+}
+
 // ----- Coverage -----
 
 /** Every rules table exported by a server module, by name. Importing them opens no database. */

@@ -182,6 +182,37 @@ export const CLIENT_SUBMISSION_RULES = {
   },
 };
 
+// A request moves only forward, one action per status it moves to. A response sent with no status is a reply.
+const REQUEST_MOVES = {
+  review: { from: ['Submitted'], to: 'Under review' },
+  propose: { from: ['Submitted', 'Under review'], to: 'Proposal sent' },
+  accept: { from: ['Proposal sent'], to: 'Accepted', refusal: 'A request is accepted only after a proposal has been sent' },
+  decline: { from: REQUEST_OPEN, to: 'Declined' },
+};
+const MOVE_TO = Object.fromEntries(Object.entries(REQUEST_MOVES).map(([action, { to }]) => [to, action]));
+
+const closedRequest = (q) => (REQUEST_OPEN.includes(q.status) ? undefined : bad(`This request is already ${q.status.toLowerCase()}`));
+
+const moveRule = ({ from, to, refusal }) => (q, me) => {
+  if (!can(me, 'portal.respond')) return forbidden();
+  if (from.includes(q.status)) return;
+  if (q.status === to) return bad(`This request is already ${to.toLowerCase()}`);
+  return closedRequest(q) ?? bad(refusal ?? `A request can't move from ${q.status} to ${to}`);
+};
+
+export const REQUEST_RULES = {
+  ...Object.fromEntries(Object.entries(REQUEST_MOVES).map(([action, move]) => [action, moveRule(move)])),
+  reply(q, me) {
+    if (!can(me, 'portal.respond')) return forbidden();
+    return closedRequest(q);
+  },
+  openProject(q, me) {
+    if (!can(me, 'projects.edit')) return forbidden();
+    if (q.project_id) return bad('A project already exists for this request');
+    if (q.status === 'Declined') return bad('This request was declined');
+  },
+};
+
 const getSubmission = (id) => mustGet('SELECT * FROM portal_submissions WHERE id = ?', id, 'Submission');
 
 /** Invites a client contact. Returns a one-time temporary password (shown once to staff, never stored in clear). */
@@ -276,20 +307,21 @@ export function receiveSubmission(ctx, id, input = {}) {
   });
 }
 
+const NEEDS_RESPONSE = { reply: 'Nothing to update', propose: 'Summarise the proposal for the client', decline: 'Give the client a reason' };
+
 export function respondToRequest(ctx, id, input) {
-  assertCan(ctx, 'portal.respond');
   const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', id, 'Request');
-  const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES, required: true }, response: { type: 'text', max: 10000 } });
-  if (!REQUEST_OPEN.includes(q.status)) throw bad(`This request is already ${q.status.toLowerCase()}`);
-  if (b.status === 'Submitted' && q.status !== 'Submitted') throw bad('A request never goes back to Submitted');
-  if (b.status === 'Accepted' && q.status !== 'Proposal sent') throw bad('A request is accepted only after a proposal has been sent');
-  if (b.status === q.status && !b.response) throw bad('Nothing to update');
-  if (['Proposal sent', 'Declined'].includes(b.status) && !b.response) throw bad(b.status === 'Declined' ? 'Give the client a reason' : 'Summarise the proposal for the client');
+  const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES }, response: { type: 'text', max: 10000 } });
+  const action = b.status ? MOVE_TO[b.status] : 'reply';
+  if (!action) throw bad('A request never goes back to Submitted');
+  guard(REQUEST_RULES[action](q, ctx.user));
+  if (!b.response && NEEDS_RESPONSE[action]) throw bad(NEEDS_RESPONSE[action]);
+  const status = b.status ?? q.status;
   tx(() => {
     update(ctx, 'portal_requests', q.id, {
-      status: b.status, response: b.response ?? q.response, responded_by: b.response ? ctx.user.id : q.responded_by, responded_at: b.response ? nowIso() : q.responded_at, updated_at: nowIso(),
-    }, { action: 'STATUS', summary: `Request ${b.status.toLowerCase()}` });
-    if (b.status !== q.status) notice({ request_id: q.id }, `Status: ${b.status}`);
+      status, response: b.response ?? q.response, responded_by: b.response ? ctx.user.id : q.responded_by, responded_at: b.response ? nowIso() : q.responded_at, updated_at: nowIso(),
+    }, { action: 'STATUS', summary: `Request ${status.toLowerCase()}` });
+    if (status !== q.status) notice({ request_id: q.id }, `Status: ${status}`);
     const thread = get('SELECT id FROM portal_threads WHERE request_id = ?', q.id);
     if (b.response && thread) postMessage(thread.id, { user: ctx.user, body: b.response });
   });
@@ -633,15 +665,14 @@ export default function routes(r) {
       LEFT JOIN users rb ON rb.id = q.responded_by LEFT JOIN projects p ON p.id = q.project_id WHERE q.id = ?`, +ctx.params.id, 'Request');
     q.parameters = json(q.parameters, []);
     const thread = get('SELECT id FROM portal_threads WHERE request_id = ?', q.id);
-    return { request: q, thread_id: thread?.id ?? null };
+    return { request: q, thread_id: thread?.id ?? null, can: flags(REQUEST_RULES, q, ctx.user) };
   }, staff);
 
   r.post('/api/portal-admin/requests/:id/status', (ctx) => { respondToRequest(ctx, +ctx.params.id, ctx.body); return { ok: true }; }, staff);
 
   r.post('/api/portal-admin/requests/:id/project', (ctx) => {
     const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', +ctx.params.id, 'Request');
-    if (q.project_id) throw bad('A project already exists for this request');
-    if (q.status === 'Declined') throw bad('This request was declined');
+    guard(REQUEST_RULES.openProject(q, ctx.user));
     return tx(() => {
       const p = createProject(ctx, {
         client_id: q.client_id, title: ctx.body.title || q.title, type: PROJECT_TYPE_FOR[q.type] || 'Other', status: ctx.body.status || 'Quoted',
