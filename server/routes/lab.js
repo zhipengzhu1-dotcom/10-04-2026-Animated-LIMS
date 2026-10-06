@@ -4,7 +4,7 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, guard, flags } from '../http.js';
+import { bad, guard, flags, queued } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
@@ -135,17 +135,13 @@ export function addTestsToSample(ctx, sampleId, methodIds) {
   });
 }
 
-const WORK_FILTERS = {
-  assigned: { perm: 'tests.perform', match: TEST_QUEUES.assigned },
-  review: { perm: 'tests.review', match: TEST_QUEUES.review },
-  approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
-};
+const WORK_FILTERS = { assigned: 'tests.perform', review: 'tests.review', approval: 'tests.approve' };
 
+/** The Tests in the signed-in person's Test Queue `name`. */
 function workFilter(ctx, name) {
-  const rule = Object.hasOwn(WORK_FILTERS, name) && WORK_FILTERS[name];
-  if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
-  assertCan(ctx, rule.perm);
-  return rule.match(ctx.user.id);
+  if (!Object.hasOwn(TEST_QUEUES, name)) throw bad(`Work filter must be one of: ${Object.keys(TEST_QUEUES).join(', ')}`);
+  assertCan(ctx, WORK_FILTERS[name]);
+  return queued(TEST_RULES, TEST_QUEUES[name], ctx.user);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -165,9 +161,9 @@ export default function routes(r) {
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
     if (q.work) {
-      const [sql, ...args] = workFilter(ctx, q.work);
-      where.push(`EXISTS (SELECT 1 FROM tests t WHERE t.sample_id = s.id AND ${sql})`);
-      params.push(...args);
+      const ids = [...new Set(workFilter(ctx, q.work).map((t) => t.sample_id))];
+      where.push(`s.id IN (${ph(ids)})`);
+      params.push(...ids);
     }
     if (q.q) {
       const t = likeTerm(q.q);
@@ -273,7 +269,7 @@ export default function routes(r) {
     const params = [];
     if (q.scope === 'open') { where.push(`t.status IN (${ph(TEST_OPEN)})`); params.push(...TEST_OPEN); }
     if (q.status) { const list = String(q.status).split(','); where.push(`t.status IN (${ph(list)})`); params.push(...list); }
-    if (q.work) { const [sql, ...args] = workFilter(ctx, q.work); where.push(sql); params.push(...args); }
+    if (q.work) { const ids = workFilter(ctx, q.work).map((t) => t.id); where.push(`t.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.analyst_id) { where.push('t.analyst_id = ?'); params.push(+q.analyst_id); }
     if (q.unassigned) where.push('t.analyst_id IS NULL');
     if (q.method_id) { where.push('t.method_id = ?'); params.push(+q.method_id); }
@@ -340,14 +336,10 @@ export default function routes(r) {
     const lab = ctx.query.scope === 'lab';
     if (lab) assertCan(ctx, 'work.oversee');
     const me = lab ? 0 : ctx.user.id;
-    const out = { toReview: [], toApprove: [], toWitness: [], toIssue: [] };
-    const queue = (name, order) => {
-      const [sql, ...params] = TEST_QUEUES[name](me);
-      return all(`${TEST_SELECT} WHERE ${sql} ORDER BY ${order}`, ...params);
-    };
+    // Oversight shows each stage whoever could act on it; it is nobody's Queue.
+    const tests = (name) => (lab ? TEST_QUEUES[name].stage() : queued(TEST_RULES, TEST_QUEUES[name], ctx.user));
+    const out = { toReview: tests('review'), toApprove: tests('approval'), toWitness: [], toIssue: [] };
     const sees = (perm) => lab || can(ctx.user, perm);
-    if (sees('tests.review')) out.toReview = queue('review', 't.submitted_at');
-    if (sees('tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
     if (sees('notebook.witness')) {
       out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
