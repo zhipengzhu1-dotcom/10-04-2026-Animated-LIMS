@@ -183,6 +183,19 @@ export const SAMPLE_RULES = {
     const inv = openSampleInvestigation(s.id);
     if (inv) return bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
   },
+  edit(s, me) {
+    if (!can(me, 'samples.edit')) return forbidden();
+    if (!SAMPLE_OPEN.includes(s.status)) return bad(`This sample is ${s.status.toLowerCase()} and can no longer be edited`);
+  },
+  addTests(s, me) {
+    if (!can(me, 'samples.receive')) return forbidden();
+    if (!SAMPLE_OPEN.includes(s.status)) return bad(`Sample is ${s.status.toLowerCase()} — tests can no longer be added`);
+  },
+  // Every custody move but disposal, which is `dispose`. A Reported Sample still moves in and out of retention.
+  custody(s, me) {
+    if (!can(me, 'samples.edit')) return forbidden();
+    if (['Disposed', 'Cancelled'].includes(s.status)) return bad(`Sample is ${s.status.toLowerCase()}`);
+  },
   attach(s, me) {
     if (!can(me, 'samples.edit')) return forbidden();
     if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);

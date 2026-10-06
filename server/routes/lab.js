@@ -120,9 +120,8 @@ export function receiveSamples(ctx, body) {
 }
 
 export function addTestsToSample(ctx, sampleId, methodIds) {
-  assertCan(ctx, 'samples.receive');
   const s = mustGet('SELECT * FROM samples WHERE id = ?', sampleId, 'Sample');
-  if (!SAMPLE_OPEN.includes(s.status)) throw bad(`Sample is ${s.status.toLowerCase()} — tests can no longer be added`);
+  guard(SAMPLE_RULES.addTests(s, ctx.user));
   const methods = loadUsableMethods(idList(methodIds));
   if (!methods.length) throw bad('Choose at least one method');
   return tx(() => {
@@ -198,20 +197,14 @@ export default function routes(r) {
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.sample_id = ? ORDER BY n.id DESC`, id),
       investigations: all(`SELECT id, code, type, title, status, severity FROM investigations WHERE sample_id = ? ORDER BY id DESC`, id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'samples' AND entity_id = ? ORDER BY id`, id),
-      can: {
-        edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
-        addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
-        ...flags(SAMPLE_RULES, sample, ctx.user),
-        custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
-      },
+      can: flags(SAMPLE_RULES, sample, ctx.user),
     };
   });
 
   r.put('/api/samples/:id', (ctx) => {
-    assertCan(ctx, 'samples.edit');
     const id = +ctx.params.id;
     const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
-    if (!SAMPLE_OPEN.includes(s.status)) throw bad(`This sample is ${s.status.toLowerCase()} and can no longer be edited`);
+    guard(SAMPLE_RULES.edit(s, ctx.user));
     const b = clean(ctx.body, {
       description: { required: true }, sample_type: { type: 'enum', values: SAMPLE_TYPES }, batch_no: {}, client_ref: {},
       quantity: {}, container: {}, storage: { type: 'enum', values: STORAGE_CONDITIONS }, priority: { type: 'enum', values: PRIORITIES },
@@ -228,12 +221,7 @@ export default function routes(r) {
     const id = +ctx.params.id;
     const s = mustGet('SELECT * FROM samples WHERE id = ?', id, 'Sample');
     const b = clean(ctx.body, { action: { type: 'enum', values: CUSTODY_ACTIONS, required: true }, location: {}, note: { type: 'text' } });
-    if (b.action === 'Disposed') {
-      guard(SAMPLE_RULES.dispose(s, ctx.user));
-    } else {
-      assertCan(ctx, 'samples.edit');
-    }
-    if (['Disposed', 'Cancelled'].includes(s.status) && b.action !== 'Disposed') throw bad(`Sample is ${s.status.toLowerCase()}`);
+    guard(SAMPLE_RULES[b.action === 'Disposed' ? 'dispose' : 'custody'](s, ctx.user));
     tx(() => {
       run('INSERT INTO custody_events (sample_id, action, location, note, user_id, at) VALUES (?, ?, ?, ?, ?, ?)', id, b.action, b.location, b.note, ctx.user.id, nowIso());
       const patch = {};
