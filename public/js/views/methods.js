@@ -85,7 +85,7 @@ export async function detail(ctx) {
       actions: html`
         ${STATUS_ACTIONS.map(statusBtn)}
         ${d.can.edit ? html`<a class="btn" href="/methods/${m.id}/edit">${icon('edit', { size: 15 })}Edit</a>` : ''}
-        ${d.can.newVersion && m.status !== 'Draft' ? html`<button class="btn" data-act="version">${icon('branch', { size: 15 })}New version</button>` : ''}`,
+        ${d.can.newVersion ? html`<button class="btn" data-act="version">${icon('branch', { size: 15 })}New version</button>` : ''}`,
     })}
     ${m.status === 'Effective' ? html`<div class="locked-banner">${icon('lock', { size: 14 })}<span>Effective since ${fmtDate(m.effective_date)}${m.approved_by_name ? `, approved by ${m.approved_by_name}` : ''}. Effective methods are locked — create a new version to change them.</span></div>` : ''}
     <div class="split">

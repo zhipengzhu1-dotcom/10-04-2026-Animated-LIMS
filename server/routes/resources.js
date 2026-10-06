@@ -51,6 +51,7 @@ export const METHOD_RULES = {
   },
   newVersion(m, me) {
     if (!can(me, 'methods.edit')) return forbidden();
+    if (m.status === 'Draft') return bad(`v${m.version} is still a draft — edit it instead of creating a new version`);
     const latest = get('SELECT MAX(version) v FROM methods WHERE code = ?', m.code).v;
     if (latest !== m.version) return bad(`v${latest} already exists — open the latest version`);
   },
