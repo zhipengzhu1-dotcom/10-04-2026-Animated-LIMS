@@ -182,7 +182,7 @@ export const CLIENT_SUBMISSION_RULES = {
   },
 };
 
-// A request moves only forward, one action per status it moves to. A response sent with no status is a reply.
+// A request moves only forward, one action per status it moves to. A response that changes no status is a reply.
 const REQUEST_MOVES = {
   review: { from: ['Submitted'], to: 'Under review' },
   propose: { from: ['Submitted', 'Under review'], to: 'Proposal sent' },
@@ -315,7 +315,7 @@ const NEEDS_RESPONSE = { reply: 'Nothing to update', propose: 'Summarise the pro
 export function respondToRequest(ctx, id, input) {
   const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', id, 'Request');
   const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES }, response: { type: 'text', max: 10000 } });
-  const action = b.status ? MOVE_TO[b.status] : 'reply';
+  const action = !b.status || b.status === q.status ? 'reply' : MOVE_TO[b.status];
   if (!action) throw bad('A request never goes back to Submitted');
   guard(REQUEST_RULES[action](q, ctx.user));
   if (!b.response && NEEDS_RESPONSE[action]) throw bad(NEEDS_RESPONSE[action]);

@@ -325,6 +325,19 @@ test('a request is accepted only after a proposal was sent', async () => {
   assert.equal((await manager.ok('GET', `/api/portal-admin/requests/${id}`)).request.status, 'Under review');
 });
 
+test('a response that keeps the request’s status is a reply, refused once the request is closed', async () => {
+  const id = await newRequest();
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review' });
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Under review', response: 'Still reading the scope.' });
+  const after = await manager.ok('GET', `/api/portal-admin/requests/${id}`);
+  assert.equal(after.request.status, 'Under review');
+  assert.equal(after.request.response, 'Still reading the scope.');
+  await manager.ok('POST', `/api/portal-admin/requests/${id}/status`, { status: 'Declined', response: 'Out of our scope.' });
+  const r = await manager.post(`/api/portal-admin/requests/${id}/status`, { status: 'Declined', response: 'One more thing.' });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'This request is already declined');
+});
+
 test('portal actions are written to the audit trail under the contact’s identity', async () => {
   const qa = await staff('daniel.okafor');
   const who = `portal:${LAURA}`;

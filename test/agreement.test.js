@@ -1072,7 +1072,7 @@ async function prepareRequest(steps) {
   return id;
 }
 
-const requestStatus = (status) => (c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { status, response: `${status}: details by email` });
+const requestStatus = (status) => Object.assign((c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { status, response: `${status}: details by email` }), { to: status });
 
 const REQUEST_ACTIONS = {
   review: requestStatus('Under review'),
@@ -1105,8 +1105,13 @@ for (const [state, steps] of Object.entries(REQUEST_STATES)) {
     for (const [who, username] of Object.entries(REQUEST_PEOPLE)) {
       const c = await as(username);
       const id = await prepare();
-      const { can } = await c.ok('GET', `/api/portal-admin/requests/${id}`);
-      await sweepRecord({ label: `Request ${state}, ${who}`, c, table: 'REQUEST_RULES', actions: REQUEST_ACTIONS, can, id, prepare });
+      const { can, request } = await c.ok('GET', `/api/portal-admin/requests/${id}`);
+      const label = `Request ${state}, ${who}`;
+      // Posting the status the request already has changes nothing, so it is a reply rather than the move to that status.
+      const stay = Object.values(REQUEST_ACTIONS).find((act) => act.to === request.status);
+      const moves = Object.fromEntries(Object.entries(REQUEST_ACTIONS).filter(([, act]) => act !== stay));
+      await sweepRecord({ label, c, table: 'REQUEST_RULES', actions: moves, can, id, prepare });
+      if (stay) assert.equal((await stay(c, id)).status < 300, can.reply, `${label}: posting its own status is a reply`);
     }
   });
 }
