@@ -259,6 +259,8 @@ export function respondToRequest(ctx, id, input) {
   const q = mustGet('SELECT * FROM portal_requests WHERE id = ?', id, 'Request');
   const b = clean(input, { status: { type: 'enum', values: REQUEST_STATUSES, required: true }, response: { type: 'text', max: 10000 } });
   if (!REQUEST_OPEN.includes(q.status)) throw bad(`This request is already ${q.status.toLowerCase()}`);
+  if (b.status === 'Submitted' && q.status !== 'Submitted') throw bad('A request never goes back to Submitted');
+  if (b.status === 'Accepted' && q.status !== 'Proposal sent') throw bad('A request is accepted only after a proposal has been sent');
   if (b.status === q.status && !b.response) throw bad('Nothing to update');
   if (['Proposal sent', 'Declined'].includes(b.status) && !b.response) throw bad(b.status === 'Declined' ? 'Give the client a reason' : 'Summarise the proposal for the client');
   tx(() => {
