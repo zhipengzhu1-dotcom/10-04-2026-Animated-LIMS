@@ -16,6 +16,7 @@ Electronic lab notebook entries (`ELN-YYYY-NNNN`). The author writes with autosa
 
 - **Lab notebook** in the sidebar (`/notebook`) → "New entry", or open an entry `/notebook/<id>`.
 - Top bar **New** menu → Notebook entry.
+- **My drafts:** the Dashboard card "My drafts" (sub-line "Notebook entries you can still edit and sign", at most five rows, button "All my drafts" → `/notebook?view=drafts`) and the Notebook tab "My drafts" among the tabs All entries, Mine, My drafts and Awaiting witness (`?view=drafts`). Both are `ENTRY_QUEUES.drafts`: the author's Drafts they may still edit, so a draft leaves both once it is signed or its author loses `notebook.write`. The tab reads `GET /api/notebook?work=drafts`; any other `work` except `witness` is a 400 "Work filter must be one of: witness, drafts". Another person's draft is not on it. "Awaiting witness" is plain `status=Signed`, so unlike the Reviews witness tab it includes the person's own Signed entries.
 - Witness: `/reviews?tab=witness` → "Read & witness" (`a.btn[href="/notebook/<id>"]`). The tab is `ENTRY_QUEUES.witness`: the Signed entries the person may witness, so their own Signed entry is never on it, and each one also counts in the Reviews badge. The label follows the entry's `can.witness`. Where it is false, as in the administrator's oversight, the same link reads "Read".
 
 ## Driving it with agent-browser

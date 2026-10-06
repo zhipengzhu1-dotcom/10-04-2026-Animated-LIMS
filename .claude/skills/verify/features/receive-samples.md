@@ -1,6 +1,6 @@
 # Receive samples
 
-Log a delivery from a client: one form for the delivery, a row per sample (or paste rows from a spreadsheet), and the tests to run on each. Aliquot assigns sample codes `S-YYYY-NNNN` and creates one Pending, unassigned test `T-YYYY-NNNNN` per sample per method. Code: `public/js/views/samples.js` (`receive`, `showReceived`), server `receiveSamples` in `server/routes/lab.js`. Permission `samples.receive`: admin, manager, scientist, analyst. QA is refused.
+Log a delivery from a client: one form for the delivery, a row per sample (or paste rows from a spreadsheet), and the tests to run on each. Aliquot assigns sample codes `S-YYYY-NNNN` and creates one Pending, unassigned test `T-YYYY-NNNNN` per sample per method. Code: `public/js/views/samples.js` (`receive`, `showReceived`), server `receiveSamples` in `server/routes/lab.js`. Permission `samples.receive`: admin, manager, scientist, analyst. QA and the business role are refused with 403.
 
 ## Sub-features
 

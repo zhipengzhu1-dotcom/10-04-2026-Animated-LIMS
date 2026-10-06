@@ -1,17 +1,17 @@
 # Enter results and submit a test
 
-An analyst opens a test assigned to them, types results (checked live against specification), records the instrument, and e-signs "Performed" to submit it for peer review. Code: `public/js/views/tests.js`, rules in `TEST_RULES` (`server/workflow.js`). Statuses: Pending → In Progress → Submitted → Reviewed → Approved, or Cancelled. The header buttons come from the test's `can` flags (`GET /api/tests/:id` → `can`), so a button is shown exactly when the server would accept it.
+An analyst opens a test assigned to them, types results (checked live against specification), records the instrument, and e-signs "Performed" to submit it for peer review. Code: `public/js/views/tests.js`, rules in `TEST_RULES` (`server/workflow.js`). Statuses: Pending → In Progress → Submitted → Reviewed → Approved, or Cancelled. The header buttons come from the test's `can` flags (`GET /api/tests/:id` → `can`), so a button is shown when the server's rule for that action allows it. Submit still re-checks pending results, materials, the instrument and the password on the server, which `can` does not show. A reviewer's or approver's return sends the test back to In Progress.
 
 ## Sub-features
 
-- Start a test (`[data-act=start]` "Start test", only for the assigned analyst on a Pending test, while their qualification on the method is current) or pick up an unassigned Pending one (`[data-act=claim]` "Pick up this test", only for someone qualified on the method).
+- Start a test (`[data-act=start]` "Start test", only for the assigned analyst on a Pending test, while their qualification on the method is current) or pick up an unassigned Pending one (`[data-act=claim]` "Pick up this test", only for someone qualified on the method). Both need `tests.perform`, which QA lacks. Toasts: "Test started", "Test assigned to you".
 - Numeric results with a live outcome in `td[data-outcome]`: "Pass", "OOS" for a failing value, "Reported" when the analyte has no limits. Text results with a specification text have a Conforms / Does not toggle; without one they are "Reported".
 - Instrument (`select[name=instrument_id]`), required unless the technique is Physical / Visual or Gravimetric. Instruments out of calibration, Out of Service or in Maintenance are disabled, and Retired ones are not listed. The exception is the instrument already recorded on the test, which stays listed and selectable whatever its state.
 - Standards, reagents and columns (`input[name=material_ids]`), raw data reference (`input[name=raw_data_ref]`), comments (`textarea[name=comments]`).
 - Save (`button[data-save]`, PUT `/api/tests/:id`, moves Pending to In Progress).
 - Save & submit (e-sign "Performed", POST `/api/tests/:id/submit`). A failing result opens an OOS investigation automatically.
 - Changing a recorded result asks for a reason: modal `textarea[name=reason]`, then "Continue".
-- Files (`TEST_RULES.attach`): only the assigned analyst, or someone who assigns tests, may attach, and only before the test is submitted. After that the Files panel shows "The test is submitted — attachments are locked" instead of the drop zone.
+- Files (`TEST_RULES.attach`): only the assigned analyst, or someone who assigns tests, may attach, and only while the test is Pending or In Progress, so a returned test accepts files again. Once it is Submitted, Reviewed, Approved or Cancelled the Files panel shows "The test is submitted — attachments are locked" instead of the drop zone.
 
 ## How to get to it (user POV)
 
