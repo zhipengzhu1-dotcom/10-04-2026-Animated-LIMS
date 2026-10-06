@@ -71,7 +71,9 @@ before(async () => {
   const priya = await as('priya.raman');
   lab.client = (await priya.ok('GET', '/api/clients'))[0].id;
   lab.kf = (await priya.ok('GET', '/api/methods?usable=1')).find((m) => m.code === 'ATM-0002' && m.status === 'Effective').id;
-  lab.users = Object.fromEntries((await priya.ok('GET', '/api/users')).map((u) => [u.username, u.id]));
+  const users = await priya.ok('GET', '/api/users');
+  lab.users = Object.fromEntries(users.map((u) => [u.username, u.id]));
+  lab.roles = Object.fromEntries(users.map((u) => [u.username, u.role]));
 });
 
 after(async () => {
@@ -144,7 +146,7 @@ async function within(person, fn) {
     try {
       return await fn(c);
     } finally {
-      await admin.ok('PUT', `/api/users/${userId}`, { role: 'analyst' });
+      await admin.ok('PUT', `/api/users/${userId}`, { role: lab.roles[person.username] });
     }
   }
   if (person.lapsed) {
@@ -383,6 +385,91 @@ for (const [state, prepare] of Object.entries(INVESTIGATION_STATES)) {
     }
   });
 }
+
+// ----- Method sweep -----
+
+// The manager owns each Method, so only ownership can refuse them making it effective. QA approves it; a scientist
+// moves it on before approval.
+const METHOD_OWNER = 'priya.raman';
+const approveMethod = (status, comment) => async (id) => (await as('daniel.okafor')).ok('POST', `/api/methods/${id}/status`, { status, comment, password: PASSWORD });
+const moveMethod = (status) => async (id) => (await as('sarah.lindqvist')).ok('POST', `/api/methods/${id}/status`, { status });
+
+const METHOD_STATES = {
+  draft: [],
+  'in development': [moveMethod('In Development')],
+  'in validation': [moveMethod('In Validation')],
+  effective: [approveMethod('Effective')],
+  retired: [approveMethod('Effective'), approveMethod('Retired', 'Superseded by a coulometric method')],
+  'effective, with a newer version drafted': [approveMethod('Effective'), async (id) => (await as('sarah.lindqvist')).ok('POST', `/api/methods/${id}/new-version`)],
+};
+
+async function prepareMethod(steps) {
+  const { id } = await (await as('sarah.lindqvist')).ok('POST', '/api/methods', {
+    title: 'Assay by UV', technique: 'UV-Vis', price: 100, tat_days: 3, owner_id: lab.users[METHOD_OWNER],
+    analytes: [{ name: 'Assay', unit: '%', spec_min: 95, spec_max: 105 }],
+  });
+  for (const step of steps) await step(id);
+  return id;
+}
+
+const methodStatus = (status) => (c, id) => c.post(`/api/methods/${id}/status`, { status, comment: 'Agreement sweep', password: PASSWORD });
+
+const METHOD_ACTIONS = {
+  edit: (c, id) => c.put(`/api/methods/${id}`, { title: 'Assay by UV, revised' }),
+  newVersion: (c, id) => c.post(`/api/methods/${id}/new-version`),
+  backToDraft: methodStatus('Draft'),
+  develop: methodStatus('In Development'),
+  validate: methodStatus('In Validation'),
+  makeEffective: methodStatus('Effective'),
+  retire: methodStatus('Retired'),
+};
+
+const METHOD_PEOPLE = {
+  'the manager who owns it': METHOD_OWNER,
+  'QA, who approves but does not edit': 'daniel.okafor',
+  'a scientist, who edits but does not approve': 'sarah.lindqvist',
+  'an analyst, who does neither': ANALYST,
+};
+
+for (const [state, steps] of Object.entries(METHOD_STATES)) {
+  test(`a Method ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, username] of Object.entries(METHOD_PEOPLE)) {
+      const label = `Method ${state}, ${who}`;
+      const c = await as(username);
+      const id = await prepareMethod(steps);
+      const { can } = await c.ok('GET', `/api/methods/${id}`);
+
+      const actions = Object.keys(METHOD_ACTIONS);
+      assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      for (const action of actions.filter((a) => !can[a])) {
+        const r = await METHOD_ACTIONS[action](c, id);
+        assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+      }
+      for (const action of actions) {
+        note('METHOD_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const r = await METHOD_ACTIONS[action](c, await prepareMethod(steps));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
+test('the owner of a Method is not offered Make effective and is refused it, while another manager succeeds', async () => {
+  const id = await prepareMethod([]);
+  await within({ username: 'helena.weiss', role: 'manager' }, async () => {
+    const [owner, other] = await Promise.all(['priya.raman', 'helena.weiss'].map(as));
+    assert.equal((await owner.ok('GET', `/api/methods/${id}`)).can.makeEffective, false);
+    const r = await owner.post(`/api/methods/${id}/status`, { status: 'Effective', password: PASSWORD });
+    assert.equal(r.status, 403);
+    assert.equal(r.data.error, 'The method owner cannot approve their own method — another manager or QA must sign');
+    assert.equal((await owner.ok('GET', `/api/methods/${id}`)).method.status, 'Draft');
+
+    assert.equal((await other.ok('GET', `/api/methods/${id}`)).can.makeEffective, true);
+    await other.ok('POST', `/api/methods/${id}/status`, { status: 'Effective', password: PASSWORD });
+    assert.equal((await owner.ok('GET', `/api/methods/${id}`)).method.status, 'Effective');
+  });
+});
 
 // ----- File sweep -----
 

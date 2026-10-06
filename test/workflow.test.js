@@ -647,6 +647,20 @@ test('files on a Method lock once it is effective', async () => {
   await expectFilesLock(sarah, 'methods', id, approve, 'The method is effective — attachments are locked');
 });
 
+test('a new version of a Draft Method is refused, so a Method never has two drafts', async () => {
+  const sarah = await as('sarah.lindqvist');
+  const { id, code } = await sarah.ok('POST', '/api/methods', { title: 'Water by coulometric KF', technique: 'Karl Fischer', analytes: [{ name: 'Water', unit: '%', spec_max: 0.5 }] });
+  assert.equal((await sarah.ok('GET', `/api/methods/${id}`)).can.newVersion, false);
+  const r = await sarah.post(`/api/methods/${id}/new-version`);
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'v1 is still a draft — edit it instead of creating a new version');
+  assert.equal((await sarah.ok('GET', '/api/methods?all=1')).filter((m) => m.code === code).length, 1);
+
+  await sarah.ok('POST', `/api/methods/${id}/status`, { status: 'In Development' });
+  assert.equal((await sarah.ok('GET', `/api/methods/${id}`)).can.newVersion, true);
+  await sarah.ok('POST', `/api/methods/${id}/new-version`);
+});
+
 test('files on a Project lock once it is completed', async () => {
   const marco = await as('marco.bianchi');
   const clients = await marco.ok('GET', '/api/clients');
