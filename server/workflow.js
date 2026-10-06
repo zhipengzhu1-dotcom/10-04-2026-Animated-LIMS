@@ -12,7 +12,7 @@ import { bad, forbidden, guard } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
 import { SAMPLE_OPEN, SIGNATURE_MEANINGS } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
-import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
+import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './investigations.js';
 
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];

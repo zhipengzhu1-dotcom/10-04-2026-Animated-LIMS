@@ -319,6 +319,70 @@ for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
   });
 }
 
+// ----- Investigation sweep -----
+
+// A manager performs the Test, so the performer holds `investigations.close` and only independence can refuse them.
+const PERFORMER = 'priya.raman';
+
+async function investigationOnTest() {
+  const priya = await as(PERFORMER);
+  const t = await prepareTest([]);
+  await priya.ok('POST', '/api/tests/assign', { test_ids: [t.testId], analyst_id: lab.users[PERFORMER] });
+  const { id } = await (await as('daniel.okafor')).ok('POST', '/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Drift seen after the run', test_id: t.testId });
+  return { id, testId: t.testId };
+}
+
+const FINDINGS = { root_cause: 'Draught from the open door', conclusion: 'No impact on the reported result' };
+
+const INVESTIGATION_STATES = {
+  'open on a Test': investigationOnTest,
+  standalone: async () => ({ id: (await (await as(ANALYST)).ok('POST', '/api/investigations', { type: 'Lab Incident', title: 'Spilled reagent', description: 'Spill at bench 3' })).id }),
+  closed: async () => {
+    const v = await investigationOnTest();
+    await (await as('daniel.okafor')).ok('POST', `/api/investigations/${v.id}/close`, { ...FINDINGS, password: PASSWORD });
+    return v;
+  },
+};
+
+const INVESTIGATION_ACTIONS = {
+  edit: (c, v) => c.put(`/api/investigations/${v.id}`, { title: 'Balance drift after door left open' }),
+  close: (c, v) => c.post(`/api/investigations/${v.id}/close`, { ...FINDINGS, password: PASSWORD }),
+};
+
+const INVESTIGATION_PEOPLE = {
+  'the manager who performed the Test': PERFORMER,
+  'someone independent': 'helena.weiss',
+  'an analyst who may raise but not close': ANALYST,
+  'someone without the permission': 'grace.holloway',
+};
+
+for (const [state, prepare] of Object.entries(INVESTIGATION_STATES)) {
+  test(`an Investigation ${state}: offers and refusals agree on its page and its Test's page`, async () => {
+    for (const [who, username] of Object.entries(INVESTIGATION_PEOPLE)) {
+      const label = `Investigation ${state}, ${who}`;
+      const c = await as(username);
+      const v = await prepare();
+      const { can } = await c.ok('GET', `/api/investigations/${v.id}`);
+      if (v.testId) {
+        const page = await c.get(`/api/tests/${v.testId}`);
+        if (page.status === 200) assert.deepEqual(page.data.investigations.find((x) => x.id === v.id).can, can, `${label}: Test page card vs Investigation page`);
+      }
+
+      const actions = Object.keys(INVESTIGATION_ACTIONS);
+      for (const action of actions.filter((a) => !can[a])) {
+        const r = await INVESTIGATION_ACTIONS[action](c, v);
+        assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+      }
+      for (const action of actions) {
+        note('INVESTIGATION_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const r = await INVESTIGATION_ACTIONS[action](c, await prepare());
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
 // ----- File sweep -----
 
 // Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;
@@ -550,5 +614,8 @@ test('the sweep saw every rule of every rules table both offered and withheld', 
       assert.ok(seen[table]?.[rule], `${table}.${rule} has no entry in the agreement sweep`);
       assert.deepEqual([...seen[table][rule]].sort(), [false, true], `${table}.${rule} was not seen both offered and withheld`);
     }
+  }
+  for (const [table, rules] of Object.entries(seen)) {
+    for (const rule of Object.keys(rules)) assert.ok(TABLES[table]?.[rule], `${table}.${rule} is swept but has no rule behind its flag`);
   }
 });

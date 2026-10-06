@@ -15,7 +15,7 @@ import {
   TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
+import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -302,7 +302,7 @@ export default function routes(r) {
     // Each Investigation can be closed from its card on the Test page, so its closure signature is shown here too.
     for (const v of investigations) {
       v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
-      v.can = { close: mayCloseInvestigation(me, v) };
+      v.can = flags(INVESTIGATION_RULES, v, me);
     }
     const performers = rolesWith('tests.perform');
     return {

@@ -3,12 +3,13 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, forbidden, guard } from '../http.js';
+import { bad, forbidden, guard, flags } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
-import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
-import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
+import { INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
+import { clean, nowIso, likeTerm } from '../util.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 import { SAMPLE_RULES } from '../workflow.js';
+import { INVESTIGATION_OPEN, INVESTIGATION_RULES, raiseInvestigation } from '../investigations.js';
 
 // ---------------------------------------------------------------------------------------------
 // Notebook
@@ -94,19 +95,6 @@ const INV_SELECT = `
   LEFT JOIN projects p ON p.id = v.project_id
   LEFT JOIN instruments i ON i.id = v.instrument_id`;
 
-const investigationSchema = {
-  type: { type: 'enum', values: Object.keys(INVESTIGATION_TYPES), required: true },
-  title: { required: true },
-  severity: { type: 'enum', values: SEVERITIES, default: 'Minor' },
-  test_id: { type: 'id', ref: 'tests', label: 'test' },
-  sample_id: { type: 'id', ref: 'samples', label: 'sample' },
-  project_id: { type: 'id', ref: 'projects', label: 'project' },
-  instrument_id: { type: 'id', ref: 'instruments', label: 'instrument' },
-  owner_id: { type: 'id', ref: 'users', label: 'owner' },
-  due_date: { type: 'date' },
-  description: { type: 'text', required: true },
-};
-
 export function createInvestigation(ctx, body) {
   const sample = body.sample_id && get('SELECT * FROM samples WHERE id = ?', +body.sample_id);
   if (sample) guard(SAMPLE_RULES.raise(sample, ctx.user));
@@ -114,36 +102,8 @@ export function createInvestigation(ctx, body) {
   return raiseInvestigation(ctx, body);
 }
 
-/** Opens an Investigation without asking for `investigations.raise`: the path for one the system raises itself. */
-export function raiseInvestigation(ctx, body, summary) {
-  const b = clean(body, investigationSchema);
-  if (b.test_id && !b.sample_id) b.sample_id = get('SELECT sample_id FROM tests WHERE id = ?', b.test_id).sample_id;
-  if (b.sample_id && !b.project_id) b.project_id = get('SELECT project_id FROM samples WHERE id = ?', b.sample_id).project_id;
-  return tx(() => {
-    const code = nextCode(INVESTIGATION_TYPES[b.type], { pad: 3 });
-    const id = insert(ctx, 'investigations', {
-      code, ...b, status: 'Open', raised_by: ctx.user.id, raised_at: nowIso(),
-      due_date: b.due_date ?? addBusinessDays(today(), b.severity === 'Critical' ? 5 : 20),
-    }, { summary: summary ?? `${b.type} raised` });
-    return { id, code };
-  });
-}
-
-/** The newest open Investigation of any type raised on Test `testId`. */
-export const openTestInvestigation = (testId) =>
-  get(`SELECT id, code, status FROM investigations WHERE test_id = ? AND status != 'Closed' ORDER BY id DESC LIMIT 1`, testId);
-
-// An Investigation `v` open on Sample `s` or any of its Tests.
-export const OPEN_ON_SAMPLE = `v.status != 'Closed' AND (v.sample_id = s.id OR v.test_id IN (SELECT id FROM tests WHERE sample_id = s.id))`;
-
-/** An open Investigation of any type on Sample `sampleId` or one of its Tests. */
-export const openSampleInvestigation = (sampleId) =>
-  get(`SELECT v.code FROM investigations v JOIN samples s ON s.id = ? WHERE ${OPEN_ON_SAMPLE} LIMIT 1`, sampleId);
-
 export function updateInvestigation(ctx, id, body) {
-  const v = mustGet('SELECT * FROM investigations WHERE id = ?', id, 'Investigation');
-  if (v.status === 'Closed') throw bad('Closed investigations are locked');
-  if (!can(ctx.user, 'investigations.raise') && !can(ctx.user, 'investigations.close')) throw forbidden();
+  guard(INVESTIGATION_RULES.edit(mustGet('SELECT * FROM investigations WHERE id = ?', id, 'Investigation'), ctx.user));
   const b = clean(body, {
     title: { required: true }, severity: { type: 'enum', values: SEVERITIES },
     status: { type: 'enum', values: INVESTIGATION_STATUSES.filter((s) => s !== 'Closed') },
@@ -154,20 +114,13 @@ export function updateInvestigation(ctx, id, body) {
   return { ok: true };
 }
 
-const performedTestUnder = (user, v) => !!v.test_id && get('SELECT analyst_id FROM tests WHERE id = ?', v.test_id)?.analyst_id === user.id;
-
-/** Whether `user` may close investigation `v` (a row with `status` and `test_id`): the rule `closeInvestigation` enforces. */
-export const mayCloseInvestigation = (user, v) => can(user, 'investigations.close') && v.status !== 'Closed' && !performedTestUnder(user, v);
-
 /**
  * Closes an investigation with an e-signature, from the Investigations screen or its card on the Test page. A root
  * cause and conclusion given here are recorded with the closure; otherwise the ones already recorded must be filled in.
  */
 export function closeInvestigation(ctx, id, body) {
-  assertCan(ctx, 'investigations.close');
   const v = mustGet('SELECT * FROM investigations WHERE id = ?', id, 'Investigation');
-  if (v.status === 'Closed') throw bad('Already closed');
-  if (performedTestUnder(ctx.user, v)) throw forbidden('You performed the test under investigation — someone independent must close it');
+  guard(INVESTIGATION_RULES.close(v, ctx.user));
   const given = clean(body, { root_cause: { type: 'text' }, conclusion: { type: 'text' } }, { partial: true });
   const findings = Object.fromEntries(Object.entries(given).filter(([, text]) => text));
   if (!(findings.root_cause ?? v.root_cause)?.trim()) throw bad('Record the root cause before closing');
@@ -253,7 +206,7 @@ export default function routes(r) {
     const q = ctx.query;
     const where = [];
     const params = [];
-    if (q.status === 'open') where.push(`v.status != 'Closed'`);
+    if (q.status === 'open') where.push(INVESTIGATION_OPEN);
     else if (q.status && q.status !== 'all') { where.push('v.status = ?'); params.push(q.status); }
     if (q.type) { where.push('v.type = ?'); params.push(q.type); }
     return all(`${INV_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY v.status = 'Closed', v.id DESC`, ...params);
@@ -266,10 +219,7 @@ export default function routes(r) {
       investigation,
       results: investigation.test_id ? all('SELECT * FROM results WHERE test_id = ? ORDER BY sort_order, id', investigation.test_id) : [],
       signatures: all(`SELECT * FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, id),
-      can: {
-        edit: investigation.status !== 'Closed' && (can(ctx.user, 'investigations.raise') || can(ctx.user, 'investigations.close')),
-        close: mayCloseInvestigation(ctx.user, investigation),
-      },
+      can: flags(INVESTIGATION_RULES, investigation, ctx.user),
     };
   });
 
