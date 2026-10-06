@@ -838,6 +838,13 @@ const ENTRY_ACTIONS = {
   addendum: (c, e) => c.post(`/api/notebook/${e.id}/addenda`, { body: 'Burette recalibrated since' }),
 };
 
+// A notebook document changes exactly when its entry may be edited.
+const DOCUMENT_ACTIONS = {
+  'add a document': (c, e) => c.post(`/api/notebook/${e.id}/documents`, { template: 'docx', name: 'Prep record' }),
+  'open a document in Office': (c, e) => c.post(`/api/notebook-documents/${e.docId}/edit-link`),
+  'remove a document': (c, e) => c.post(`/api/notebook-documents/${e.docId}/remove`, { reason: 'Started in the wrong entry' }),
+};
+
 const ENTRY_PEOPLE = {
   'the author': { username: ANALYST },
   'the author without notebook.write': { username: ANALYST, role: 'business' },
@@ -854,18 +861,22 @@ for (const [state, steps] of Object.entries(ENTRY_STATES)) {
 
       const actions = Object.keys(ENTRY_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      for (const action of actions) note('ENTRY_RULES', action, can[action]);
+      // [what is tried, the flag that offers it, how]
+      const attempts = [
+        ...Object.entries(ENTRY_ACTIONS).map(([action, attempt]) => [action, action, attempt]),
+        ...Object.entries(DOCUMENT_ACTIONS).map(([what, attempt]) => [what, 'edit', attempt]),
+      ];
       await within(person, async (c) => {
-        for (const action of actions.filter((a) => !can[a])) {
-          const r = await ENTRY_ACTIONS[action](c, e);
-          assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+        for (const [what, , attempt] of attempts.filter(([, flag]) => !can[flag])) {
+          const r = await attempt(c, e);
+          assert.ok(refused(r), `${label}: ${what} is not offered but was accepted (${describe(r)})`);
         }
       });
-      for (const action of actions) {
-        note('ENTRY_RULES', action, can[action]);
-        if (!can[action]) continue;
+      for (const [what, , attempt] of attempts.filter(([, flag]) => can[flag])) {
         const fresh = await prepareEntry(steps);
-        const r = await within(person, (c) => ENTRY_ACTIONS[action](c, fresh));
-        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+        const r = await within(person, (c) => attempt(c, fresh));
+        assert.ok(r.status < 300, `${label}: ${what} is offered but was refused (${describe(r)})`);
       }
     }
   });
