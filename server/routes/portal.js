@@ -13,7 +13,7 @@ import { HttpError, bad, forbidden, notFound, guard, flags } from '../http.js';
 import { assertCan, can, checkPasswordPolicy, hashPassword, verifyPassword } from '../auth.js';
 import { portalAuth, portalLogin, portalLogout, portalCtx, publicPortalUser, portalDestroyOtherSessions } from '../portal-auth.js';
 import { getSettings } from '../settings.js';
-import { SAMPLE_TYPES, STORAGE_CONDITIONS, PRIORITIES, TECHNIQUES, SAMPLE_OPEN } from '../lookups.js';
+import { SAMPLE_TYPES, STORAGE_CONDITIONS, PRIORITIES, TECHNIQUES, SAMPLE_OPEN, PROJECT_OPEN } from '../lookups.js';
 import { clean, nowIso, idList, addDays, today, specText, fixed } from '../util.js';
 import { receiveSamples } from './lab.js';
 import { createProject } from './business.js';
@@ -213,6 +213,9 @@ export const REQUEST_RULES = {
   },
 };
 
+/** A client's open Projects: the ones a submission may name. */
+const openProjects = (clientId) => all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN (${ph(PROJECT_OPEN)}) ORDER BY code DESC`, clientId, ...PROJECT_OPEN);
+
 const getSubmission = (id) => mustGet('SELECT * FROM portal_submissions WHERE id = ?', id, 'Submission');
 
 /** Invites a client contact. Returns a one-time temporary password (shown once to staff, never stored in clear). */
@@ -231,7 +234,7 @@ export function createPortalAccount(ctx, input, presetPassword = null) {
 /** A client contact announces a shipment. ctx is a portal audit context (see portalCtx). */
 export function submitSamples(ctx, pu, input) {
   const b = clean(input, submissionSchema);
-  if (b.project_id && !get(`SELECT 1 FROM projects WHERE id = ? AND client_id = ? AND status IN ('Quoted','Active','On Hold')`, b.project_id, pu.client_id)) throw bad('Project not found');
+  if (b.project_id && !openProjects(pu.client_id).some((p) => p.id === b.project_id)) throw bad('Project not found');
   const rows = cleanSampleRows(input.samples);
   const allowed = new Set(clientMethods(pu.client_id).map((m) => m.id));
   const methodIds = idList(input.method_ids);
@@ -378,7 +381,7 @@ export default function routes(r) {
       sampleTypes: SAMPLE_TYPES, storageConditions: STORAGE_CONDITIONS, priorities: PRIORITIES, techniques: TECHNIQUES,
       requestTypes: REQUEST_TYPES, validationParameters: VALIDATION_PARAMETERS, regulatoryContexts: REGULATORY_CONTEXTS,
       methods: clientMethods(pu.client_id),
-      projects: all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN ('Quoted','Active','On Hold') ORDER BY code DESC`, pu.client_id),
+      projects: openProjects(pu.client_id),
     };
   }, open);
 
@@ -625,7 +628,7 @@ export default function routes(r) {
       submission: submissionView(sub, { forClient: false }),
       thread_id: thread?.id ?? null,
       can: flags(SUBMISSION_RULES, sub, ctx.user),
-      projects: all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN ('Quoted','Active','On Hold') ORDER BY code DESC`, sub.client_id),
+      projects: openProjects(sub.client_id),
     };
   }, staff);
 

@@ -242,6 +242,24 @@ test('sample submission: client submits → lab acknowledges → receives into r
   assert.ok(thread.messages.some((m) => m.side === 'system' && m.body.includes(rec.samples[0].code)));
 });
 
+test('a submission names only one of the client’s own open projects, the ones the portal offers', async () => {
+  const project = async (client_id) => (await manager.ok('POST', '/api/projects', { client_id, title: 'Submission target', type: 'Other', status: 'Active' })).id;
+  const open = await project(ids.acme);
+  const cancelled = await project(ids.acme);
+  await manager.ok('POST', `/api/projects/${cancelled}/cancel`, { reason: 'Client withdrew' });
+  const foreign = await project(ids.other);
+  const laura = await portal(LAURA);
+  const offered = (await laura.ok('GET', '/api/portal/lookups')).projects.map((p) => p.id);
+  assert.ok(offered.includes(open));
+  assert.ok(!offered.includes(cancelled) && !offered.includes(foreign));
+  await laura.ok('POST', '/api/portal/submissions', { project_id: open, samples: [{ description: 'Into an open project' }] });
+  for (const project_id of [cancelled, foreign]) {
+    const r = await laura.post('/api/portal/submissions', { project_id, samples: [{ description: 'Into a project not offered' }] });
+    assert.equal(r.status, 400);
+    assert.equal(r.data.error, 'Project not found');
+  }
+});
+
 test('messages: unread tracking on both sides; replies are plain text', async () => {
   const laura = await portal(LAURA);
   const { id } = await laura.ok('POST', '/api/portal/threads', { subject: 'Question about MF-2614', body: 'Hi,\n<b>bold?</b>' });

@@ -54,6 +54,8 @@ export const rolesWith = (perm) => PERMISSIONS[perm] || [];
 
 export const PROJECT_TYPES = ['Method Development', 'Method Validation', 'Method Transfer', 'Routine / Release Testing', 'Stability Study', 'Reference Standard Characterisation', 'Other'];
 export const PROJECT_STATUSES = ['Quoted', 'Active', 'On Hold', 'Completed', 'Cancelled'];
+// A Project in any other status is closed: read-only, and takes no samples.
+export const PROJECT_OPEN = ['Quoted', 'Active', 'On Hold'];
 // A new Project starts in one of these; every later status change is an action of its own.
 export const PROJECT_START_STATUSES = ['Quoted', 'Active'];
 
