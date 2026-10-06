@@ -1,5 +1,6 @@
-// Syntax-checks every JavaScript file in the project with `node --check`, and refuses hand-written SQL writes that
-// would bypass the audit trail. No dependencies needed.
+// Syntax-checks every JavaScript file in the project with `node --check`, refuses hand-written SQL writes that would
+// bypass the audit trail, rules tables imported where they would make a cycle, and `can` flags written by hand.
+// No dependencies needed.
 // Usage:  npm run check
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -97,4 +98,51 @@ if (unaudited.length) {
   console.error(unaudited.join('\n'));
   console.error('Write through repo.insert / repo.update, or add the table to RAW_WRITES in scripts/check.js with the reason its changes still reach the audit trail.');
 } else console.log('Audited writes OK');
-process.exit(failed || unaudited.length ? 1 : 0);
+
+// A record's rules table lives beside its route module; a module outside server/routes/ never imports one from there,
+// and no two server modules import each other. Where either would happen, the table moves to a server module of its own.
+const ROUTES = path.join(ROOT, 'server', 'routes') + path.sep;
+const IMPORT = /^import\s+(?:([\s\S]*?)\s+from\s+)?['"](\.[^'"]+)['"]/gm;
+const imports = new Map(serverFiles.concat([...WRITERS]).map((file) => [file, [...fs.readFileSync(file, 'utf8').matchAll(IMPORT)].map((m) => ({ names: m[1] ?? '', to: path.resolve(path.dirname(file), m[2]) }))]));
+const misplaced = [];
+for (const [file, list] of imports) {
+  if (file.startsWith(ROUTES)) continue;
+  for (const { names, to } of list) {
+    const tables = names.match(/\b\w+_RULES\b/g);
+    if (tables && to.startsWith(ROUTES)) misplaced.push(`${path.relative(ROOT, file)} imports ${tables.join(', ')} from ${path.relative(ROOT, to)}`);
+  }
+}
+const visiting = [];
+const done = new Set();
+const visit = (file) => {
+  if (done.has(file) || !imports.has(file)) return;
+  if (visiting.includes(file)) return misplaced.push(`import cycle: ${visiting.slice(visiting.indexOf(file)).concat(file).map((f) => path.relative(ROOT, f)).join(' -> ')}`);
+  visiting.push(file);
+  for (const { to } of imports.get(file)) visit(to);
+  visiting.pop();
+  done.add(file);
+};
+for (const file of imports.keys()) visit(file);
+if (misplaced.length) {
+  console.error(misplaced.join('\n'));
+  console.error('Move the rules table to a server module of its own (as server/notebook.js holds ENTRY_RULES) and import it from there.');
+} else console.log('Rules tables placed OK');
+
+// A record's `can` is built with flags() from its rules table. These payloads still write `can` by hand, each for the
+// reason given, and only as many times as listed.
+const HAND_FLAGS = {
+  'server/routes/business.js': { count: 1, why: 'Client has rules for attach only; its edit flag is a permission check' },
+  'server/routes/resources.js': { count: 2, why: 'Instrument and Inventory item have rules for attach only' },
+};
+const handFlags = [];
+for (const file of serverFiles) {
+  const text = fs.readFileSync(file, 'utf8');
+  const lines = [...text.matchAll(/\bcan\s*:\s*\{/g)].map((m) => text.slice(0, m.index).split('\n').length);
+  const allowed = HAND_FLAGS[path.relative(ROOT, file).split(path.sep).join('/')]?.count ?? 0;
+  if (lines.length > allowed) handFlags.push(...lines.map((line) => `${path.relative(ROOT, file)}:${line}: can written by hand`));
+}
+if (handFlags.length) {
+  console.error(handFlags.join('\n'));
+  console.error("Build can with flags(<RECORD>_RULES, record, person), or add the file to HAND_FLAGS in scripts/check.js with the reason it has no rules.");
+} else console.log('Can flags OK');
+process.exit(failed || unaudited.length || misplaced.length || handFlags.length ? 1 : 0);
