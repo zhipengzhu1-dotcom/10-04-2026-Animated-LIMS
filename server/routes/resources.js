@@ -3,7 +3,7 @@
 
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
-import { bad, forbidden, notFound } from '../http.js';
+import { bad, forbidden, notFound, guard, flags } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import {
   TECHNIQUES, INSTRUMENT_TYPES, INSTRUMENT_STATUSES, INSTRUMENT_LOG_KINDS, INVENTORY_CATEGORIES, INVENTORY_STATUSES,
@@ -23,6 +23,7 @@ const TRANSITIONS = {
   Effective: ['Retired'],
   Retired: [],
 };
+const STATUS_RULE = { Draft: 'backToDraft', 'In Development': 'develop', 'In Validation': 'validate', Effective: 'makeEffective', Retired: 'retire' };
 
 const methodSchema = {
   title: { required: true },
@@ -36,7 +37,32 @@ const methodSchema = {
   tat_days: { type: 'int', min: 1, default: 5, required: true, label: 'turnaround (days)' },
 };
 
+const statusRule = (target, permission) => (m, me) => {
+  if (!can(me, permission)) return forbidden();
+  if (!TRANSITIONS[m.status].includes(target)) return bad(`A method can't move from ${m.status} to ${target}`);
+};
+
+const toEffective = statusRule('Effective', 'methods.approve');
+
 export const METHOD_RULES = {
+  edit(m, me) {
+    if (!can(me, 'methods.edit')) return forbidden();
+    if (!EDITABLE_METHOD.includes(m.status)) return bad(`${m.status} methods are locked. Create a new version to make changes.`);
+  },
+  newVersion(m, me) {
+    if (!can(me, 'methods.edit')) return forbidden();
+    const latest = get('SELECT MAX(version) v FROM methods WHERE code = ?', m.code).v;
+    if (latest !== m.version) return bad(`v${latest} already exists — open the latest version`);
+  },
+  backToDraft: statusRule('Draft', 'methods.edit'),
+  develop: statusRule('In Development', 'methods.edit'),
+  validate: statusRule('In Validation', 'methods.edit'),
+  makeEffective(m, me) {
+    const refusal = toEffective(m, me);
+    if (refusal) return refusal;
+    if (m.owner_id === me.id) return forbidden('The method owner cannot approve their own method — another manager or QA must sign');
+  },
+  retire: statusRule('Retired', 'methods.approve'),
   attach(m, me) {
     if (!can(me, 'methods.edit')) return forbidden();
     if (['Effective', 'Retired'].includes(m.status)) return bad(`The method is ${m.status.toLowerCase()} — attachments are locked`);
@@ -95,12 +121,11 @@ export function createMethod(ctx, body) {
 export function setMethodStatus(ctx, id, body) {
   const m = mustGet('SELECT * FROM methods WHERE id = ?', id, 'Method');
   const target = body.status;
-  if (!TRANSITIONS[m.status]?.includes(target)) throw bad(`A method can't move from ${m.status} to ${target}`);
-  const needsApproval = ['Effective', 'Retired'].includes(target);
-  assertCan(ctx, needsApproval ? 'methods.approve' : 'methods.edit');
+  const rule = Object.hasOwn(STATUS_RULE, target) ? METHOD_RULES[STATUS_RULE[target]] : null;
+  if (!rule) throw bad(`A method can't move from ${m.status} to ${target}`);
+  guard(rule(m, ctx.user));
   if (target === 'Effective' && !get('SELECT 1 FROM method_analytes WHERE method_id = ?', id)) throw bad('Define at least one result parameter before making the method effective');
-  if (target === 'Effective' && m.owner_id === ctx.user.id) throw forbidden('The method owner cannot approve their own method — another manager or QA must sign');
-  if (needsApproval) verifySignature(ctx, body.password);
+  if (['Effective', 'Retired'].includes(target)) verifySignature(ctx, body.password);
   tx(() => {
     if (target === 'Effective') {
       for (const old of all(`SELECT id FROM methods WHERE code = ? AND status = 'Effective' AND id != ?`, m.code, id)) {
@@ -117,10 +142,8 @@ export function setMethodStatus(ctx, id, body) {
 }
 
 export function newMethodVersion(ctx, methodId) {
-  assertCan(ctx, 'methods.edit');
   const m = mustGet('SELECT * FROM methods WHERE id = ?', methodId, 'Method');
-  const latest = get('SELECT MAX(version) v FROM methods WHERE code = ?', m.code).v;
-  if (latest !== m.version) throw bad(`v${latest} already exists — open the latest version`);
+  guard(METHOD_RULES.newVersion(m, ctx.user));
   return tx(() => {
     const { id: _, status, effective_date, approved_by, created_at, version, supersedes_id, ...copy } = m;
     const id = insert(ctx, 'methods', { ...copy, version: m.version + 1, status: 'Draft', supersedes_id: m.id, created_at: nowIso() }, { summary: `New version drafted from v${m.version}` });
@@ -271,23 +294,15 @@ export default function routes(r) {
       notebook: all(`SELECT n.id, n.code, n.title, n.status, u.full_name AS author_name, n.created_at FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.method_id = ? ORDER BY n.id DESC`, id),
       signatures: all(`SELECT * FROM signatures WHERE entity = 'methods' AND entity_id = ? ORDER BY id`, id),
       stats,
-      transitions: TRANSITIONS[method.status] || [],
-      can: {
-        edit: can(ctx.user, 'methods.edit') && EDITABLE_METHOD.includes(method.status),
-        approve: can(ctx.user, 'methods.approve'),
-        status: can(ctx.user, 'methods.edit') || can(ctx.user, 'methods.approve'),
-        newVersion: can(ctx.user, 'methods.edit') && method.version === Math.max(...all('SELECT version FROM methods WHERE code = ?', method.code).map((x) => x.version)),
-      },
+      can: flags(METHOD_RULES, method, ctx.user),
     };
   });
 
   r.post('/api/methods', (ctx) => createMethod(ctx, ctx.body));
 
   r.put('/api/methods/:id', (ctx) => {
-    assertCan(ctx, 'methods.edit');
     const id = +ctx.params.id;
-    const m = mustGet('SELECT * FROM methods WHERE id = ?', id, 'Method');
-    if (!EDITABLE_METHOD.includes(m.status)) throw bad(`${m.status} methods are locked. Create a new version to make changes.`);
+    guard(METHOD_RULES.edit(mustGet('SELECT * FROM methods WHERE id = ?', id, 'Method'), ctx.user));
     const b = clean(ctx.body, methodSchema, { partial: true });
     const analytes = cleanAnalytes(ctx.body.analytes);
     tx(() => {

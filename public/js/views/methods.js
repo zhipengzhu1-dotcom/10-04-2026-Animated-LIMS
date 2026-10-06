@@ -56,16 +56,23 @@ export async function list(ctx) {
   f.addEventListener('input', debounce(() => table.filter(f.value), 120));
 }
 
+// Each status change, the rule that offers it, and its button.
+const STATUS_ACTIONS = [
+  ['backToDraft', 'Draft', 'Back to draft'],
+  ['develop', 'In Development', 'Back to development'],
+  ['validate', 'In Validation', 'Move to validation'],
+  ['makeEffective', 'Effective', 'Approve & make effective'],
+  ['retire', 'Retired', 'Retire'],
+];
+
 export async function detail(ctx) {
   const d = await api.get(`/api/methods/${ctx.params.id}`);
   const m = d.method;
   ctx.title(`${m.code} v${m.version}`);
   const oosRate = d.stats.runs ? (d.stats.oos / d.stats.runs) * 100 : null;
-  const transitionBtn = (target) => {
+  const statusBtn = ([rule, target, label]) => {
+    if (!d.can[rule]) return '';
     const needsSign = ['Effective', 'Retired'].includes(target);
-    if (needsSign && !d.can.approve) return '';
-    if (!needsSign && !can('methods.edit')) return '';
-    const label = { Effective: 'Approve & make effective', Retired: 'Retire', 'In Validation': 'Move to validation', 'In Development': 'Back to development', Draft: 'Back to draft' }[target] || target;
     return html`<button class="btn ${target === 'Effective' ? 'primary' : ''}" data-status="${target}">${needsSign ? icon('sign', { size: 15 }) : ''}${label}</button>`;
   };
 
@@ -76,7 +83,7 @@ export async function detail(ctx) {
       badges: html`${statusBadge(m.status)}`,
       meta: html`<span class="code">${m.code} v${m.version}</span><span>${icon('flask', { size: 14 })}${m.technique}</span>${m.client_name ? html`<span>${icon('building', { size: 14 })}${m.client_name}</span>` : ''}${m.reference ? html`<span>${icon('method', { size: 14 })}${m.reference}</span>` : ''}`,
       actions: html`
-        ${d.transitions.map(transitionBtn)}
+        ${STATUS_ACTIONS.map(statusBtn)}
         ${d.can.edit ? html`<a class="btn" href="/methods/${m.id}/edit">${icon('edit', { size: 15 })}Edit</a>` : ''}
         ${d.can.newVersion && m.status !== 'Draft' ? html`<button class="btn" data-act="version">${icon('branch', { size: 15 })}New version</button>` : ''}`,
     })}
