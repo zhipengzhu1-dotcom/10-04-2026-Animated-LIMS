@@ -5,7 +5,7 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden, guard, flags } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
-import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN } from '../lookups.js';
+import { PROJECT_TYPES, PROJECT_START_STATUSES, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, today, addDays, round } from '../util.js';
 import { TEST_SELECT, TEST_OPEN } from '../workflow.js';
 
@@ -58,7 +58,7 @@ const projectSchema = {
   client_id: { type: 'id', ref: 'clients', required: true },
   title: { required: true },
   type: { type: 'enum', values: PROJECT_TYPES, required: true },
-  status: { type: 'enum', values: PROJECT_STATUSES, default: 'Active' },
+  status: { type: 'enum', values: PROJECT_START_STATUSES, default: 'Active' },
   lead_id: { type: 'id', ref: 'users', label: 'project lead' },
   po_number: { label: 'PO number' },
   budget: { type: 'num', min: 0 },
@@ -68,14 +68,31 @@ const projectSchema = {
 };
 
 const CLOSED_PROJECT = ['Completed', 'Cancelled'];
+// A Project's status changes, one action each. A Cancelled Project never moves again; a client coming back gets a new one.
+const PROJECT_MOVES = {
+  activate: { from: ['Quoted', 'On Hold'], to: 'Active', done: 'made active' },
+  hold: { from: ['Active'], to: 'On Hold', done: 'put on hold' },
+  complete: { from: ['Active'], to: 'Completed', done: 'completed' },
+  cancel: { from: ['Quoted', 'Active', 'On Hold'], to: 'Cancelled', done: 'cancelled' },
+  reopen: { from: ['Completed'], to: 'Active', done: 'reopened' },
+};
+
+const moveRule = ({ from, done }) => (p, me) => {
+  if (!can(me, 'projects.edit')) return forbidden();
+  if (!from.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+};
 
 export const PROJECT_RULES = {
   edit(p, me) {
     if (!can(me, 'projects.edit')) return forbidden();
+    if (p.status === 'Completed') return bad('The project is completed — reopen it to make changes');
+    if (p.status === 'Cancelled') return bad('The project is cancelled and can no longer be changed');
   },
+  ...Object.fromEntries(Object.entries(PROJECT_MOVES).map(([action, move]) => [action, moveRule(move)])),
   receive(p, me) {
     if (!can(me, 'samples.receive')) return forbidden();
-    if (CLOSED_PROJECT.includes(p.status)) return bad(`That project is ${p.status.toLowerCase()} — reopen it before adding samples to it`);
+    if (p.status === 'Completed') return bad('That project is completed — reopen it before adding samples to it');
+    if (p.status === 'Cancelled') return bad('That project is cancelled — samples can\'t be added to it');
   },
   attach(p, me) {
     if (!can(me, 'projects.edit')) return forbidden();
@@ -90,6 +107,15 @@ export function createProject(ctx, body) {
     const code = nextCode('P', { pad: 3 });
     return { id: insert(ctx, 'projects', { code, ...b, start_date: b.start_date ?? today(), created_at: nowIso() }, { summary: 'Project created' }), code };
   });
+}
+
+export function setProjectStatus(ctx, id, action, body = {}) {
+  if (!Object.hasOwn(PROJECT_MOVES, action)) throw bad('Unknown action');
+  const p = mustGet('SELECT * FROM projects WHERE id = ?', id, 'Project');
+  guard(PROJECT_RULES[action](p, ctx.user));
+  const { to, done } = PROJECT_MOVES[action];
+  update(ctx, 'projects', id, { status: to }, { action: 'STATUS', summary: `Project ${done}`, reason: String(body.reason || '').trim() || null });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -282,12 +308,15 @@ export default function routes(r) {
   r.put('/api/projects/:id', (ctx) => {
     const id = +ctx.params.id;
     guard(PROJECT_RULES.edit(mustGet('SELECT * FROM projects WHERE id = ?', id, 'Project'), ctx.user));
-    const { client_id, ...schema } = projectSchema;
+    if (ctx.body?.status !== undefined) throw bad('Change a project\'s status with its own action');
+    const { client_id, status, ...schema } = projectSchema;
     const b = clean(ctx.body, schema, { partial: true });
     if ('budget' in b && !can(ctx.user, 'billing.edit')) delete b.budget;
     update(ctx, 'projects', id, b, { summary: 'Project edited' });
     return { ok: true };
   });
+
+  for (const action of Object.keys(PROJECT_MOVES)) r.post(`/api/projects/:id/${action}`, (ctx) => setProjectStatus(ctx, +ctx.params.id, action, ctx.body));
 
   // ----- Invoices -----
   r.get('/api/invoices', (ctx) => {

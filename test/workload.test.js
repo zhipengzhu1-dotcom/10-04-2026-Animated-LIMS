@@ -145,7 +145,8 @@ test('a project lead sees their open led projects, merged with their tests on it
   await setupLab();
   const tomId = lab.users['tom.fletcher'].id;
   const led = await newProject({ lead_id: tomId, due_date: '2099-01-01' });
-  const done = await newProject({ lead_id: tomId, status: 'Completed' });
+  const done = await newProject({ lead_id: tomId });
+  await lab.priya.ok('POST', `/api/projects/${done.id}/complete`);
   let tom = row(await workload(), 'tom.fletcher');
   assert.deepEqual(tom.projects.find((p) => p.id === led.id), { id: led.id, code: led.code, title: 'Workload project', client_code: 'ACME', status: 'Active', due_date: '2099-01-01', lead: true, open_tests: 0, test_count: 0, tests_done: 0 });
   assert.ok(!tom.projects.some((p) => p.id === done.id), 'completed projects drop off');

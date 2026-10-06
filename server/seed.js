@@ -11,7 +11,7 @@ import { setClock, localDate, today, initialsOf } from './util.js';
 import { receiveSamples } from './routes/lab.js';
 import { assignTests, startTest, saveResults, submitTest, reviewTest, approveTest, issueReport } from './workflow.js';
 import { createMethod, setMethodStatus, newMethodVersion, createInstrument, logInstrument, createInventory } from './routes/resources.js';
-import { createClient, createProject, createInvoice, setInvoiceStatus } from './routes/business.js';
+import { createClient, createProject, setProjectStatus, createInvoice, setInvoiceStatus } from './routes/business.js';
 import { createPortalAccount, submitSamples, submitRequest, acknowledgeSubmission, receiveSubmission, respondToRequest, createThread, postMessage } from './routes/portal.js';
 import { createDocument, addVersion } from './routes/documents.js';
 import { makeXlsx, makeDocx } from './ooxml.js';
@@ -652,7 +652,7 @@ export function seedDemo() {
       methods: ['ATM-0003', 'ATM-0008'],
     });
   }
-  on(dayAt(62, 16), () => update(as('priya.raman'), 'projects', P.solvents, { status: 'Completed' }, { summary: 'Project completed — final report sent' }));
+  on(dayAt(62, 16), () => setProjectStatus(as('priya.raman'), P.solvents, 'complete', { reason: 'Final report sent' }));
 
   // Contoso raw materials, every ~2 weeks.
   const excipients = ['Microcrystalline Cellulose PH-102', 'Lactose Monohydrate', 'Magnesium Stearate', 'Croscarmellose Sodium', 'Colloidal Silicon Dioxide', 'Povidone K30'];

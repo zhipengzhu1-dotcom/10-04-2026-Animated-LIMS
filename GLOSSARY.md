@@ -43,3 +43,9 @@ _Avoid_: OOS form, deviation
 **Certificate of Analysis (CoA)**:
 The QA-signed statement of a Sample's approved results, issued to the client.
 _Avoid_: Report, certificate
+
+### Client work
+
+**Project**:
+A client's body of work, such as a release testing programme or a method validation, under which its Samples are received and its work is invoiced. It starts Quoted or Active and moves only along these status changes: Quoted to Active or Cancelled; Active to On Hold, Completed or Cancelled; On Hold to Active or Cancelled; Completed back to Active by reopening it. A Cancelled Project never moves again; a client who comes back gets a new Project. A closed Project, Completed or Cancelled, is read-only: it cannot be edited, takes no Samples and locks its files, apart from reopening a Completed one.
+_Avoid_: Job, engagement, study (for the record itself)

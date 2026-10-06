@@ -667,7 +667,7 @@ test('files on a Project lock once it is completed', async () => {
   const marco = await as('marco.bianchi');
   const clients = await marco.ok('GET', '/api/clients');
   const { id } = await marco.ok('POST', '/api/projects', { client_id: clients[0].id, title: 'Stability programme', type: 'Stability Study' });
-  const complete = () => marco.ok('PUT', `/api/projects/${id}`, { status: 'Completed' });
+  const complete = () => marco.ok('POST', `/api/projects/${id}/complete`);
   await expectFilesLock(marco, 'projects', id, complete, 'The project is completed — attachments are locked');
 });
 

@@ -377,7 +377,7 @@ export async function request(ctx) {
       submitLabel: 'Create project',
       body: html`
         ${field({ label: 'Project title', name: 'title', value: q.title, required: true, span: 2 })}
-        ${field({ label: 'Status', name: 'status', type: 'select', options: ['Quoted', 'Active'], value: q.status === 'Accepted' ? 'Active' : 'Quoted' })}
+        ${field({ label: 'Status', name: 'status', type: 'select', options: state.lookups.projectStartStatuses, value: q.status === 'Accepted' ? 'Active' : 'Quoted' })}
         ${field({ label: 'Project lead', name: 'lead_id', type: 'select', options: activeUsers(['manager', 'scientist']).map((u) => [u.id, u.full_name]), empty: 'Decide later' })}`,
       onSubmit: (d) => api.post(`/api/portal-admin/requests/${q.id}/project`, { ...d, lead_id: d.lead_id ? Number(d.lead_id) : null }),
     });
