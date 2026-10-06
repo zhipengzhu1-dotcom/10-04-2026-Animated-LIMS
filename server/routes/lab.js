@@ -4,7 +4,7 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad } from '../http.js';
+import { bad, guard, flags } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
@@ -13,7 +13,7 @@ import {
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
   TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
-  guard, unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
+  unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
 
@@ -190,7 +190,6 @@ export default function routes(r) {
     const tests = all(`${TEST_SELECT} WHERE t.sample_id = ? ORDER BY t.id`, id);
     const results = tests.length ? all(`SELECT * FROM results WHERE test_id IN (${ph(tests)}) ORDER BY sort_order, id`, ...tests.map((t) => t.id)) : [];
     for (const t of tests) t.results = results.filter((x) => x.test_id === t.id);
-    const allowed = (action) => !SAMPLE_RULES[action](sample, ctx.user);
     return {
       sample,
       tests,
@@ -202,10 +201,7 @@ export default function routes(r) {
       can: {
         edit: can(ctx.user, 'samples.edit') && SAMPLE_OPEN.includes(sample.status),
         addTests: can(ctx.user, 'samples.receive') && SAMPLE_OPEN.includes(sample.status),
-        assign: allowed('assign'),
-        issue: allowed('issue'),
-        dispose: allowed('dispose'),
-        cancel: allowed('cancel'),
+        ...flags(SAMPLE_RULES, sample, ctx.user),
         custody: can(ctx.user, 'samples.edit') && !['Disposed', 'Cancelled'].includes(sample.status),
       },
     };
@@ -318,7 +314,6 @@ export default function routes(r) {
       v.can = { close: mayCloseInvestigation(me, v) };
     }
     const performers = rolesWith('tests.perform');
-    const allowed = (action) => !TEST_RULES[action](test, me);
     return {
       test,
       method,
@@ -336,15 +331,7 @@ export default function routes(r) {
       analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
       can: {
-        assign: allowed('assign'),
-        claim: allowed('claim'),
-        start: allowed('start'),
-        edit: allowed('record'),
-        submit: allowed('submit'),
-        review: allowed('review'),
-        accept: allowed('accept'),
-        return: allowed('return'),
-        cancel: allowed('cancel'),
+        ...flags(TEST_RULES, test, me),
         raise: can(me, 'investigations.raise'),
       },
       qualifiedMe,

@@ -8,7 +8,7 @@
 
 import { all, get, run, ph, tx } from './db.js';
 import { update, mustGet } from './repo.js';
-import { bad, forbidden } from './http.js';
+import { bad, forbidden, guard } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
 import { SAMPLE_OPEN, SIGNATURE_MEANINGS } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
@@ -111,7 +111,7 @@ export const TEST_RULES = {
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can start this test');
     if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current`);
   },
-  record(t, me) {
+  edit(t, me) {
     if (!can(me, 'tests.perform')) return forbidden();
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can record results for this test');
     if (!TEST_EDITABLE.includes(t.status)) return bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
@@ -180,10 +180,6 @@ export const SAMPLE_RULES = {
     if (inv) return bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
   },
 };
-
-export function guard(refusal) {
-  if (refusal) throw refusal;
-}
 
 /** The one way a Test's status changes: audited as a status change, with its Sample's status re-derived in the same transaction. */
 function changeStatus(ctx, t, patch, meta) {
@@ -265,7 +261,7 @@ export function startTest(ctx, id) {
 
 export function saveResults(ctx, id, body) {
   const t = getTest(id);
-  guard(TEST_RULES.record(t, ctx.user));
+  guard(TEST_RULES.edit(t, ctx.user));
 
   const fields = clean(body, {
     instrument_id: { type: 'id' },
