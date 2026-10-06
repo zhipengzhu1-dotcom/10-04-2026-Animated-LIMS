@@ -471,6 +471,75 @@ test('the owner of a Method is not offered Make effective and is refused it, whi
   });
 });
 
+// ----- Invoice sweep -----
+
+// Each invoice bills a Project of its own and has a line, so issuing and pulling in completed work are always ready.
+async function prepareInvoice(steps) {
+  const oliver = await as('oliver.grant');
+  const { id: project_id } = await oliver.ok('POST', '/api/projects', { client_id: lab.client, title: 'Invoice sweep', type: 'Other' });
+  const { id } = await oliver.ok('POST', '/api/invoices', { project_id });
+  await oliver.ok('PUT', `/api/invoices/${id}`, { lines: [{ description: 'Stability pull', quantity: 1, unit_price: 100 }] });
+  for (const step of steps) await oliver.ok('POST', `/api/invoices/${id}/${step}`, { reason: 'Billed to the wrong PO' });
+  return id;
+}
+
+const INVOICE_STATES = {
+  draft: [],
+  sent: ['issue'],
+  paid: ['issue', 'paid'],
+  void: ['void'],
+};
+
+// Editing covers pulling in completed work, so both requests must get the same answer.
+async function editInvoice(c, id) {
+  const put = await c.put(`/api/invoices/${id}`, { notes: 'Agreement sweep' });
+  const pull = await c.post(`/api/invoices/${id}/add-unbilled`);
+  return (put.status < 300) === (pull.status < 300) ? put : { status: 500, data: `edit → ${describe(put)}, add-unbilled → ${describe(pull)}` };
+}
+
+const INVOICE_ACTIONS = {
+  edit: editInvoice,
+  issue: (c, id) => c.post(`/api/invoices/${id}/issue`),
+  paid: (c, id) => c.post(`/api/invoices/${id}/paid`),
+  void: (c, id) => c.post(`/api/invoices/${id}/void`, { reason: 'Billed to the wrong PO' }),
+};
+
+// Every role that can read an invoice can also bill, so a person without the permission cannot read the invoice and
+// is offered nothing; their refusals are still attempted.
+const INVOICE_PEOPLE = {
+  'the business person': { username: 'oliver.grant' },
+  'a manager': { username: 'priya.raman' },
+  'the business person after a role change': { username: 'oliver.grant', role: 'analyst' },
+};
+
+for (const [state, steps] of Object.entries(INVOICE_STATES)) {
+  test(`an invoice ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, person] of Object.entries(INVOICE_PEOPLE)) {
+      const label = `Invoice ${state}, ${who}`;
+      const id = await prepareInvoice(steps);
+      const actions = Object.keys(INVOICE_ACTIONS);
+      const can = await within(person, async (c) => {
+        const r = await c.get(`/api/invoices/${id}`);
+        assert.ok([200, 403].includes(r.status), `${label}: invoice → ${describe(r)}`);
+        const offered = r.status === 200 ? r.data.can : {};
+        if (r.status === 200) assert.deepEqual(actions.filter((a) => typeof offered[a] !== 'boolean'), [], `${label}: every action has a flag`);
+        for (const action of actions.filter((a) => !offered[a])) {
+          const refusal = await INVOICE_ACTIONS[action](c, id);
+          assert.ok(refused(refusal), `${label}: ${action} is not offered but was accepted (${describe(refusal)})`);
+        }
+        return Object.fromEntries(actions.map((a) => [a, offered[a] === true]));
+      });
+      for (const action of actions) {
+        note('INVOICE_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const fresh = await prepareInvoice(steps);
+        const r = await within(person, (c) => INVOICE_ACTIONS[action](c, fresh));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
 // ----- File sweep -----
 
 // Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;
