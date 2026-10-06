@@ -1,16 +1,16 @@
 // Electronic lab notebook and investigations (OOS / deviations / CAPA).
 
-import { all, get, run, tx } from '../db.js';
+import { all, get, run, tx, ph } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, guard, flags } from '../http.js';
+import { bad, guard, flags, workQueue } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import { INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
 import { clean, nowIso, likeTerm } from '../util.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 import { SAMPLE_RULES, TEST_RULES } from '../workflow.js';
 import { INVESTIGATION_OPEN, INVESTIGATION_RULES, raiseInvestigation } from '../investigations.js';
-import { ENTRY_RULES } from '../notebook.js';
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 // ---------------------------------------------------------------------------------------------
 // Notebook
@@ -138,6 +138,7 @@ export default function routes(r) {
     if (q.mine) { where.push('n.author_id = ?'); params.push(ctx.user.id); }
     if (q.status && q.status !== 'all') { where.push('n.status = ?'); params.push(q.status); }
     if (q.project_id) { where.push('n.project_id = ?'); params.push(+q.project_id); }
+    if (q.work) { const ids = workQueue(ENTRY_RULES, ENTRY_QUEUES, q.work, ctx.user).map((n) => n.id); where.push(`n.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.q) { const t = likeTerm(q.q); where.push(`(n.code LIKE ? ESCAPE '\\' OR n.title LIKE ? ESCAPE '\\' OR n.body LIKE ? ESCAPE '\\' OR n.tags LIKE ? ESCAPE '\\')`); params.push(t, t, t, t); }
     return all(`${NOTEBOOK_SELECT.replace('SELECT n.*', 'SELECT n.id, n.code, n.title, n.status, n.tags, n.project_id, n.sample_id, n.method_id, n.author_id, n.signed_at, n.witnessed_at, n.created_at, n.updated_at, substr(n.body, 1, 220) AS excerpt, (SELECT COUNT(*) FROM notebook_documents d WHERE d.entry_id = n.id AND d.removed = 0) AS doc_count')}
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY n.updated_at DESC LIMIT 500`, ...params);

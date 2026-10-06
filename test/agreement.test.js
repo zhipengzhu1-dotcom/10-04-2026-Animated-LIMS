@@ -208,6 +208,7 @@ const sighted = {};
 const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
 const inMyDrafts = async (c, e) => (await c.ok('GET', '/api/dashboard')).myDrafts.some((n) => n.id === e.id);
+const inNotebookDrafts = (c, e) => listed(c, '/api/notebook?work=drafts', e.id);
 const workFilters = (work) => ({
   'Samples work filter': (c, t) => listed(c, `/api/samples?limit=2000&work=${work}`, t.sampleId),
   'Tests work filter': (c, t) => listed(c, `/api/tests?limit=3000&work=${work}`, t.testId),
@@ -226,7 +227,7 @@ const SURFACES = {
   ENTRY_QUEUES: {
     witness: { 'Reviews page witness list': (c, e) => onReviews(c, 'toWitness', e.id) },
     // A new draft is its author's most recent, so it is among the Dashboard's first five.
-    drafts: { 'Dashboard My drafts': inMyDrafts },
+    drafts: { 'Dashboard My drafts': inMyDrafts, 'Notebook My drafts tab': inNotebookDrafts },
   },
 };
 
@@ -974,8 +975,17 @@ test('an author whose role lost notebook.write is refused editing and signing th
 
 test('a draft whose author lost notebook.write leaves My drafts', async () => {
   const e = await prepareEntry([]);
-  assert.ok(await inMyDrafts(await as(ANALYST), e), 'the author sees their draft');
-  await within({ username: ANALYST, role: 'business' }, async (tom) => assert.ok(!(await inMyDrafts(tom, e)), 'nor does the author once they may no longer edit it'));
+  const tom = await as(ANALYST);
+  assert.ok(await inMyDrafts(tom, e), 'the author sees their draft on the Dashboard');
+  assert.ok(await inNotebookDrafts(tom, e), 'and on the Notebook tab');
+  await within({ username: ANALYST, role: 'business' }, async (c) => {
+    assert.ok(!(await inMyDrafts(c, e)), 'nor does the author once they may no longer edit it');
+    assert.ok(!(await inNotebookDrafts(c, e)), 'nor on the Notebook tab');
+  });
+});
+
+test('the Notebook refuses an unknown work filter', async () => {
+  assert.equal((await (await as(ANALYST)).get('/api/notebook?work=everything')).status, 400);
 });
 
 // Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.

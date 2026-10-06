@@ -37,6 +37,12 @@ export const locks = (rules, record, person, ...names) => Object.fromEntries(nam
 /** The records of `queue`'s stage on which `person` is offered the rule it names in `rules`, in the stage's order. */
 export const queued = (rules, queue, person) => queue.stage().filter((record) => !rules[queue.rule](record, person));
 
+/** `queued` for the Queue a list's `work` filter names; an unknown name is refused. */
+export function workQueue(rules, queues, name, person) {
+  if (!Object.hasOwn(queues, name)) throw bad(`Work filter must be one of: ${Object.keys(queues).join(', ')}`);
+  return queued(rules, queues[name], person);
+}
+
 export class Router {
   constructor() {
     this.routes = [];
