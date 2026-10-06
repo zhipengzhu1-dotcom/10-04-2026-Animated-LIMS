@@ -213,7 +213,7 @@ export const REQUEST_RULES = {
   },
 };
 
-/** A client's open Projects: the ones a submission may name. */
+/** A client's open Projects, the ones a submission may name. Mirrors PROJECT_RULES.receive, reading the same open statuses. */
 const openProjects = (clientId) => all(`SELECT id, code, title FROM projects WHERE client_id = ? AND status IN (${ph(PROJECT_OPEN)}) ORDER BY code DESC`, clientId, ...PROJECT_OPEN);
 
 const getSubmission = (id) => mustGet('SELECT * FROM portal_submissions WHERE id = ?', id, 'Submission');
