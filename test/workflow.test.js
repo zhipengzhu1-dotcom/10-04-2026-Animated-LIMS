@@ -335,7 +335,7 @@ test('attachments upload, download and removal keeps the file', async () => {
   assert.equal((await tom.post(`/api/attachments/${id}/remove`, {})).data.code, 'REASON_REQUIRED');
   await tom.ok('POST', `/api/attachments/${id}/remove`, { reason: 'Uploaded to wrong sample' });
   const list = await tom.ok('GET', `/api/attachments?entity=samples&id=${s.id}`);
-  assert.equal(list.find((a) => a.id === id).removed, 1);
+  assert.equal(list.files.find((a) => a.id === id).removed, 1);
 });
 
 test('lockout after repeated wrong passwords', async () => {
@@ -569,7 +569,7 @@ test('files attach to a Test until it is submitted, and not from then on', async
   assert.equal((await attach(testId)).status, 200, 'in progress');
   const d = await tom.ok('GET', `/api/tests/${testId}`);
   await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
-  const [mine] = await tom.ok('GET', `/api/attachments?entity=tests&id=${testId}`);
+  const { files: [mine] } = await tom.ok('GET', `/api/attachments?entity=tests&id=${testId}`);
   await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
   const refused = async (status) => {
     const res = await attach(testId);
@@ -586,6 +586,79 @@ test('files attach to a Test until it is submitted, and not from then on', async
   const cancelled = await freshTest('ATM-0002', 'tom.fletcher');
   await (await as('priya.raman')).ok('POST', `/api/tests/${cancelled.testId}/cancel`, { reason: 'Not needed' });
   assert.equal((await attach(cancelled.testId)).status, 400, 'cancelled');
+});
+
+/**
+ * Attaches a file as `c` while the record is open, runs `lock`, then expects attaching and removing to be refused with
+ * `reason`, and the file box to show that reason and offer neither.
+ */
+async function expectFilesLock(c, entity, id, lock, reason) {
+  const url = `/api/attachments?entity=${entity}&id=${id}`;
+  const attach = () => fetch(BASE + url, {
+    method: 'POST', headers: { 'X-Requested-With': 'aliquot', Cookie: c.cookie, 'Content-Type': 'text/plain', 'X-Filename': 'trace.txt' }, body: 'trace',
+  });
+  const open = await attach();
+  assert.equal(open.status, 200, 'attaching while open');
+  const { id: fileId } = await open.json();
+  await lock();
+  const late = await attach();
+  assert.equal(late.status, 400, 'attaching once locked');
+  assert.equal((await late.json()).error, reason);
+  const removal = await c.post(`/api/attachments/${fileId}/remove`, { reason: 'Attached to the wrong record' });
+  assert.equal(removal.status, 400, 'removing once locked');
+  assert.equal(removal.data.error, reason);
+  const box = await c.ok('GET', url);
+  assert.equal(box.can.attach, false);
+  assert.equal(box.locks.attach, reason);
+  assert.equal(box.files.find((f) => f.id === fileId).can.remove, false);
+}
+
+test('files on a Sample lock once its certificate is issued', async () => {
+  const tom = await as('tom.fletcher');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  await (await as('sarah.lindqvist')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await (await as('daniel.okafor')).ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  const report = async () => (await as('priya.raman')).ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  await expectFilesLock(tom, 'samples', sampleId, report, 'The sample is reported — attachments are locked');
+});
+
+test('files on a Method lock once it is effective', async () => {
+  const sarah = await as('sarah.lindqvist');
+  const { id } = await sarah.ok('POST', '/api/methods', { title: 'Water by coulometric KF', technique: 'Karl Fischer', analytes: [{ name: 'Water', unit: '%', spec_max: 0.5 }] });
+  const approve = async () => (await as('daniel.okafor')).ok('POST', `/api/methods/${id}/status`, { status: 'Effective', password: PASSWORD });
+  await expectFilesLock(sarah, 'methods', id, approve, 'The method is effective — attachments are locked');
+});
+
+test('files on a Project lock once it is completed', async () => {
+  const marco = await as('marco.bianchi');
+  const clients = await marco.ok('GET', '/api/clients');
+  const { id } = await marco.ok('POST', '/api/projects', { client_id: clients[0].id, title: 'Stability programme', type: 'Stability Study' });
+  const complete = () => marco.ok('PUT', `/api/projects/${id}`, { status: 'Completed' });
+  await expectFilesLock(marco, 'projects', id, complete, 'The project is completed — attachments are locked');
+});
+
+test('removing someone else\'s file needs attachments.remove', async () => {
+  const [tom, sarah, priya] = await Promise.all(['tom.fletcher', 'sarah.lindqvist', 'priya.raman'].map(as));
+  for (const [c, granted] of [[priya, true], [await as('admin'), true], [sarah, false], [tom, false]]) {
+    assert.equal((await c.ok('GET', '/api/auth/me')).permissions.includes('attachments.remove'), granted);
+  }
+  const { sampleId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const url = `/api/attachments?entity=samples&id=${sampleId}`;
+  const res = await fetch(BASE + url, {
+    method: 'POST', headers: { 'X-Requested-With': 'aliquot', Cookie: tom.cookie, 'Content-Type': 'text/plain', 'X-Filename': 'receipt.txt' }, body: 'receipt',
+  });
+  const { id } = await res.json();
+  const offered = async (c) => (await c.ok('GET', url)).files.find((f) => f.id === id).can.remove;
+  assert.equal(await offered(tom), true, 'the uploader');
+  assert.equal(await offered(sarah), false, 'someone who may attach files here but not remove others\'');
+  assert.equal(await offered(priya), true, 'a manager, who holds attachments.remove');
+  const refused = await sarah.post(`/api/attachments/${id}/remove`, { reason: 'Duplicate' });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.data.error, 'Only the uploader, or someone allowed to remove others\' files, can remove this file');
+  await priya.ok('POST', `/api/attachments/${id}/remove`, { reason: 'Duplicate' });
 });
 
 test('an OOS investigation is closed from the Test page with an e-signature', async () => {

@@ -32,6 +32,14 @@ const notebookSchema = {
   tags: { max: 200 },
 };
 
+export const ENTRY_RULES = {
+  attach(n, me) {
+    if (!can(me, 'notebook.write')) return forbidden();
+    if (n.author_id !== me.id) return forbidden('Only the author can attach files to this entry');
+    if (n.status !== 'Draft') return bad('Signed notebook entries are locked — add an addendum instead');
+  },
+};
+
 export function createEntry(ctx, body) {
   assertCan(ctx, 'notebook.write');
   const b = clean(body, notebookSchema);

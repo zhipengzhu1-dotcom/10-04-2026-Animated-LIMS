@@ -8,7 +8,7 @@
 
 import { all, get, run, ph, tx } from './db.js';
 import { update, mustGet } from './repo.js';
-import { bad, forbidden } from './http.js';
+import { bad, forbidden, guard } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
 import { SAMPLE_OPEN, SIGNATURE_MEANINGS } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
@@ -111,7 +111,7 @@ export const TEST_RULES = {
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can start this test');
     if (!isQualified(me.id, t.method_code)) return forbidden(`Your qualification on ${t.method_code} is not current`);
   },
-  record(t, me) {
+  edit(t, me) {
     if (!can(me, 'tests.perform')) return forbidden();
     if (t.analyst_id !== me.id) return forbidden('Only the assigned analyst can record results for this test');
     if (!TEST_EDITABLE.includes(t.status)) return bad(`Results can't be changed while the test is ${t.status.toLowerCase()}`);
@@ -142,6 +142,10 @@ export const TEST_RULES = {
     // An out-of-specification result can never be made to disappear by cancelling and retesting.
     const inv = openTestInvestigation(t.id);
     if (inv) return bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
+  },
+  attach(t, me) {
+    if (!can(me, 'tests.assign') && !(can(me, 'tests.perform') && t.analyst_id === me.id)) return forbidden('Only the assigned analyst can attach files to this test');
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`The test is ${t.status.toLowerCase()} — attachments are locked`);
   },
 };
 
@@ -179,11 +183,11 @@ export const SAMPLE_RULES = {
     const inv = openSampleInvestigation(s.id);
     if (inv) return bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
   },
+  attach(s, me) {
+    if (!can(me, 'samples.edit')) return forbidden();
+    if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);
+  },
 };
-
-export function guard(refusal) {
-  if (refusal) throw refusal;
-}
 
 /** The one way a Test's status changes: audited as a status change, with its Sample's status re-derived in the same transaction. */
 function changeStatus(ctx, t, patch, meta) {
@@ -265,7 +269,7 @@ export function startTest(ctx, id) {
 
 export function saveResults(ctx, id, body) {
   const t = getTest(id);
-  guard(TEST_RULES.record(t, ctx.user));
+  guard(TEST_RULES.edit(t, ctx.user));
 
   const fields = clean(body, {
     instrument_id: { type: 'id' },

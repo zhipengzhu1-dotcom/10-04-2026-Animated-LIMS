@@ -99,7 +99,7 @@ export async function detail(ctx) {
         ${d.invoices ? card({ title: 'Invoices', flush: true, body: d.invoices.length ? html`<ul class="list">${d.invoices.slice(0, 8).map((i) => html`<li class="link" data-href="/invoices/${i.id}"><div class="grow"><div class="title"><span class="code">${i.code}</span></div><div class="meta">${i.issued_date ? fmtDate(i.issued_date) : 'Draft'}</div></div><span class="num">${money(i.subtotal * (1 + i.tax_rate / 100))}</span>${statusBadge(i.status)}</li>`)}</ul>` : emptyState({ icon: 'receipt', title: 'No invoices yet' }) }) : ''}
       </div>
     </div>`);
-  wireRecordFooter(ctx.el, 'clients', c.id, { locked: !d.can.edit });
+  wireRecordFooter(ctx.el, 'clients', c.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
   ctx.el.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;

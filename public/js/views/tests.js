@@ -283,7 +283,7 @@ export async function detail(ctx) {
     </div>`);
 
   const form = ctx.el.querySelector('form[data-results]');
-  wireRecordFooter(ctx.el, 'tests', t.id, { locked: !editable, lockedReason: editable ? null : ['Submitted', 'Reviewed', 'Approved'].includes(t.status) ? 'Signed records are locked — attachments can no longer change.' : null });
+  wireRecordFooter(ctx.el, 'tests', t.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
 
   // Live specification check while typing.
