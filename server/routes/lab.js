@@ -321,10 +321,7 @@ export default function routes(r) {
         ORDER BY used_with_method DESC, i.category, i.name`, test.method_code, id).map((m) => ({ ...m, problem: materialProblem(m) })),
       analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
-      can: {
-        ...flags(TEST_RULES, test, me),
-        raise: can(me, 'investigations.raise'),
-      },
+      can: flags(TEST_RULES, test, me),
       qualifiedMe,
     };
   });

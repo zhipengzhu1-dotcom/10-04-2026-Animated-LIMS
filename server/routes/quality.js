@@ -8,7 +8,7 @@ import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import { INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
 import { clean, nowIso, likeTerm } from '../util.js';
 import { listDocuments, freezeDocuments } from './documents.js';
-import { SAMPLE_RULES } from '../workflow.js';
+import { SAMPLE_RULES, TEST_RULES } from '../workflow.js';
 import { INVESTIGATION_OPEN, INVESTIGATION_RULES, raiseInvestigation } from '../investigations.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -96,8 +96,10 @@ const INV_SELECT = `
   LEFT JOIN instruments i ON i.id = v.instrument_id`;
 
 export function createInvestigation(ctx, body) {
+  const test = body.test_id && get('SELECT * FROM tests WHERE id = ?', +body.test_id);
   const sample = body.sample_id && get('SELECT * FROM samples WHERE id = ?', +body.sample_id);
-  if (sample) guard(SAMPLE_RULES.raise(sample, ctx.user));
+  if (test) guard(TEST_RULES.raise(test, ctx.user));
+  else if (sample) guard(SAMPLE_RULES.raise(sample, ctx.user));
   else assertCan(ctx, 'investigations.raise');
   return raiseInvestigation(ctx, body);
 }

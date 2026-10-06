@@ -189,6 +189,7 @@ const TEST_ACTIONS = {
   accept: (c, t) => c.post(`/api/tests/${t.testId}/approve`, { decision: 'approve', password: PASSWORD }),
   return: (c, t) => c.post(`/api/tests/${t.testId}/approve`, { decision: 'reject', comment: 'Repeat the titration', password: PASSWORD }),
   cancel: (c, t) => c.post(`/api/tests/${t.testId}/cancel`, { reason: 'Client withdrew the request' }),
+  raise: (c, t) => c.post('/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Drift seen after the run', test_id: t.testId, sample_id: t.sampleId }),
 };
 
 // Each queue lists a Test exactly when its person is offered this action on it. Approval lists a Test under

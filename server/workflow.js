@@ -143,6 +143,10 @@ export const TEST_RULES = {
     const inv = openTestInvestigation(t.id);
     if (inv) return bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
   },
+  // As on a Sample, raising depends on no status: a problem can come to light after approval.
+  raise(t, me) {
+    if (!can(me, 'investigations.raise')) return forbidden();
+  },
   attach(t, me) {
     if (!can(me, 'tests.assign') && !(can(me, 'tests.perform') && t.analyst_id === me.id)) return forbidden('Only the assigned analyst can attach files to this test');
     if (!TEST_EDITABLE.includes(t.status)) return bad(`The test is ${t.status.toLowerCase()} — attachments are locked`);
