@@ -74,6 +74,13 @@ export function createTest(ctx, sample, method, { due, priority }) {
 // Sample services
 // ---------------------------------------------------------------------------------------------
 
+/** Refuses filing a Sample of client `clientId` under Project `projectId` unless the Project is that client's and open. */
+function assertProjectTakes(projectId, clientId) {
+  const p = get('SELECT client_id, status FROM projects WHERE id = ?', projectId);
+  if (p.client_id !== clientId) throw bad('That project belongs to a different client');
+  if (['Completed', 'Cancelled'].includes(p.status)) throw bad(`That project is ${p.status.toLowerCase()} — reopen it before adding samples to it`);
+}
+
 export function receiveSamples(ctx, body) {
   assertCan(ctx, 'samples.receive');
   const common = clean(body, {
@@ -88,11 +95,7 @@ export function receiveSamples(ctx, body) {
     due_date: { type: 'date' },
     notes: { type: 'text' },
   });
-  if (common.project_id) {
-    const p = get('SELECT client_id, status FROM projects WHERE id = ?', common.project_id);
-    if (p.client_id !== common.client_id) throw bad('That project belongs to a different client');
-    if (['Completed', 'Cancelled'].includes(p.status)) throw bad(`That project is ${p.status.toLowerCase()} — reopen it before receiving samples`);
-  }
+  if (common.project_id) assertProjectTakes(common.project_id, common.client_id);
   const rows = (Array.isArray(body.samples) ? body.samples : [])
     .filter((s) => s && typeof s === 'object' && Object.values(s).some((v) => String(v ?? '').trim()))
     .map((s, i) => clean(s, {
@@ -210,7 +213,7 @@ export default function routes(r) {
       quantity: {}, container: {}, storage: { type: 'enum', values: STORAGE_CONDITIONS }, priority: { type: 'enum', values: PRIORITIES },
       due_date: { type: 'date' }, notes: { type: 'text' }, project_id: { type: 'id', ref: 'projects' },
     }, { partial: true });
-    if (b.project_id && get('SELECT client_id FROM projects WHERE id = ?', b.project_id).client_id !== s.client_id) throw bad('That project belongs to a different client');
+    if (b.project_id && b.project_id !== s.project_id) assertProjectTakes(b.project_id, s.client_id);
     const reason = String(ctx.body.reason || '').trim();
     if (s.status !== 'Received' && !reason) throw bad('Testing has started on this sample — give a reason for the change', 'REASON_REQUIRED');
     update(ctx, 'samples', id, b, { summary: 'Sample details edited', reason: reason || null });

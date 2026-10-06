@@ -525,6 +525,21 @@ async function oosTest(analystUsername) {
   return { sampleId, testId, investigation };
 }
 
+test('a Sample cannot be edited into a completed Project, as it cannot be received into one', async () => {
+  const priya = await as('priya.raman');
+  const completed = (await priya.ok('GET', '/api/projects?status=Completed'))[0];
+  const open = (await priya.ok('GET', `/api/projects?status=open&client_id=${completed.client_id}`))[0];
+  const { samples: [{ id }] } = await priya.ok('POST', '/api/samples/receive', { client_id: completed.client_id, samples: [{ description: 'Late retain' }] });
+
+  const r = await priya.put(`/api/samples/${id}`, { project_id: completed.id });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'That project is completed — reopen it before adding samples to it');
+  assert.equal((await priya.ok('GET', `/api/samples/${id}`)).sample.project_id, null);
+
+  await priya.ok('PUT', `/api/samples/${id}`, { project_id: open.id });
+  assert.equal((await priya.ok('GET', `/api/samples/${id}`)).sample.project_id, open.id);
+});
+
 test('the OOS investigation raised on submit takes the same defaults as one raised by hand', async () => {
   const tom = await as('tom.fletcher');
   const priya = await as('priya.raman');
