@@ -206,6 +206,7 @@ const QUEUES = { TEST_QUEUES, ENTRY_QUEUES };
 
 const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
+const inMyDrafts = async (c, e) => (await c.ok('GET', '/api/dashboard')).myDrafts.some((n) => n.id === e.id);
 const workFilters = (work) => ({
   'Samples work filter': (c, t) => listed(c, `/api/samples?limit=2000&work=${work}`, t.sampleId),
   'Tests work filter': (c, t) => listed(c, `/api/tests?limit=3000&work=${work}`, t.testId),
@@ -220,6 +221,8 @@ const SURFACES = {
   },
   ENTRY_QUEUES: {
     witness: { 'Reviews page witness list': (c, e) => onReviews(c, 'toWitness', e.id) },
+    // A new draft is its author's most recent, so it is among the Dashboard's first five.
+    drafts: { 'Dashboard My drafts': inMyDrafts },
   },
 };
 
@@ -940,6 +943,12 @@ test('an author whose role lost notebook.write is refused editing and signing th
   });
   const { entry } = await (await as(ANALYST)).ok('GET', `/api/notebook/${e.id}`);
   assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
+});
+
+test('a draft whose author lost notebook.write leaves My drafts', async () => {
+  const e = await prepareEntry([]);
+  assert.ok(await inMyDrafts(await as(ANALYST), e), 'the author sees their draft');
+  await within({ username: ANALYST, role: 'business' }, async (tom) => assert.ok(!(await inMyDrafts(tom, e)), 'nor does the author once they may no longer edit it'));
 });
 
 // Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.

@@ -7,6 +7,7 @@ import { today, addDays, now, localDate } from '../util.js';
 import { queued } from '../http.js';
 import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES, TEST_RULES, TEST_RETURNED } from '../workflow.js';
 import { INVESTIGATION_OPEN } from '../investigations.js';
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 function monthsBack(n) {
   const out = [];
@@ -87,7 +88,7 @@ export default function routes(r) {
       // The assigned Queue is already in priority and due-date order.
       myTests: queued(TEST_RULES, TEST_QUEUES.assigned, me).slice(0, 12),
       myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND ${RETURNED_SQL}`, me.id, ...RETURNED_PARAMS).map((x) => x.id),
-      myDrafts: all(`SELECT id, code, title, updated_at FROM notebook_entries WHERE author_id = ? AND status = 'Draft' ORDER BY updated_at DESC LIMIT 5`, me.id),
+      myDrafts: queued(ENTRY_RULES, ENTRY_QUEUES.drafts, me).slice(0, 5),
       alerts,
       pipeline: all(`SELECT status, COUNT(*) AS n FROM tests WHERE status IN (${ph(TEST_OPEN)}) GROUP BY status`, ...TEST_OPEN),
       workload: all(`SELECT u.id, u.full_name, u.initials,

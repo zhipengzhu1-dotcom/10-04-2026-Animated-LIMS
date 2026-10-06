@@ -40,4 +40,5 @@ const ENTRY_STAGE = `SELECT n.id, n.code, n.title, n.status, n.author_id, n.proj
 // narrowed by status only. Every surface reads a person's Queue through `queued`.
 export const ENTRY_QUEUES = {
   witness: { rule: 'witness', stage: () => all(`${ENTRY_STAGE} WHERE n.status = 'Signed' ORDER BY n.signed_at, n.id`) },
+  drafts: { rule: 'edit', stage: () => all(`${ENTRY_STAGE} WHERE n.status = 'Draft' ORDER BY n.updated_at DESC, n.id DESC`) },
 };
