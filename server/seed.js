@@ -764,7 +764,7 @@ export function seedDemo() {
         const kind = d.filename.endsWith('.xlsx') ? 'xlsx' : 'docx';
         on(t0 + (k + 1) * 20 * 60_000, () => {
           const created = createDocument(as(author), id, { kind, filename: d.filename, content: d.content(), source: 'template' });
-          if (d.revised) on(t0 + (k + 1) * 20 * 60_000 + 50 * 60_000, () => addVersion(as(author), get('SELECT d.*, n.status AS entry_status, n.author_id, n.code AS entry_code FROM notebook_documents d JOIN notebook_entries n ON n.id = d.entry_id WHERE d.id = ?', created.id), d.revised(), 'office'));
+          if (d.revised) on(t0 + (k + 1) * 20 * 60_000 + 50 * 60_000, () => addVersion(as(author), get('SELECT d.*, n.code AS entry_code FROM notebook_documents d JOIN notebook_entries n ON n.id = d.entry_id WHERE d.id = ?', created.id), d.revised(), 'office'));
         });
       }
       if (sign) on(tSign, () => signEntry(as(author), id, {}));

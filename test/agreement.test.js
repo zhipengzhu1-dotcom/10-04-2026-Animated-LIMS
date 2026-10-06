@@ -812,6 +812,122 @@ for (const [entity, record] of Object.entries(FILE_RECORDS)) {
   }
 }
 
+// ----- Notebook entry sweep -----
+
+// The analyst writes each entry, with one workbook, and signs it; a scientist witnesses it.
+async function prepareEntry(steps) {
+  const tom = await as(ANALYST);
+  const { id } = await tom.ok('POST', '/api/notebook', { title: 'KF titre check', body: 'Titre 4.98 mg/mL' });
+  const { id: docId } = await tom.ok('POST', `/api/notebook/${id}/documents`, { template: 'xlsx', name: 'Titre workbook' });
+  for (const step of steps) await step(id);
+  return { id, docId };
+}
+
+const signEntry = signedAs(ANALYST, (id) => `/api/notebook/${id}/sign`);
+
+const ENTRY_STATES = {
+  draft: [],
+  signed: [signEntry],
+  witnessed: [signEntry, signedAs('sarah.lindqvist', (id) => `/api/notebook/${id}/witness`)],
+};
+
+const ENTRY_ACTIONS = {
+  edit: (c, e) => c.put(`/api/notebook/${e.id}`, { body: 'Titre 4.97 mg/mL' }),
+  sign: (c, e) => c.post(`/api/notebook/${e.id}/sign`, { password: PASSWORD }),
+  witness: (c, e) => c.post(`/api/notebook/${e.id}/witness`, { password: PASSWORD }),
+  addendum: (c, e) => c.post(`/api/notebook/${e.id}/addenda`, { body: 'Burette recalibrated since' }),
+};
+
+// A notebook document changes exactly when its entry may be edited.
+const DOCUMENT_ACTIONS = {
+  'add a document': (c, e) => c.post(`/api/notebook/${e.id}/documents`, { template: 'docx', name: 'Prep record' }),
+  'open a document in Office': (c, e) => c.post(`/api/notebook-documents/${e.docId}/edit-link`),
+  'remove a document': (c, e) => c.post(`/api/notebook-documents/${e.docId}/remove`, { reason: 'Started in the wrong entry' }),
+};
+
+const ENTRY_PEOPLE = {
+  'the author': { username: ANALYST },
+  'the author without notebook.write': { username: ANALYST, role: 'business' },
+  'a witness who is not the author': { username: 'sarah.lindqvist' },
+  'someone without the permissions': { username: 'grace.holloway' },
+};
+
+for (const [state, steps] of Object.entries(ENTRY_STATES)) {
+  test(`a notebook entry ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, person] of Object.entries(ENTRY_PEOPLE)) {
+      const label = `Entry ${state}, ${who}`;
+      const e = await prepareEntry(steps);
+      const { can } = await within(person, (c) => c.ok('GET', `/api/notebook/${e.id}`));
+
+      const actions = Object.keys(ENTRY_ACTIONS);
+      assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      for (const action of actions) note('ENTRY_RULES', action, can[action]);
+      // [what is tried, the flag that offers it, how]
+      const attempts = [
+        ...Object.entries(ENTRY_ACTIONS).map(([action, attempt]) => [action, action, attempt]),
+        ...Object.entries(DOCUMENT_ACTIONS).map(([what, attempt]) => [what, 'edit', attempt]),
+      ];
+      await within(person, async (c) => {
+        for (const [what, , attempt] of attempts.filter(([, flag]) => !can[flag])) {
+          const r = await attempt(c, e);
+          assert.ok(refused(r), `${label}: ${what} is not offered but was accepted (${describe(r)})`);
+        }
+      });
+      for (const [what, , attempt] of attempts.filter(([, flag]) => can[flag])) {
+        const fresh = await prepareEntry(steps);
+        const r = await within(person, (c) => attempt(c, fresh));
+        assert.ok(r.status < 300, `${label}: ${what} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
+test('an author whose role lost notebook.write is refused editing and signing their draft', async () => {
+  const e = await prepareEntry([]);
+  await within({ username: ANALYST, role: 'business' }, async (tom) => {
+    const { can } = await tom.ok('GET', `/api/notebook/${e.id}`);
+    assert.deepEqual([can.edit, can.sign], [false, false]);
+    for (const r of [await ENTRY_ACTIONS.edit(tom, e), await ENTRY_ACTIONS.sign(tom, e)]) {
+      assert.equal(r.status, 403);
+      assert.equal(r.data.error, 'You do not have permission to do that.');
+    }
+  });
+  const { entry } = await (await as(ANALYST)).ok('GET', `/api/notebook/${e.id}`);
+  assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
+});
+
+// Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.
+const LOCK_INFO = '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype><D:owner>Tom</D:owner></D:lockinfo>';
+const dav = async (link, method, body) => {
+  const res = await fetch(BASE + link.path, { method, headers: { Timeout: 'Second-600' }, body });
+  return { status: res.status, text: await res.text() };
+};
+
+test('a WebDAV lock on a signed entry\'s document is refused', async () => {
+  const tom = await as(ANALYST);
+  const e = await prepareEntry([]);
+  const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
+  await signEntry(e.id);
+  // Signing ends every Office link to the entry's documents, so the lock is refused before any rule is asked.
+  assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 404, text: 'This link has expired. Open the document again from Aliquot.' });
+  const again = await tom.post(`/api/notebook-documents/${e.docId}/edit-link`);
+  assert.equal(again.status, 400, 'nor can a new link be opened');
+  assert.equal(again.data.error, 'Signed entries are locked — add an addendum instead');
+});
+
+test('a WebDAV lock or save by an author whose role lost notebook.write is refused', async () => {
+  const tom = await as(ANALYST);
+  const e = await prepareEntry([]);
+  const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
+  await within({ username: ANALYST, role: 'business' }, async () => {
+    assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 403, text: 'You do not have permission to do that.' });
+    assert.deepEqual(await dav(link, 'PUT', 'a changed workbook'), { status: 403, text: 'You do not have permission to do that.' });
+  });
+  const versions = await tom.ok('GET', `/api/notebook-documents/${e.docId}/versions`);
+  assert.deepEqual(versions.map((v) => v.version), [1]);
+  assert.equal((await dav(link, 'LOCK', LOCK_INFO)).status, 200, 'the same link works once the role allows writing again');
+});
+
 // ----- Sample status on the happy path -----
 
 test('the Sample status follows each transition, return and cancel of its Tests', async () => {

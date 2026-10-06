@@ -10,11 +10,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { all, get, run, tx } from '../db.js';
 import { audit } from '../audit.js';
-import { HttpError, bad, clientIp, forbidden, notFound, readBody } from '../http.js';
-import { assertCan } from '../auth.js';
+import { HttpError, bad, clientIp, guard, notFound, readBody } from '../http.js';
 import { nowIso, localDate } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES, SESSION_MAX_HOURS } from '../config.js';
 import { KINDS, kindOf, inspectOffice, makeDocx, makeXlsx, preview } from '../ooxml.js';
+import { ENTRY_RULES } from './quality.js';
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const SOURCES = { template: 'created in Aliquot', upload: 'uploaded', office: 'saved from' };
@@ -30,7 +30,7 @@ export const TEMPLATES = {
 // ---------------------------------------------------------------------------------------------
 
 const DOC_SELECT = `
-  SELECT d.*, n.status AS entry_status, n.author_id, n.code AS entry_code, n.title AS entry_title
+  SELECT d.*, n.code AS entry_code, n.title AS entry_title
   FROM notebook_documents d JOIN notebook_entries n ON n.id = d.entry_id`;
 
 const getDoc = (id) => get(`${DOC_SELECT} WHERE d.id = ?`, id);
@@ -49,11 +49,7 @@ export function listDocuments(entryId) {
     WHERE d.entry_id = ? ORDER BY d.id`, entryId);
 }
 
-function assertEditable(ctx, entry) {
-  assertCan(ctx, 'notebook.write');
-  if (entry.author_id !== ctx.user.id) throw forbidden('Only the author can change the documents of this entry');
-  if ((entry.entry_status ?? entry.status) !== 'Draft') throw bad('Signed entries are locked — add an addendum instead');
-}
+const entryOf = (doc) => get('SELECT * FROM notebook_entries WHERE id = ?', doc.entry_id);
 
 function cleanFilename(name, kind) {
   let base = String(name || '').replace(/\.(docx|xlsx)$/i, '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -108,7 +104,7 @@ export function templateFile(template, entry, author) {
 export function createDocument(ctx, entryId, { kind, filename, content, source }) {
   const entry = get('SELECT * FROM notebook_entries WHERE id = ?', entryId);
   if (!entry) throw notFound('Notebook entry');
-  assertEditable(ctx, entry);
+  guard(ENTRY_RULES.edit(entry, ctx.user));
   if (!KINDS[kind]) throw bad('Only Word (.docx) and Excel (.xlsx) files can be added');
   if (content.length > MAX_UPLOAD_BYTES) throw bad('The file is larger than 50 MB');
   inspectOffice(content, kind);
@@ -135,7 +131,7 @@ export function createDocument(ctx, entryId, { kind, filename, content, source }
 /** Stores a new version unless the content is identical to the current one. */
 export function addVersion(ctx, doc, content, source) {
   if (doc.removed) throw bad('This document has been removed');
-  assertEditable(ctx, doc);
+  guard(ENTRY_RULES.edit(entryOf(doc), ctx.user));
   inspectOffice(content, doc.kind);
   const sha = sha256(content);
   const prev = latestVersion(doc.id);
@@ -183,7 +179,7 @@ const xmlEsc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
 
 export function createEditLink(ctx, doc) {
   if (doc.removed) throw bad('This document has been removed');
-  assertEditable(ctx, doc);
+  guard(ENTRY_RULES.edit(entryOf(doc), ctx.user));
   const token = crypto.randomBytes(32).toString('base64url');
   const t = nowIso();
   const expires = new Date(Date.now() + SESSION_MAX_HOURS * 3600_000).toISOString();
@@ -234,7 +230,8 @@ async function dav(req, res, url) {
   const base = `/dav/${token}/`;
   const href = base + encodeURIComponent(doc.filename);
   const collection = !name;
-  const editable = doc.entry_status === 'Draft' && doc.author_id === user.id;
+  // Office takes 403 as read-only, so any refusal of the entry's edit rule is a 403 here.
+  const refusal = ENTRY_RULES.edit(entryOf(doc), user);
 
   if (!collection && name !== doc.filename) {
     // Office never needs other files here; refuse rather than accept stray temp files.
@@ -271,7 +268,7 @@ async function dav(req, res, url) {
     }
     case 'LOCK': {
       const body = (await drain(req)).toString('utf8');
-      if (!editable) throw new HttpError(403, 'This entry is signed — the document is read-only');
+      if (refusal) throw new HttpError(403, refusal.message);
       const existing = activeLock(doc.id);
       if (existing && existing.userId !== user.id) throw new HttpError(423, 'Locked');
       const timeout = Math.min(Number(/Second-(\d+)/i.exec(req.headers.timeout || '')?.[1]) || LOCK_SECONDS, LOCK_SECONDS);
@@ -296,9 +293,9 @@ async function dav(req, res, url) {
       return;
     }
     case 'PUT': {
-      if (!editable) {
+      if (refusal) {
         await drain(req);
-        throw new HttpError(403, 'This entry has been signed — changes can no longer be saved');
+        throw new HttpError(403, refusal.message);
       }
       const existing = activeLock(doc.id);
       if (existing && existing.userId !== user.id) throw new HttpError(423, 'Locked');
@@ -368,7 +365,7 @@ export default function routes(r) {
     if (!t) throw bad('Choose Word document or Excel workbook');
     const entry = get('SELECT * FROM notebook_entries WHERE id = ?', +ctx.params.id);
     if (!entry) throw notFound('Notebook entry');
-    assertEditable(ctx, entry);
+    guard(ENTRY_RULES.edit(entry, ctx.user));
     const content = templateFile(template, entry, ctx.user);
     return createDocument(ctx, entry.id, { kind: t.kind, filename: ctx.body.name || (template === 'replicates' ? 'Replicate statistics' : t.label), content, source: 'template' });
   });
@@ -429,7 +426,7 @@ export default function routes(r) {
   r.post('/api/notebook-documents/:id/remove', (ctx) => {
     const doc = mustDoc(+ctx.params.id);
     if (doc.removed) throw bad('Already removed');
-    assertEditable(ctx, doc);
+    guard(ENTRY_RULES.edit(entryOf(doc), ctx.user));
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
     tx(() => {
