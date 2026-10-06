@@ -12,22 +12,11 @@ import {
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
-  TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
+  TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_SELECT, SAMPLE_QUEUES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
+import { INVESTIGATION_RULES } from '../investigations.js';
 import { PROJECT_RULES } from './business.js';
-
-const SAMPLE_SELECT = `
-  SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
-    u.full_name AS received_by_name,
-    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
-    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved,
-    (SELECT COALESCE(MAX(t.oos), 0) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS has_oos
-  FROM samples s
-  JOIN clients c ON c.id = s.client_id
-  LEFT JOIN projects p ON p.id = s.project_id
-  LEFT JOIN users u ON u.id = s.received_by`;
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
@@ -342,7 +331,7 @@ export default function routes(r) {
         FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
         WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
     }
-    if (sees('reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
+    out.toIssue = lab ? SAMPLE_QUEUES.certificate.stage() : queued(SAMPLE_RULES, SAMPLE_QUEUES.certificate, ctx.user);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }

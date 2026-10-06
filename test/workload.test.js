@@ -202,15 +202,20 @@ test('the administrator oversees every work queue but cannot act on it', async (
   assert.equal((await admin.req('POST', '/api/tests/assign', { test_ids: [unassigned.id], analyst_id: lab.users['tom.fletcher'].id })).status, 403, 'nor assigning work');
 });
 
-test('oversight lists a Test awaiting review that nobody but its analyst could review', async () => {
-  await setupLab();
-  const testId = await receive();
+/** Priya performs Test `testId` with in-specification results and submits it. */
+async function submit(testId) {
   await assign(testId, 'priya.raman');
   const d = await lab.priya.ok('GET', `/api/tests/${testId}`);
   const instrument = d.instruments.find((i) => !i.problem && i.code.startsWith('HPLC'));
   const mid = (r) => (r.spec_min != null && r.spec_max != null ? (r.spec_min + r.spec_max) / 2 : r.spec_max != null ? r.spec_max / 2 : (r.spec_min ?? 0) + 1);
   await lab.priya.ok('PUT', `/api/tests/${testId}`, { instrument_id: instrument.id, results: d.results.map((r) => ({ id: r.id, value: String(mid(r)) })) });
   await lab.priya.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+}
+
+test('oversight lists a Test awaiting review that nobody but its analyst could review', async () => {
+  await setupLab();
+  const testId = await receive();
+  await submit(testId);
 
   // Every other reviewer becomes an analyst, so the only person holding tests.review is the one who performed the Test.
   const admin = await as('admin');
@@ -225,6 +230,22 @@ test('oversight lists a Test awaiting review that nobody but its analyst could r
   } finally {
     for (const u of reviewers) await admin.ok('PUT', `/api/users/${u.id}`, { role: u.role });
   }
+});
+
+test('oversight lists an Approved Sample held by an open Investigation, which QA\'s certificate Queue does not', async () => {
+  await setupLab();
+  const testId = await receive();
+  await submit(testId);
+  await (await as('daniel.okafor')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await (await as('helena.weiss')).ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  const sampleId = (await lab.priya.ok('GET', `/api/tests/${testId}`)).test.sample_id;
+  await lab.priya.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge alarm overnight', sample_id: sampleId });
+
+  const qa = await as('daniel.okafor');
+  assert.equal((await qa.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved');
+  assert.ok(!(await qa.ok('GET', '/api/reviews')).toIssue.some((s) => s.id === sampleId), 'QA may not issue its certificate yet');
+  const oversight = await (await as('admin')).ok('GET', '/api/reviews?scope=lab');
+  assert.ok(oversight.toIssue.some((s) => s.id === sampleId), 'oversight shows it waiting for its certificate');
 });
 
 test('only people who assign work see the workload', async () => {

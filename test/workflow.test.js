@@ -457,6 +457,25 @@ test('the certificate is offered and queued only while no investigation is open 
   assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Reported');
 });
 
+test('QA\'s Reviews badge rises by one when a Sample is approved and falls when its CoA is issued', async () => {
+  const tom = await as('tom.fletcher');
+  const daniel = await as('daniel.okafor');
+  const { sampleId, testId } = await freshTest('ATM-0002', 'tom.fletcher');
+  const d = await tom.ok('GET', `/api/tests/${testId}`);
+  await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
+  await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+  // Daniel reviews, so the Test is in none of his Queues while it waits for someone else's approval.
+  await daniel.ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  const reviews = async () => (await daniel.ok('GET', '/api/nav')).reviews;
+
+  const waiting = await reviews();
+  await (await as('helena.weiss')).ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  assert.equal((await daniel.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved');
+  assert.equal(await reviews(), waiting + 1, 'the Sample waiting for its certificate is counted');
+  await daniel.ok('POST', `/api/samples/${sampleId}/report`, { password: PASSWORD });
+  assert.equal(await reviews(), waiting, 'and no longer once the certificate is issued');
+});
+
 test('dispose is offered only when the server would accept it', async () => {
   const tom = await as('tom.fletcher');
   const priya = await as('priya.raman');
