@@ -5,7 +5,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 ## Commands
 
 - `npm run dev`: development copy on http://localhost:3001 with its own `data-dev/` folder. Never point development at `data/`.
-- `npm run check`: syntax-check every JavaScript file and refuse hand-written writes that bypass the audit trail.
+- `npm run check`: syntax-check every JavaScript file and refuse hand-written writes that bypass the audit trail and verify feature maps that name code that is gone.
 - `npm test`: end-to-end tests against a real server on a throwaway database.
 
 ## Coding standards
