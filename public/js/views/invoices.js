@@ -180,7 +180,7 @@ export async function detail(ctx) {
     drawTotals();
   };
   drawLines();
-  wireRecordFooter(ctx.el, 'invoices', inv.id, { locked: !can('billing.edit') });
+  wireRecordFooter(ctx.el, 'invoices', inv.id);
 
   ctx.el.addEventListener('input', (e) => {
     if (e.target.closest('[data-lines]')) {

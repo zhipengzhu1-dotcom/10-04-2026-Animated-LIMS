@@ -36,6 +36,12 @@ const methodSchema = {
   tat_days: { type: 'int', min: 1, default: 5, required: true, label: 'turnaround (days)' },
 };
 
+export const METHOD_RULES = {
+  attach(m, me) {
+    if (!can(me, 'methods.edit')) return forbidden();
+  },
+};
+
 function cleanAnalytes(list) {
   if (!Array.isArray(list)) return null;
   const rows = list
@@ -145,6 +151,12 @@ const instrumentSchema = {
   notes: { type: 'text' },
 };
 
+export const INSTRUMENT_RULES = {
+  attach(i, me) {
+    if (!can(me, 'instruments.log')) return forbidden();
+  },
+};
+
 export function createInstrument(ctx, body) {
   assertCan(ctx, 'instruments.edit');
   const b = clean(body, instrumentSchema);
@@ -202,6 +214,12 @@ const inventorySchema = {
   received_date: { type: 'date' }, opened_date: { type: 'date' }, expiry_date: { type: 'date' },
   status: { type: 'enum', values: INVENTORY_STATUSES, default: 'Active' },
   notes: { type: 'text' },
+};
+
+export const INVENTORY_RULES = {
+  attach(m, me) {
+    if (!can(me, 'inventory.edit')) return forbidden();
+  },
 };
 
 export function createInventory(ctx, body) {

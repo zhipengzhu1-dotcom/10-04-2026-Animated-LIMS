@@ -127,7 +127,7 @@ export async function detail(ctx) {
         ]) })}
       </div>
     </div>`);
-  wireRecordFooter(ctx.el, 'inventory', m.id, { locked: !d.can.stock });
+  wireRecordFooter(ctx.el, 'inventory', m.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
   ctx.el.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;

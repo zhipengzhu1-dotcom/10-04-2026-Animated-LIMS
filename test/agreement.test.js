@@ -1,5 +1,6 @@
-// The agreement sweep: an action offered on a Test or Sample is accepted, one withheld is refused, and a Test sits in a
-// person's queue and badge exactly when they are offered the matching action.
+// The agreement sweep: an action offered on a record is accepted, one withheld is refused, and a Test sits in a
+// person's queue and badge exactly when they are offered the matching action. Every rules table the server exports is
+// swept: the last test fails if any rule was never seen both offered and withheld.
 // Starts a real server on a temporary database with the demo lab and drives it over HTTP.
 // Run with:  npm test
 
@@ -9,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer } from './server.js';
+import { ATTACHABLE } from '../server/routes/attachments.js';
 
 let BASE;
 const PASSWORD = 'demo1234';
@@ -31,6 +33,14 @@ class Client {
   get(url) { return this.req('GET', url); }
   post(url, body = {}) { return this.req('POST', url, body); }
   put(url, body = {}) { return this.req('PUT', url, body); }
+  async upload(url, text) {
+    const res = await fetch(BASE + url, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'aliquot', 'Content-Type': 'text/plain', 'X-Filename': 'trace.txt', Cookie: this.cookie },
+      body: text,
+    });
+    return { status: res.status, data: await res.json() };
+  }
   async ok(method, url, body) {
     const r = await this.req(method, url, body);
     assert.ok(r.status < 300, `${method} ${url} → ${r.status} ${JSON.stringify(r.data)}`);
@@ -49,6 +59,7 @@ async function as(username) {
 }
 
 const lab = {};
+const TABLES = await rulesTables();
 
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-test-'));
@@ -151,8 +162,9 @@ async function within(person, fn) {
 
 const refused = (r) => [400, 403].includes(r.status);
 const describe = (r) => `${r.status} ${JSON.stringify(r.data)}`;
-const seen = { test: {}, sample: {} };
-const note = (kind, action, offered) => { (seen[kind][action] ??= new Set()).add(offered); };
+// Whether each rule of each table was seen offered and withheld, keyed by the table's exported name.
+const seen = {};
+const note = (table, rule, offered) => { ((seen[table] ??= {})[rule] ??= new Set()).add(offered); };
 
 // ----- Test sweep -----
 
@@ -237,7 +249,7 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
         }
       });
       for (const action of actions) {
-        note('test', action, can[action]);
+        note('TEST_RULES', action, can[action]);
         if (!can[action]) continue;
         const fresh = await prepareTest(steps);
         const r = await within(person, (c) => TEST_ACTIONS[action](c, fresh));
@@ -251,6 +263,7 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
 
 // Each state builds a Sample from Tests prepared as above, then optionally does something to the Sample itself.
 const SAMPLE_STATES = {
+  'with a Test nobody is assigned to': { tests: [[]] },
   'with every Test approved': { tests: [PERFORMED] },
   'with an open Test beside an approved one': { tests: [PERFORMED, ['assign', 'enter']] },
   'with every Test cancelled': { tests: [['cancel']] },
@@ -262,6 +275,7 @@ const SAMPLE_STATES = {
 };
 
 const SAMPLE_ACTIONS = {
+  assign: async (c, s) => c.post('/api/tests/assign', { test_ids: (await c.ok('GET', `/api/samples/${s}`)).tests.filter((t) => !t.analyst_id).map((t) => t.id), analyst_id: lab.users[ANALYST] }),
   issue: (c, s) => c.post(`/api/samples/${s}/report`, { password: PASSWORD }),
   cancel: (c, s) => c.post(`/api/samples/${s}/cancel`, { reason: 'Client withdrew the batch' }),
   dispose: (c, s) => c.post(`/api/samples/${s}/custody`, { action: 'Disposed', note: 'Retention period over' }),
@@ -292,7 +306,7 @@ for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
         assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
       }
       for (const action of actions) {
-        note('sample', action, can[action]);
+        note('SAMPLE_RULES', action, can[action]);
         if (!can[action]) continue;
         const r = await SAMPLE_ACTIONS[action](c, await prepareSample(spec));
         assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
@@ -301,11 +315,172 @@ for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
   });
 }
 
-test('the sweep saw every action both offered and withheld', () => {
-  for (const [kind, actions] of [['test', TEST_ACTIONS], ['sample', SAMPLE_ACTIONS]]) {
-    for (const action of Object.keys(actions)) assert.deepEqual([...seen[kind][action] ?? []].sort(), [false, true], `${kind} ${action}`);
-  }
+// ----- File sweep -----
+
+// Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;
+// the uploader attaches a file while it is open, then `then` moves it on, so removal can be tried once it is locked.
+let unique = 0;
+const code = (prefix) => `${prefix}${process.pid % 1000}${++unique}`;
+const signedAs = (username, url, body = {}) => async (id) => (await as(username)).ok('POST', url(id), { ...body, password: PASSWORD });
+const newMethod = async () => (await (await as('sarah.lindqvist')).ok('POST', '/api/methods', { title: 'Water by coulometric KF', technique: 'Karl Fischer', analytes: [{ name: 'Water', unit: '%', spec_max: 0.5 }] })).id;
+const makeEffective = signedAs('daniel.okafor', (id) => `/api/methods/${id}/status`, { status: 'Effective' });
+const newProject = async () => (await (await as('marco.bianchi')).ok('POST', '/api/projects', { client_id: lab.client, title: 'File sweep', type: 'Other' })).id;
+const projectStatus = (status) => async (id) => (await as('priya.raman')).ok('PUT', `/api/projects/${id}`, { status });
+
+const FILE_RECORDS = {
+  samples: {
+    uploader: ANALYST,
+    people: [ANALYST, 'sarah.lindqvist', 'priya.raman', 'daniel.okafor'],
+    states: {
+      open: {},
+      reported: { create: () => prepareSample({ tests: [PERFORMED] }), then: signedAs('priya.raman', (id) => `/api/samples/${id}/report`) },
+      cancelled: { then: async (id) => (await as('priya.raman')).ok('POST', `/api/samples/${id}/cancel`, { reason: 'Client withdrew the batch' }) },
+      disposed: {
+        then: async (id) => {
+          const priya = await as('priya.raman');
+          await priya.ok('POST', `/api/samples/${id}/cancel`, { reason: 'Client withdrew the batch' });
+          await priya.ok('POST', `/api/samples/${id}/custody`, { action: 'Disposed', note: 'Retention period over' });
+        },
+      },
+    },
+    create: receiveSample,
+  },
+  tests: {
+    uploader: ANALYST,
+    people: [ANALYST, 'lucia.fernandez', 'sarah.lindqvist', 'priya.raman', 'grace.holloway'],
+    create: async () => (await prepareTest(['assign', 'enter'])).testId,
+    states: {
+      'in progress': {},
+      submitted: { then: signedAs(ANALYST, (id) => `/api/tests/${id}/submit`) },
+    },
+  },
+  methods: {
+    uploader: 'sarah.lindqvist',
+    people: ['sarah.lindqvist', 'marco.bianchi', 'priya.raman', 'daniel.okafor'],
+    create: newMethod,
+    states: {
+      draft: {},
+      effective: { then: makeEffective },
+      retired: { then: async (id) => { await makeEffective(id); await signedAs('daniel.okafor', (x) => `/api/methods/${x}/status`, { status: 'Retired' })(id); } },
+    },
+  },
+  notebook_entries: {
+    uploader: ANALYST,
+    people: [ANALYST, 'lucia.fernandez', 'priya.raman', 'grace.holloway'],
+    create: async () => (await (await as(ANALYST)).ok('POST', '/api/notebook', { title: 'KF titre check', body: 'Titre 4.98 mg/mL' })).id,
+    states: {
+      draft: {},
+      signed: { then: signedAs(ANALYST, (id) => `/api/notebook/${id}/sign`) },
+    },
+  },
+  investigations: {
+    uploader: ANALYST,
+    people: [ANALYST, 'lucia.fernandez', 'priya.raman', 'grace.holloway'],
+    create: async () => (await (await as(ANALYST)).ok('POST', '/api/investigations', { type: 'Lab Incident', title: 'Spilled reagent', description: 'Spill at bench 3' })).id,
+    states: {
+      open: {},
+      closed: { then: signedAs('daniel.okafor', (id) => `/api/investigations/${id}/close`, { root_cause: 'Loose cap', conclusion: 'No impact on results' }) },
+    },
+  },
+  instruments: {
+    uploader: ANALYST,
+    people: [ANALYST, 'lucia.fernandez', 'priya.raman', 'grace.holloway'],
+    create: async () => (await (await as('priya.raman')).ok('POST', '/api/instruments', { code: code('BAL-'), name: 'Balance', type: 'Analytical Balance' })).id,
+    states: { 'in service': {} },
+  },
+  inventory: {
+    uploader: ANALYST,
+    people: [ANALYST, 'lucia.fernandez', 'priya.raman', 'daniel.okafor'],
+    create: async () => (await (await as(ANALYST)).ok('POST', '/api/inventory', { name: 'Methanol', category: 'Solvent' })).id,
+    states: { active: {} },
+  },
+  projects: {
+    uploader: 'marco.bianchi',
+    people: ['marco.bianchi', 'sarah.lindqvist', 'priya.raman', ANALYST],
+    create: newProject,
+    states: {
+      active: {},
+      completed: { then: projectStatus('Completed') },
+      cancelled: { then: projectStatus('Cancelled') },
+    },
+  },
+  clients: {
+    uploader: 'grace.holloway',
+    people: ['grace.holloway', 'oliver.grant', 'priya.raman', ANALYST],
+    create: async () => (await (await as('grace.holloway')).ok('POST', '/api/clients', { code: code('C'), name: 'Sweep Pharma' })).id,
+    states: { active: {} },
+  },
+  invoices: {
+    uploader: 'oliver.grant',
+    people: ['oliver.grant', 'grace.holloway', 'priya.raman', ANALYST],
+    create: async () => (await (await as('oliver.grant')).ok('POST', '/api/invoices', { client_id: lab.client })).id,
+    states: {
+      draft: {},
+      sent: {
+        then: async (id) => {
+          const oliver = await as('oliver.grant');
+          await oliver.ok('PUT', `/api/invoices/${id}`, { lines: [{ description: 'Stability pull', quantity: 1, unit_price: 100 }] });
+          await oliver.ok('POST', `/api/invoices/${id}/issue`);
+        },
+      },
+    },
+  },
+};
+
+const tableOf = (entity) => Object.entries(TABLES).find(([, rules]) => rules === ATTACHABLE[entity])[0];
+
+/** A record of `entity` in `state`, with one file its uploader attached while it was open. */
+async function prepareFiled(entity, state) {
+  const record = FILE_RECORDS[entity];
+  const spec = record.states[state];
+  const id = await (spec.create ?? record.create)();
+  const url = `/api/attachments?entity=${entity}&id=${id}`;
+  const up = await (await as(record.uploader)).upload(url, 'trace');
+  assert.ok(up.status < 300, `${entity} ${state}: the uploader could not attach a file (${describe(up)})`);
+  if (spec.then) await spec.then(id);
+  return { id, url, fileId: up.data.id };
+}
+
+/** What `c` is offered on the record's files; someone who cannot see them is offered nothing. */
+async function fileOffers(c, f, label) {
+  const r = await c.get(f.url);
+  assert.ok([200, 403].includes(r.status), `${label}: file list → ${describe(r)}`);
+  if (r.status === 403) return { attach: false, remove: false };
+  assert.equal(r.data.locks.attach === null, r.data.can.attach, `${label}: a lock reason exactly when files are locked`);
+  return { attach: r.data.can.attach, remove: r.data.files.find((x) => x.id === f.fileId).can.remove };
+}
+
+const FILE_ACTIONS = {
+  attach: (c, f) => c.upload(f.url, 'more trace'),
+  remove: (c, f) => c.post(`/api/attachments/${f.fileId}/remove`, { reason: 'Attached to the wrong record' }),
+};
+
+test('every attachable record type has a file sweep', () => {
+  assert.deepEqual(Object.keys(FILE_RECORDS).sort(), Object.keys(ATTACHABLE).sort());
 });
+
+for (const [entity, record] of Object.entries(FILE_RECORDS)) {
+  for (const state of Object.keys(record.states)) {
+    test(`files on ${entity} ${state}: offers and refusals agree for everyone`, async () => {
+      const f = await prepareFiled(entity, state);
+      for (const username of record.people) {
+        const label = `${entity} ${state}, ${username}`;
+        const c = await as(username);
+        const can = await fileOffers(c, f, label);
+        for (const action of Object.keys(FILE_ACTIONS).filter((a) => !can[a])) {
+          const r = await FILE_ACTIONS[action](c, f);
+          assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+        }
+        note(tableOf(entity), 'attach', can.attach);
+        note('ATTACHMENT_RULES', 'remove', can.remove);
+        for (const action of Object.keys(FILE_ACTIONS).filter((a) => can[a])) {
+          const r = await FILE_ACTIONS[action](c, await prepareFiled(entity, state));
+          assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+        }
+      }
+    });
+  }
+}
 
 // ----- Sample status on the happy path -----
 
@@ -349,4 +524,27 @@ test('the Sample status follows each transition, return and cancel of its Tests'
 
   await priya.ok('POST', `/api/samples/${s}/cancel`, { reason: 'Client withdrew the batch' });
   await expect('Cancelled', 'cancelling the Sample');
+});
+
+// ----- Coverage -----
+
+/** Every rules table exported by a server module, by name. Importing them opens no database. */
+async function rulesTables() {
+  const tables = {};
+  for (const dir of ['../server/', '../server/routes/']) {
+    const url = new URL(dir, import.meta.url);
+    for (const file of fs.readdirSync(url).filter((f) => f.endsWith('.js'))) {
+      for (const [name, value] of Object.entries(await import(new URL(file, url)))) if (name.endsWith('_RULES')) tables[name] = value;
+    }
+  }
+  return tables;
+}
+
+test('the sweep saw every rule of every rules table both offered and withheld', () => {
+  for (const [table, rules] of Object.entries(TABLES)) {
+    for (const rule of Object.keys(rules)) {
+      assert.ok(seen[table]?.[rule], `${table}.${rule} has no entry in the agreement sweep`);
+      assert.deepEqual([...seen[table][rule]].sort(), [false, true], `${table}.${rule} was not seen both offered and withheld`);
+    }
+  }
 });

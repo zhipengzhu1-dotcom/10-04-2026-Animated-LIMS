@@ -105,23 +105,21 @@ export const SIGNATURE_MEANINGS = {
   'investigation.close': { meaning: 'Closed', explanation: 'Investigation reviewed and closed' },
 };
 
-export const ATTACHABLE = ['samples', 'tests', 'methods', 'notebook_entries', 'investigations', 'instruments', 'inventory', 'projects', 'clients', 'invoices'];
-
-// Who may see a record type's files/history (null = any signed-in user) and who may add files to it.
+// Who may see a record type's files and history (null = any signed-in user). Who may change its files is the record's `attach` rule.
 export const RECORD_ACCESS = {
-  samples: { view: null, edit: ['samples.edit'] },
-  tests: { view: null, edit: ['tests.perform', 'tests.assign'] },
-  methods: { view: null, edit: ['methods.edit'] },
-  notebook_entries: { view: null, edit: ['notebook.write'] },
-  investigations: { view: null, edit: ['investigations.raise', 'investigations.close'] },
-  instruments: { view: null, edit: ['instruments.log'] },
-  inventory: { view: null, edit: ['inventory.edit'] },
-  projects: { view: null, edit: ['projects.edit'] },
-  clients: { view: null, edit: ['clients.edit'] },
-  invoices: { view: ['billing.view'], edit: ['billing.edit'] },
-  users: { view: ['audit.view', 'users.manage'], edit: [] },
-  qualifications: { view: ['audit.view', 'qualifications.manage'], edit: [] },
-  attachments: { view: null, edit: [] },
+  samples: { view: null },
+  tests: { view: null },
+  methods: { view: null },
+  notebook_entries: { view: null },
+  investigations: { view: null },
+  instruments: { view: null },
+  inventory: { view: null },
+  projects: { view: null },
+  clients: { view: null },
+  invoices: { view: ['billing.view'] },
+  users: { view: ['audit.view', 'users.manage'] },
+  qualifications: { view: ['audit.view', 'qualifications.manage'] },
+  attachments: { view: null },
 };
 
 // Money fields hidden from history for people without billing access.

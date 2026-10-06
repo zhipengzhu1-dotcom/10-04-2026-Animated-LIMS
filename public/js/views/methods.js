@@ -127,7 +127,7 @@ export async function detail(ctx) {
       </div>
     </div>`);
 
-  wireRecordFooter(ctx.el, 'methods', m.id, { locked: !can('methods.edit') });
+  wireRecordFooter(ctx.el, 'methods', m.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
 
   ctx.el.addEventListener('click', async (e) => {

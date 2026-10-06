@@ -335,7 +335,7 @@ test('attachments upload, download and removal keeps the file', async () => {
   assert.equal((await tom.post(`/api/attachments/${id}/remove`, {})).data.code, 'REASON_REQUIRED');
   await tom.ok('POST', `/api/attachments/${id}/remove`, { reason: 'Uploaded to wrong sample' });
   const list = await tom.ok('GET', `/api/attachments?entity=samples&id=${s.id}`);
-  assert.equal(list.find((a) => a.id === id).removed, 1);
+  assert.equal(list.files.find((a) => a.id === id).removed, 1);
 });
 
 test('lockout after repeated wrong passwords', async () => {
@@ -569,7 +569,7 @@ test('files attach to a Test until it is submitted, and not from then on', async
   assert.equal((await attach(testId)).status, 200, 'in progress');
   const d = await tom.ok('GET', `/api/tests/${testId}`);
   await tom.ok('PUT', `/api/tests/${testId}`, { instrument_id: d.instruments.find((i) => i.code === 'KF-01').id, results: [{ id: d.results[0].id, value: '0.21' }] });
-  const [mine] = await tom.ok('GET', `/api/attachments?entity=tests&id=${testId}`);
+  const { files: [mine] } = await tom.ok('GET', `/api/attachments?entity=tests&id=${testId}`);
   await tom.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
   const refused = async (status) => {
     const res = await attach(testId);

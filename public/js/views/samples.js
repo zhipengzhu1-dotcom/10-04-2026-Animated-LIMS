@@ -440,7 +440,7 @@ export async function detail(ctx) {
       </div>
     </div>`);
 
-  wireRecordFooter(ctx.el, 'samples', s.id, { locked: stopped });
+  wireRecordFooter(ctx.el, 'samples', s.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => {
     if (!e.target.closest('a, button')) navigate(el.dataset.href);
   }));

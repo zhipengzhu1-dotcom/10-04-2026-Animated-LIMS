@@ -28,6 +28,12 @@ const clientSchema = {
   active: { type: 'bool' },
 };
 
+export const CLIENT_RULES = {
+  attach(c, me) {
+    if (!can(me, 'clients.edit')) return forbidden();
+  },
+};
+
 export function createClient(ctx, body) {
   assertCan(ctx, 'clients.edit');
   const b = clean(body, clientSchema);
@@ -59,6 +65,12 @@ const projectSchema = {
   start_date: { type: 'date' },
   due_date: { type: 'date' },
   description: { type: 'text' },
+};
+
+export const PROJECT_RULES = {
+  attach(p, me) {
+    if (!can(me, 'projects.edit')) return forbidden();
+  },
 };
 
 export function createProject(ctx, body) {
@@ -111,6 +123,13 @@ function releaseTests(ctx, invoiceId, summary, testIds = null) {
   for (const t of tests) update(ctx, 'tests', t.id, { invoice_id: null }, { summary });
   return tests.length;
 }
+
+export const INVOICE_RULES = {
+  attach(inv, me) {
+    if (!can(me, 'billing.edit')) return forbidden();
+    if (inv.status !== 'Draft') return bad('Issued invoices are locked');
+  },
+};
 
 export function createInvoice(ctx, body) {
   assertCan(ctx, 'billing.edit');

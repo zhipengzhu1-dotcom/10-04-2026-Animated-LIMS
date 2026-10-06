@@ -143,6 +143,10 @@ export const TEST_RULES = {
     const inv = openTestInvestigation(t.id);
     if (inv) return bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
   },
+  attach(t, me) {
+    if (!can(me, 'tests.assign') && !(can(me, 'tests.perform') && t.analyst_id === me.id)) return forbidden('Only the assigned analyst can attach files to this test');
+    if (!TEST_EDITABLE.includes(t.status)) return bad(`The test is ${t.status.toLowerCase()} — attachments are locked`);
+  },
 };
 
 const sampleTests = (sampleId) => all(`${TEST_SELECT} WHERE t.sample_id = ? ORDER BY t.id`, sampleId);
@@ -178,6 +182,9 @@ export const SAMPLE_RULES = {
     if (openTests(s.id).length) return bad('This sample still has open tests');
     const inv = openSampleInvestigation(s.id);
     if (inv) return bad(`${inv.code} is open for this sample — close it before disposing of the material a retest may need`);
+  },
+  attach(s, me) {
+    if (!can(me, 'samples.edit')) return forbidden();
   },
 };
 

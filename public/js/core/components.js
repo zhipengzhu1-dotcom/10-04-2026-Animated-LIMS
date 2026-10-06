@@ -3,7 +3,7 @@ import { html, raw } from './html.js';
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { avatar, fmtDateTime, relTime, fileSize, emptyState, toast, showError, promptReason, card } from './ui.js';
-import { state, can } from './state.js';
+import { state } from './state.js';
 
 // ---------------------------------------------------------------------------------------------
 // Workflow stepper
@@ -86,26 +86,20 @@ export async function mountHistory(container, entity, id) {
 // Attachments (raw data printouts, chromatograms, CoAs, photos…)
 // ---------------------------------------------------------------------------------------------
 
-const FILE_EDIT = {
-  samples: ['samples.edit'], tests: ['tests.perform', 'tests.assign'], methods: ['methods.edit'], notebook_entries: ['notebook.write'],
-  investigations: ['investigations.raise', 'investigations.close'], instruments: ['instruments.log'], inventory: ['inventory.edit'],
-  projects: ['projects.edit'], clients: ['clients.edit'], invoices: ['billing.edit'],
-};
-
-export async function mountAttachments(container, entity, id, { locked: lockedIn = false, lockedReason } = {}) {
-  const locked = lockedIn || !(FILE_EDIT[entity] || []).some((p) => can(p));
+export async function mountAttachments(container, entity, id) {
   const load = async () => {
-    let rows = [];
+    let list;
     try {
-      rows = await api.get('/api/attachments', { entity, id });
+      list = await api.get('/api/attachments', { entity, id });
     } catch (e) {
       container.innerHTML = String(html`<p class="muted">${e.message}</p>`);
       return;
     }
-    const visible = rows.filter((r) => !r.removed);
-    const removed = rows.filter((r) => r.removed);
+    const locked = !list.can.attach;
+    const visible = list.files.filter((r) => !r.removed);
+    const removed = list.files.filter((r) => r.removed);
     container.innerHTML = String(html`
-      ${!locked ? html`<label class="dropzone">${icon('upload', { size: 18 })}<span><strong>Drop files</strong> or click to upload</span><small>PDF, images, CDS exports — up to 50 MB</small><input type="file" multiple hidden></label>` : lockedReason ? html`<p class="muted small">${icon('lock', { size: 12 })} ${lockedReason}</p>` : ''}
+      ${!locked ? html`<label class="dropzone">${icon('upload', { size: 18 })}<span><strong>Drop files</strong> or click to upload</span><small>PDF, images, CDS exports — up to 50 MB</small><input type="file" multiple hidden></label>` : html`<p class="muted small">${icon('lock', { size: 12 })} ${list.locks.attach}</p>`}
       ${visible.length ? html`<ul class="files">${visible.map((f) => html`
         <li>
           <span class="file-ic">${icon('paperclip', { size: 14 })}</span>
@@ -113,7 +107,7 @@ export async function mountAttachments(container, entity, id, { locked: lockedIn
           <span class="muted small">${fileSize(f.size)} · ${f.uploaded_by_name} · ${relTime(f.uploaded_at)}</span>
           <span class="spacer"></span>
           <a class="icon-btn" href="/api/attachments/${f.id}/file" title="Download" download>${icon('download', { size: 14 })}</a>
-          ${!locked ? html`<button class="icon-btn" data-remove="${f.id}" title="Remove">${icon('x', { size: 14 })}</button>` : ''}
+          ${f.can.remove ? html`<button class="icon-btn" data-remove="${f.id}" title="Remove">${icon('x', { size: 14 })}</button>` : ''}
         </li>`)}</ul>` : locked ? html`<p class="muted small">No files attached.</p>` : ''}
       ${removed.length ? html`<details class="removed-files"><summary>${removed.length} removed file${removed.length > 1 ? 's' : ''}</summary><ul class="files">${removed.map((f) => html`<li class="removed"><span class="file-ic">${icon('paperclip', { size: 14 })}</span><span>${f.filename}</span><span class="muted small">Removed: ${f.removed_reason}</span></li>`)}</ul></details>` : ''}`);
 
@@ -156,12 +150,12 @@ export function recordFooter() {
   });
 }
 
-export function wireRecordFooter(root, entity, id, attachOpts = {}) {
+export function wireRecordFooter(root, entity, id) {
   const footer = root.querySelector('.record-footer');
   if (!footer) return;
   const files = footer.querySelector('[data-pane=files]');
   const hist = footer.querySelector('[data-pane=history]');
-  mountAttachments(files, entity, id, attachOpts);
+  mountAttachments(files, entity, id);
   let histLoaded = false;
   footer.querySelectorAll('[data-ft]').forEach((b) => b.addEventListener('click', () => {
     footer.querySelectorAll('[data-ft]').forEach((x) => x.classList.toggle('active', x === b));
