@@ -3,11 +3,12 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, forbidden } from '../http.js';
+import { bad, forbidden, guard } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import { INVESTIGATION_TYPES, INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, likeTerm } from '../util.js';
 import { listDocuments, freezeDocuments } from './documents.js';
+import { SAMPLE_RULES } from '../workflow.js';
 
 // ---------------------------------------------------------------------------------------------
 // Notebook
@@ -107,7 +108,9 @@ const investigationSchema = {
 };
 
 export function createInvestigation(ctx, body) {
-  assertCan(ctx, 'investigations.raise');
+  const sample = body.sample_id && get('SELECT * FROM samples WHERE id = ?', +body.sample_id);
+  if (sample) guard(SAMPLE_RULES.raise(sample, ctx.user));
+  else assertCan(ctx, 'investigations.raise');
   return raiseInvestigation(ctx, body);
 }
 
