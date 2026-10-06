@@ -12,6 +12,12 @@ export async function startServer(dataDir, env = {}) {
     env: { ...process.env, PORT: '0', HOST: '127.0.0.1', ALIQUOT_DATA: dataDir, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  // When a name pattern filters out every test in a file, node:test runs the after hook before this resolves,
+  // so nothing calls stop. The server must not keep the file alive, and must die with it.
+  proc.unref();
+  proc.stdout.unref();
+  proc.stderr.unref();
+  process.once('exit', () => proc.kill());
   let log = '';
   proc.stdout.on('data', (d) => { log += d; });
   proc.stderr.on('data', (d) => { log += d; });
