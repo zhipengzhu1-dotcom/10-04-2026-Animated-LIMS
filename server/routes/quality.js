@@ -36,10 +36,12 @@ const notebookSchema = {
 
 export const ENTRY_RULES = {
   edit(n, me) {
+    if (!can(me, 'notebook.write')) return forbidden();
     if (n.author_id !== me.id) return forbidden('Only the author can edit this entry');
     if (n.status !== 'Draft') return bad('Signed entries are locked — add an addendum instead');
   },
   sign(n, me) {
+    if (!can(me, 'notebook.write')) return forbidden();
     if (n.author_id !== me.id) return forbidden('Only the author can sign this entry');
     if (n.status !== 'Draft') return bad('This entry has already been signed');
   },

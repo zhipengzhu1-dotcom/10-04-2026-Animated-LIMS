@@ -871,6 +871,20 @@ for (const [state, steps] of Object.entries(ENTRY_STATES)) {
   });
 }
 
+test('an author whose role lost notebook.write is refused editing and signing their draft', async () => {
+  const e = await prepareEntry([]);
+  await within({ username: ANALYST, role: 'business' }, async (tom) => {
+    const { can } = await tom.ok('GET', `/api/notebook/${e.id}`);
+    assert.deepEqual([can.edit, can.sign], [false, false]);
+    for (const r of [await ENTRY_ACTIONS.edit(tom, e), await ENTRY_ACTIONS.sign(tom, e)]) {
+      assert.equal(r.status, 403);
+      assert.equal(r.data.error, 'You do not have permission to do that.');
+    }
+  });
+  const { entry } = await (await as(ANALYST)).ok('GET', `/api/notebook/${e.id}`);
+  assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
+});
+
 // ----- Sample status on the happy path -----
 
 test('the Sample status follows each transition, return and cancel of its Tests', async () => {
