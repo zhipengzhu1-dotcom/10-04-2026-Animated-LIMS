@@ -323,7 +323,7 @@ export default function routes(r) {
     const lab = ctx.query.scope === 'lab';
     if (lab) assertCan(ctx, 'work.oversee');
     // Oversight shows each stage whoever could act on it; it is nobody's Queue.
-    const shown = (rules, queue) => (lab ? queue.stage() : queued(rules, queue, ctx.user));
+    const shown = (rules, queue) => (lab ? queue.stage() : queued(rules, queue, ctx.user)).map((x) => ({ ...x, can: flags(rules, x, ctx.user) }));
     const out = {
       toReview: shown(TEST_RULES, TEST_QUEUES.review),
       toApprove: shown(TEST_RULES, TEST_QUEUES.approval),
