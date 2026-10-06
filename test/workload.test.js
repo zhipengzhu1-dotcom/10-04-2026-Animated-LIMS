@@ -227,6 +227,26 @@ test('oversight lists a Test awaiting review that nobody but its analyst could r
   }
 });
 
+test('oversight lists a signed entry that nobody but its author could witness', async () => {
+  await setupLab();
+  const { id } = await lab.priya.ok('POST', '/api/notebook', { title: 'Oversight entry', body: 'Column flushed' });
+  await lab.priya.ok('POST', `/api/notebook/${id}/sign`, { password: PASSWORD });
+
+  // Every other witness becomes an analyst, so the only person holding notebook.witness is the entry's author.
+  const admin = await as('admin');
+  const witnesses = Object.values(lab.users).filter((u) => u.active && ['manager', 'scientist', 'qa'].includes(u.role) && u.username !== 'priya.raman');
+  try {
+    for (const u of witnesses) await admin.ok('PUT', `/api/users/${u.id}`, { role: 'analyst' });
+    for (const u of [...witnesses, lab.users['priya.raman']]) {
+      const queue = (await (await as(u.username)).ok('GET', '/api/reviews')).toWitness;
+      assert.ok(!queue.some((n) => n.id === id), `${u.username} could not witness it`);
+    }
+    assert.ok((await admin.ok('GET', '/api/reviews?scope=lab')).toWitness.some((n) => n.id === id), 'oversight still shows it waiting for a witness');
+  } finally {
+    for (const u of witnesses) await admin.ok('PUT', `/api/users/${u.id}`, { role: u.role });
+  }
+});
+
 test('only people who assign work see the workload', async () => {
   assert.equal((await (await as('sarah.lindqvist')).get('/api/workload')).status, 200, 'senior scientists assign work');
   assert.equal((await (await as('tom.fletcher')).get('/api/workload')).status, 403, 'analyst');
