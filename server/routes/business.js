@@ -76,27 +76,20 @@ const PROJECT_MOVES = {
   reopen: { from: ['Completed'], to: 'Active', done: 'reopened' },
 };
 
-const closedProject = (p, completed, cancelled) => (PROJECT_OPEN.includes(p.status) ? undefined : bad(p.status === 'Completed' ? completed : cancelled));
-
-const moveRule = ({ from, done }) => (p, me) => {
-  if (!can(me, 'projects.edit')) return forbidden();
-  if (!from.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+/** A rule for holders of `permission` on a record whose status is one of `from`, else refused with `refusal(record)`. */
+const statusRule = (permission, from, refusal) => (record, me) => {
+  if (!can(me, permission)) return forbidden();
+  if (!from.includes(record.status)) return bad(refusal(record));
 };
 
+const moveRule = ({ from, done }) => statusRule('projects.edit', from, (p) => `The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+const whenOpen = (permission, completed, cancelled) => statusRule(permission, PROJECT_OPEN, (p) => (p.status === 'Completed' ? completed : cancelled));
+
 export const PROJECT_RULES = {
-  edit(p, me) {
-    if (!can(me, 'projects.edit')) return forbidden();
-    return closedProject(p, 'The project is completed — reopen it to make changes', 'The project is cancelled and can no longer be changed');
-  },
+  edit: whenOpen('projects.edit', 'The project is completed — reopen it to make changes', 'The project is cancelled and can no longer be changed'),
   ...Object.fromEntries(Object.entries(PROJECT_MOVES).map(([action, move]) => [action, moveRule(move)])),
-  receive(p, me) {
-    if (!can(me, 'samples.receive')) return forbidden();
-    return closedProject(p, 'That project is completed — reopen it before adding samples to it', 'That project is cancelled — samples can\'t be added to it');
-  },
-  attach(p, me) {
-    if (!can(me, 'projects.edit')) return forbidden();
-    if (!PROJECT_OPEN.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
-  },
+  receive: whenOpen('samples.receive', 'That project is completed — reopen it before adding samples to it', 'That project is cancelled — samples can\'t be added to it'),
+  attach: statusRule('projects.edit', PROJECT_OPEN, (p) => `The project is ${p.status.toLowerCase()} — attachments are locked`),
 };
 
 export function createProject(ctx, body) {
@@ -159,10 +152,7 @@ function releaseTests(ctx, invoiceId, summary, testIds = null) {
   return tests.length;
 }
 
-const invoiceRule = (from, refusal) => (inv, me) => {
-  if (!can(me, 'billing.edit')) return forbidden();
-  if (!from.includes(inv.status)) return bad(refusal(inv));
-};
+const invoiceRule = (from, refusal) => statusRule('billing.edit', from, refusal);
 
 export const INVOICE_RULES = {
   edit: invoiceRule(['Draft'], () => 'Issued invoices are locked. Void and re-issue to make changes.'),
