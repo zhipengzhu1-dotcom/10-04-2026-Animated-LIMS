@@ -23,6 +23,7 @@ export async function startServer(dataDir, env = {}) {
   proc.stderr.on('data', (d) => { log += d; });
   const exited = new Promise((resolve) => proc.once('exit', resolve));
   const stop = async () => {
+    proc.ref();
     proc.kill();
     await exited;
   };
