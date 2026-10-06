@@ -15,7 +15,7 @@ import {
   TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, mayCloseInvestigation } from './quality.js';
+import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -302,7 +302,7 @@ export default function routes(r) {
     // Each Investigation can be closed from its card on the Test page, so its closure signature is shown here too.
     for (const v of investigations) {
       v.signatures = all(`SELECT full_name, meaning, signed_at FROM signatures WHERE entity = 'investigations' AND entity_id = ? ORDER BY id`, v.id);
-      v.can = { close: mayCloseInvestigation(me, v) };
+      v.can = flags(INVESTIGATION_RULES, v, me);
     }
     const performers = rolesWith('tests.perform');
     return {
@@ -321,10 +321,7 @@ export default function routes(r) {
         ORDER BY used_with_method DESC, i.category, i.name`, test.method_code, id).map((m) => ({ ...m, problem: materialProblem(m) })),
       analysts: all(`SELECT id, full_name, initials, role FROM users WHERE active = 1 AND role IN (${ph(performers)}) ORDER BY full_name`, ...performers)
         .map((u) => ({ ...u, qualified: isQualified(u.id, test.method_code) })),
-      can: {
-        ...flags(TEST_RULES, test, me),
-        raise: can(me, 'investigations.raise'),
-      },
+      can: flags(TEST_RULES, test, me),
       qualifiedMe,
     };
   });

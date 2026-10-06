@@ -12,6 +12,7 @@ import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
 import { TEST_QUEUES, TEST_OPEN } from '../workflow.js';
+import { INVESTIGATION_OPEN } from '../investigations.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
 
@@ -113,7 +114,7 @@ export default function routes(r) {
     return {
       myTests: can(ctx.user, 'tests.perform') ? queued('assigned') : 0,
       reviews: reviews(),
-      investigations: get(`SELECT COUNT(*) n FROM investigations WHERE status != 'Closed'`).n,
+      investigations: get(`SELECT COUNT(*) n FROM investigations v WHERE ${INVESTIGATION_OPEN}`).n,
       portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
     };
   });

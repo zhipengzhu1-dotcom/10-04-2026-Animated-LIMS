@@ -12,7 +12,7 @@ import { bad, forbidden, guard } from './http.js';
 import { can, verifySignature, applySignature } from './auth.js';
 import { SAMPLE_OPEN, SIGNATURE_MEANINGS } from './lookups.js';
 import { clean, nowIso, today, idList, round, sameValue, fixed, specText } from './util.js';
-import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './routes/quality.js';
+import { openSampleInvestigation, openTestInvestigation, raiseInvestigation } from './investigations.js';
 
 export const TEST_EDITABLE = ['Pending', 'In Progress'];
 export const TEST_OPEN = ['Pending', 'In Progress', 'Submitted', 'Reviewed'];
@@ -142,6 +142,10 @@ export const TEST_RULES = {
     // An out-of-specification result can never be made to disappear by cancelling and retesting.
     const inv = openTestInvestigation(t.id);
     if (inv) return bad(`${inv.code} is open on this test — it must be investigated and closed before the test can be cancelled`);
+  },
+  // As on a Sample, raising depends on no status: a problem can come to light after approval.
+  raise(t, me) {
+    if (!can(me, 'investigations.raise')) return forbidden();
   },
   attach(t, me) {
     if (!can(me, 'tests.assign') && !(can(me, 'tests.perform') && t.analyst_id === me.id)) return forbidden('Only the assigned analyst can attach files to this test');
