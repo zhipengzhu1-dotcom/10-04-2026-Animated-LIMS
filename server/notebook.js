@@ -36,8 +36,6 @@ const ENTRY_STAGE = `SELECT n.id, n.code, n.title, n.status, n.author_id, n.proj
     n.witness_id, n.witnessed_at, n.created_at, n.updated_at, u.full_name AS author_name, p.code AS project_code
   FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id`;
 
-// Each Queue names the rule it derives from and its stage: the entries at that point of the work, in the Queue's order,
-// narrowed by status only. Every surface reads a person's Queue through `queued`.
 export const ENTRY_QUEUES = {
   witness: { rule: 'witness', stage: () => all(`${ENTRY_STAGE} WHERE n.status = 'Signed' ORDER BY n.signed_at, n.id`) },
   drafts: { rule: 'edit', stage: () => all(`${ENTRY_STAGE} WHERE n.status = 'Draft' ORDER BY n.updated_at DESC, n.id DESC`) },
