@@ -16,6 +16,7 @@ import {
   unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
 import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
+import { PROJECT_RULES } from './business.js';
 
 const SAMPLE_SELECT = `
   SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
@@ -74,11 +75,11 @@ export function createTest(ctx, sample, method, { due, priority }) {
 // Sample services
 // ---------------------------------------------------------------------------------------------
 
-/** Refuses filing a Sample of client `clientId` under Project `projectId` unless the Project is that client's and open. */
-function assertProjectTakes(projectId, clientId) {
-  const p = get('SELECT client_id, status FROM projects WHERE id = ?', projectId);
+/** Refuses filing a Sample of client `clientId` under Project `projectId` unless it is that client's and the Project's receive rule allows it. */
+function assertProjectTakes(ctx, projectId, clientId) {
+  const p = get('SELECT * FROM projects WHERE id = ?', projectId);
   if (p.client_id !== clientId) throw bad('That project belongs to a different client');
-  if (['Completed', 'Cancelled'].includes(p.status)) throw bad(`That project is ${p.status.toLowerCase()} — reopen it before adding samples to it`);
+  guard(PROJECT_RULES.receive(p, ctx.user));
 }
 
 export function receiveSamples(ctx, body) {
@@ -95,7 +96,7 @@ export function receiveSamples(ctx, body) {
     due_date: { type: 'date' },
     notes: { type: 'text' },
   });
-  if (common.project_id) assertProjectTakes(common.project_id, common.client_id);
+  if (common.project_id) assertProjectTakes(ctx, common.project_id, common.client_id);
   const rows = (Array.isArray(body.samples) ? body.samples : [])
     .filter((s) => s && typeof s === 'object' && Object.values(s).some((v) => String(v ?? '').trim()))
     .map((s, i) => clean(s, {
@@ -213,7 +214,7 @@ export default function routes(r) {
       quantity: {}, container: {}, storage: { type: 'enum', values: STORAGE_CONDITIONS }, priority: { type: 'enum', values: PRIORITIES },
       due_date: { type: 'date' }, notes: { type: 'text' }, project_id: { type: 'id', ref: 'projects' },
     }, { partial: true });
-    if (b.project_id && b.project_id !== s.project_id) assertProjectTakes(b.project_id, s.client_id);
+    if (b.project_id && b.project_id !== s.project_id) assertProjectTakes(ctx, b.project_id, s.client_id);
     const reason = String(ctx.body.reason || '').trim();
     if (s.status !== 'Received' && !reason) throw bad('Testing has started on this sample — give a reason for the change', 'REASON_REQUIRED');
     update(ctx, 'samples', id, b, { summary: 'Sample details edited', reason: reason || null });

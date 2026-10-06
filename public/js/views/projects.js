@@ -5,6 +5,7 @@ import { icon } from '../core/icons.js';
 import { navigate, setQuery } from '../core/nav.js';
 import {
   pageHead, card, kv, mountTable, searchBox, segmented, statusBadge, fmtDate, money, emptyState, field, openForm, toast, progress, person, dueChip, plural, debounce,
+  busy, confirmDialog, promptReason, showError,
 } from '../core/ui.js';
 import { recordFooter, wireRecordFooter } from '../core/components.js';
 
@@ -14,7 +15,7 @@ const projectFields = (p = {}, clients = []) => {
     ${p.id ? '' : field({ label: 'Client', name: 'client_id', type: 'select', options: clients.filter((c) => c.active).map((c) => [c.id, c.name]), value: p.client_id, required: true, empty: 'Choose…' })}
     ${field({ label: 'Title', name: 'title', value: p.title, required: true, span: p.id ? 2 : 1, placeholder: 'e.g. Metformin 500 mg — batch release testing' })}
     ${field({ label: 'Type', name: 'type', type: 'select', options: L.projectTypes, value: p.type, required: true, empty: 'Choose…' })}
-    ${field({ label: 'Status', name: 'status', type: 'select', options: L.projectStatuses, value: p.status || 'Active' })}
+    ${p.id ? '' : field({ label: 'Status', name: 'status', type: 'select', options: L.projectStartStatuses, value: p.status || 'Active' })}
     ${field({ label: 'Project lead', name: 'lead_id', type: 'select', options: activeUsers(['manager', 'scientist', 'qa', 'analyst']).map((u) => [u.id, u.full_name]), value: p.lead_id, empty: '—' })}
     ${field({ label: 'Client PO number', name: 'po_number', value: p.po_number })}
     ${can('billing.edit') ? field({ label: `Budget / quote value (${state.settings.currency})`, name: 'budget', type: 'number', value: p.budget, min: 0, step: '0.01' }) : ''}
@@ -67,6 +68,30 @@ export async function list(ctx) {
   ctx.el.addEventListener('click', (e) => { if (e.target.closest('[data-act=new]')) newProject(); });
 }
 
+// One button per status change; the server's flags decide which are offered.
+const STATUS_ACTIONS = [
+  { key: 'activate', label: 'Activate', icon: 'play', done: 'Project is active' },
+  { key: 'hold', label: 'Put on hold', icon: 'clock', done: 'Project put on hold', reason: 'Why is this project going on hold' },
+  { key: 'complete', label: 'Complete', icon: 'check', done: 'Project completed', confirm: 'A completed project is read-only and takes no more samples until it is reopened.' },
+  { key: 'cancel', label: 'Cancel project', icon: 'xCircle', done: 'Project cancelled', reason: 'Why is this project being cancelled? A cancelled project is read-only and cannot be reopened' },
+  { key: 'reopen', label: 'Reopen', icon: 'undo', done: 'Project reopened' },
+];
+
+async function moveProject(ctx, p, action, button) {
+  let body = {};
+  if (action.reason) {
+    const reason = await promptReason(action.reason);
+    if (!reason) return;
+    body = { reason };
+  }
+  if (action.confirm && !(await confirmDialog({ title: `${action.label} ${p.code}?`, message: action.confirm, confirmLabel: action.label }))) return;
+  try {
+    await busy(button, () => api.post(`/api/projects/${p.id}/${action.key}`, body));
+    toast(action.done);
+    ctx.refresh();
+  } catch (err) { showError(err); }
+}
+
 export async function detail(ctx) {
   const d = await api.get(`/api/projects/${ctx.params.id}`);
   const p = d.project;
@@ -82,10 +107,11 @@ export async function detail(ctx) {
       badges: statusBadge(p.status),
       meta: html`<span class="code">${p.code}</span><span>${icon('building', { size: 14 })}<a href="/clients/${p.client_id}">${p.client_name}</a></span><span>${p.type}</span>${p.po_number ? html`<span>PO ${p.po_number}</span>` : ''}<span>${icon('clock', { size: 14 })}${dueChip(p.due_date, { done: ['Completed', 'Cancelled'].includes(p.status) })}</span>`,
       actions: html`
-        ${d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
-        ${d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
+        ${d.can.receive ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
+        ${can('billing.edit') ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
         ${can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
-        ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
+        ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}
+        ${STATUS_ACTIONS.filter((a) => d.can[a.key]).map((a) => html`<button class="btn" data-move="${a.key}">${icon(a.icon, { size: 15 })}${a.label}</button>`)}`,
     })}
     <div class="kpis">
       <div class="kpi"><div class="k-label">Samples</div><div class="k-value">${p.sample_count}</div></div>
@@ -126,6 +152,8 @@ export async function detail(ctx) {
   wireRecordFooter(ctx.el, 'projects', p.id);
   ctx.el.querySelectorAll('[data-href]').forEach((el) => el.addEventListener('click', (e) => { if (!e.target.closest('a,button')) navigate(el.dataset.href); }));
   ctx.el.addEventListener('click', async (e) => {
+    const move = e.target.closest('[data-move]');
+    if (move) await moveProject(ctx, p, STATUS_ACTIONS.find((a) => a.key === move.dataset.move), move);
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'edit') {
       const ok = await openForm({ title: `Edit ${p.code}`, size: 'lg', body: projectFields(p), onSubmit: (data) => api.put(`/api/projects/${p.id}`, data) });

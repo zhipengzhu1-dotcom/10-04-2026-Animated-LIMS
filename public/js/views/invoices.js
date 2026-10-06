@@ -121,9 +121,9 @@ export async function detail(ctx) {
       actions: html`
         <a class="btn" href="/print/invoice/${inv.id}" target="_blank">${icon('printer', { size: 15 })}Print / PDF</a>
         ${editable && d.unbilledAvailable ? html`<button class="btn" data-act="pull">${icon('plus', { size: 15 })}Add ${plural(d.unbilledAvailable, 'completed test')}</button>` : ''}
-        ${editable ? html`<button class="btn primary" data-act="issue">${icon('send', { size: 15 })}Issue invoice</button>` : ''}
-        ${d.can.status && inv.status === 'Sent' ? html`<button class="btn primary" data-act="paid">${icon('check', { size: 15 })}Mark paid</button>` : ''}
-        ${d.can.status && ['Draft', 'Sent'].includes(inv.status) ? html`<button class="btn" data-act="void">${icon('xCircle', { size: 15 })}Void</button>` : ''}`,
+        ${d.can.issue ? html`<button class="btn primary" data-act="issue">${icon('send', { size: 15 })}Issue invoice</button>` : ''}
+        ${d.can.paid ? html`<button class="btn primary" data-act="paid">${icon('check', { size: 15 })}Mark paid</button>` : ''}
+        ${d.can.void ? html`<button class="btn" data-act="void">${icon('xCircle', { size: 15 })}Void</button>` : ''}`,
     })}
     ${inv.status !== 'Draft' ? html`<div class="locked-banner">${icon('lock', { size: 14 })}<span>${inv.status === 'Void' ? 'This invoice was voided; its tests are billable again.' : 'Issued invoices are locked. To correct one, void it and create a new invoice.'}</span></div>` : ''}
     <div class="split">

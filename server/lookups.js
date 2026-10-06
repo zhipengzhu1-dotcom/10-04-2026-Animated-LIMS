@@ -54,6 +54,8 @@ export const rolesWith = (perm) => PERMISSIONS[perm] || [];
 
 export const PROJECT_TYPES = ['Method Development', 'Method Validation', 'Method Transfer', 'Routine / Release Testing', 'Stability Study', 'Reference Standard Characterisation', 'Other'];
 export const PROJECT_STATUSES = ['Quoted', 'Active', 'On Hold', 'Completed', 'Cancelled'];
+// A new Project starts in one of these; every later status change is an action of its own.
+export const PROJECT_START_STATUSES = ['Quoted', 'Active'];
 
 export const TECHNIQUES = ['HPLC-UV', 'UPLC-UV', 'LC-MS', 'GC-FID', 'GC-Headspace', 'GC-MS', 'ICP-MS', 'ICP-OES', 'Karl Fischer', 'UV-Vis', 'FTIR', 'Dissolution', 'pH / Potentiometry', 'Titration', 'Gravimetric', 'TOC', 'Particle Size', 'Physical / Visual', 'Other'];
 export const METHOD_STATUSES = ['Draft', 'In Development', 'In Validation', 'Effective', 'Retired'];
@@ -133,6 +135,7 @@ export function lookups() {
     testPerformerRoles: rolesWith('tests.perform'),
     projectTypes: PROJECT_TYPES,
     projectStatuses: PROJECT_STATUSES,
+    projectStartStatuses: PROJECT_START_STATUSES,
     techniques: TECHNIQUES,
     methodStatuses: METHOD_STATUSES,
     instrumentTypes: INSTRUMENT_TYPES,

@@ -471,6 +471,180 @@ test('the owner of a Method is not offered Make effective and is refused it, whi
   });
 });
 
+// ----- Invoice sweep -----
+
+// Each invoice bills a Project of its own and has a line, so issuing and pulling in completed work are always ready.
+async function prepareInvoice(steps) {
+  const oliver = await as('oliver.grant');
+  const { id: project_id } = await oliver.ok('POST', '/api/projects', { client_id: lab.client, title: 'Invoice sweep', type: 'Other' });
+  const { id } = await oliver.ok('POST', '/api/invoices', { project_id });
+  await oliver.ok('PUT', `/api/invoices/${id}`, { lines: [{ description: 'Stability pull', quantity: 1, unit_price: 100 }] });
+  for (const step of steps) await oliver.ok('POST', `/api/invoices/${id}/${step}`, { reason: 'Billed to the wrong PO' });
+  return id;
+}
+
+const INVOICE_STATES = {
+  draft: [],
+  sent: ['issue'],
+  paid: ['issue', 'paid'],
+  void: ['void'],
+};
+
+// Editing covers pulling in completed work, so both requests must get the same answer.
+async function editInvoice(c, id) {
+  const put = await c.put(`/api/invoices/${id}`, { notes: 'Agreement sweep' });
+  const pull = await c.post(`/api/invoices/${id}/add-unbilled`);
+  return (put.status < 300) === (pull.status < 300) ? put : { status: 500, data: `edit → ${describe(put)}, add-unbilled → ${describe(pull)}` };
+}
+
+const INVOICE_ACTIONS = {
+  edit: editInvoice,
+  issue: (c, id) => c.post(`/api/invoices/${id}/issue`),
+  paid: (c, id) => c.post(`/api/invoices/${id}/paid`),
+  void: (c, id) => c.post(`/api/invoices/${id}/void`, { reason: 'Billed to the wrong PO' }),
+};
+
+// Every role that can read an invoice can also bill, so a person without the permission cannot read the invoice and
+// is offered nothing; their refusals are still attempted.
+const INVOICE_PEOPLE = {
+  'the business person': { username: 'oliver.grant' },
+  'a manager': { username: 'priya.raman' },
+  'the business person after a role change': { username: 'oliver.grant', role: 'analyst' },
+};
+
+for (const [state, steps] of Object.entries(INVOICE_STATES)) {
+  test(`an invoice ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, person] of Object.entries(INVOICE_PEOPLE)) {
+      const label = `Invoice ${state}, ${who}`;
+      const id = await prepareInvoice(steps);
+      const actions = Object.keys(INVOICE_ACTIONS);
+      const can = await within(person, async (c) => {
+        const r = await c.get(`/api/invoices/${id}`);
+        assert.ok([200, 403].includes(r.status), `${label}: invoice → ${describe(r)}`);
+        const offered = r.status === 200 ? r.data.can : {};
+        if (r.status === 200) assert.deepEqual(actions.filter((a) => typeof offered[a] !== 'boolean'), [], `${label}: every action has a flag`);
+        for (const action of actions.filter((a) => !offered[a])) {
+          const refusal = await INVOICE_ACTIONS[action](c, id);
+          assert.ok(refused(refusal), `${label}: ${action} is not offered but was accepted (${describe(refusal)})`);
+        }
+        return Object.fromEntries(actions.map((a) => [a, offered[a] === true]));
+      });
+      for (const action of actions) {
+        note('INVOICE_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const fresh = await prepareInvoice(steps);
+        const r = await within(person, (c) => INVOICE_ACTIONS[action](c, fresh));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
+// ----- Project sweep -----
+
+// A Project starts Quoted and is moved on by the business person, through the same actions the sweep tries.
+async function prepareProject(steps) {
+  const grace = await as('grace.holloway');
+  const { id } = await grace.ok('POST', '/api/projects', { client_id: lab.client, title: 'Project sweep', type: 'Other', status: 'Quoted' });
+  for (const step of steps) await grace.ok('POST', `/api/projects/${id}/${step}`, { reason: 'Client paused the programme' });
+  return id;
+}
+
+const PROJECT_STATES = {
+  quoted: [],
+  active: ['activate'],
+  'on hold': ['activate', 'hold'],
+  completed: ['activate', 'complete'],
+  cancelled: ['cancel'],
+};
+
+const moveProject = (action) => (c, id) => c.post(`/api/projects/${id}/${action}`, { reason: 'Client paused the programme' });
+
+const PROJECT_ACTIONS = {
+  edit: (c, id) => c.put(`/api/projects/${id}`, { title: 'Project sweep, renamed' }),
+  activate: moveProject('activate'),
+  hold: moveProject('hold'),
+  complete: moveProject('complete'),
+  cancel: moveProject('cancel'),
+  reopen: moveProject('reopen'),
+  receive: (c, id) => c.post('/api/samples/receive', { client_id: lab.client, project_id: id, samples: [{ description: 'Project sweep' }] }),
+};
+
+const PROJECT_PEOPLE = {
+  'a business person, who edits but does not receive': 'grace.holloway',
+  'a scientist, who does both': 'sarah.lindqvist',
+  'an analyst, who receives but does not edit': ANALYST,
+  'QA, who does neither': 'daniel.okafor',
+};
+
+for (const [state, steps] of Object.entries(PROJECT_STATES)) {
+  test(`a Project ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, username] of Object.entries(PROJECT_PEOPLE)) {
+      const label = `Project ${state}, ${who}`;
+      const c = await as(username);
+      const id = await prepareProject(steps);
+      const { can } = await c.ok('GET', `/api/projects/${id}`);
+
+      const actions = Object.keys(PROJECT_ACTIONS);
+      assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      for (const action of actions.filter((a) => !can[a])) {
+        const r = await PROJECT_ACTIONS[action](c, id);
+        assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+      }
+      for (const action of actions) {
+        note('PROJECT_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const r = await PROJECT_ACTIONS[action](c, await prepareProject(steps));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
+test('editing a Completed Project is refused', async () => {
+  const grace = await as('grace.holloway');
+  const id = await prepareProject(['activate', 'complete']);
+  assert.equal((await grace.ok('GET', `/api/projects/${id}`)).can.edit, false);
+  const r = await grace.put(`/api/projects/${id}`, { title: 'Renamed after completion' });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, 'The project is completed — reopen it to make changes');
+  assert.equal((await grace.ok('GET', `/api/projects/${id}`)).project.title, 'Project sweep');
+});
+
+test('a Cancelled Project cannot be moved back to Active', async () => {
+  const grace = await as('grace.holloway');
+  const id = await prepareProject(['activate', 'cancel']);
+  const { can } = await grace.ok('GET', `/api/projects/${id}`);
+  assert.deepEqual([can.activate, can.reopen, can.edit], [false, false, false]);
+  for (const [action, error] of [['activate', 'The project is cancelled — it can\'t be made active'], ['reopen', 'The project is cancelled — it can\'t be reopened']]) {
+    const r = await grace.post(`/api/projects/${id}/${action}`);
+    assert.equal(r.status, 400, action);
+    assert.equal(r.data.error, error);
+  }
+  assert.equal((await grace.put(`/api/projects/${id}`, { status: 'Active' })).status, 400, 'nor through an edit');
+  assert.equal((await grace.ok('GET', `/api/projects/${id}`)).project.status, 'Cancelled');
+});
+
+test('a new Project starts Quoted or Active, never already closed', async () => {
+  const grace = await as('grace.holloway');
+  for (const status of ['On Hold', 'Completed', 'Cancelled']) {
+    const r = await grace.post('/api/projects', { client_id: lab.client, title: 'Born closed', type: 'Other', status });
+    assert.equal(r.status, 400, status);
+  }
+});
+
+test('reopening a Completed Project makes it Active, editable and able to receive again', async () => {
+  const [grace, sarah] = await Promise.all(['grace.holloway', 'sarah.lindqvist'].map(as));
+  const id = await prepareProject(['activate', 'complete']);
+  assert.equal((await grace.ok('GET', `/api/projects/${id}`)).can.reopen, true);
+  await grace.ok('POST', `/api/projects/${id}/reopen`);
+  const { project, can } = await sarah.ok('GET', `/api/projects/${id}`);
+  assert.equal(project.status, 'Active');
+  assert.deepEqual([can.edit, can.receive, can.reopen], [true, true, false]);
+  await sarah.ok('PUT', `/api/projects/${id}`, { title: 'Extended programme' });
+  await sarah.ok('POST', '/api/samples/receive', { client_id: lab.client, project_id: id, samples: [{ description: 'Extra lot' }] });
+});
+
 // ----- File sweep -----
 
 // Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;
@@ -481,7 +655,7 @@ const signedAs = (username, url, body = {}) => async (id) => (await as(username)
 const newMethod = async () => (await (await as('sarah.lindqvist')).ok('POST', '/api/methods', { title: 'Water by coulometric KF', technique: 'Karl Fischer', analytes: [{ name: 'Water', unit: '%', spec_max: 0.5 }] })).id;
 const makeEffective = signedAs('daniel.okafor', (id) => `/api/methods/${id}/status`, { status: 'Effective' });
 const newProject = async () => (await (await as('marco.bianchi')).ok('POST', '/api/projects', { client_id: lab.client, title: 'File sweep', type: 'Other' })).id;
-const projectStatus = (status) => async (id) => (await as('priya.raman')).ok('PUT', `/api/projects/${id}`, { status });
+const projectStatus = (action) => async (id) => (await as('priya.raman')).ok('POST', `/api/projects/${id}/${action}`);
 
 const FILE_RECORDS = {
   samples: {
@@ -556,8 +730,8 @@ const FILE_RECORDS = {
     create: newProject,
     states: {
       active: {},
-      completed: { then: projectStatus('Completed') },
-      cancelled: { then: projectStatus('Cancelled') },
+      completed: { then: projectStatus('complete') },
+      cancelled: { then: projectStatus('cancel') },
     },
   },
   clients: {

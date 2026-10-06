@@ -2,10 +2,10 @@
 
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
-import { bad, forbidden } from '../http.js';
+import { bad, forbidden, guard, flags } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
-import { PROJECT_TYPES, PROJECT_STATUSES, SAMPLE_OPEN } from '../lookups.js';
+import { PROJECT_TYPES, PROJECT_START_STATUSES, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, today, addDays, round } from '../util.js';
 import { TEST_SELECT, TEST_OPEN } from '../workflow.js';
 
@@ -58,7 +58,7 @@ const projectSchema = {
   client_id: { type: 'id', ref: 'clients', required: true },
   title: { required: true },
   type: { type: 'enum', values: PROJECT_TYPES, required: true },
-  status: { type: 'enum', values: PROJECT_STATUSES, default: 'Active' },
+  status: { type: 'enum', values: PROJECT_START_STATUSES, default: 'Active' },
   lead_id: { type: 'id', ref: 'users', label: 'project lead' },
   po_number: { label: 'PO number' },
   budget: { type: 'num', min: 0 },
@@ -67,10 +67,36 @@ const projectSchema = {
   description: { type: 'text' },
 };
 
+const CLOSED_PROJECT = ['Completed', 'Cancelled'];
+// A Project's status changes, one action each. A Cancelled Project never moves again; a client coming back gets a new one.
+const PROJECT_MOVES = {
+  activate: { from: ['Quoted', 'On Hold'], to: 'Active', done: 'made active' },
+  hold: { from: ['Active'], to: 'On Hold', done: 'put on hold' },
+  complete: { from: ['Active'], to: 'Completed', done: 'completed' },
+  cancel: { from: ['Quoted', 'Active', 'On Hold'], to: 'Cancelled', done: 'cancelled' },
+  reopen: { from: ['Completed'], to: 'Active', done: 'reopened' },
+};
+
+const moveRule = ({ from, done }) => (p, me) => {
+  if (!can(me, 'projects.edit')) return forbidden();
+  if (!from.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+};
+
 export const PROJECT_RULES = {
+  edit(p, me) {
+    if (!can(me, 'projects.edit')) return forbidden();
+    if (p.status === 'Completed') return bad('The project is completed — reopen it to make changes');
+    if (p.status === 'Cancelled') return bad('The project is cancelled and can no longer be changed');
+  },
+  ...Object.fromEntries(Object.entries(PROJECT_MOVES).map(([action, move]) => [action, moveRule(move)])),
+  receive(p, me) {
+    if (!can(me, 'samples.receive')) return forbidden();
+    if (p.status === 'Completed') return bad('That project is completed — reopen it before adding samples to it');
+    if (p.status === 'Cancelled') return bad('That project is cancelled — samples can\'t be added to it');
+  },
   attach(p, me) {
     if (!can(me, 'projects.edit')) return forbidden();
-    if (['Completed', 'Cancelled'].includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
+    if (CLOSED_PROJECT.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
   },
 };
 
@@ -81,6 +107,15 @@ export function createProject(ctx, body) {
     const code = nextCode('P', { pad: 3 });
     return { id: insert(ctx, 'projects', { code, ...b, start_date: b.start_date ?? today(), created_at: nowIso() }, { summary: 'Project created' }), code };
   });
+}
+
+export function setProjectStatus(ctx, id, action, body = {}) {
+  if (!Object.hasOwn(PROJECT_MOVES, action)) throw bad('Unknown action');
+  const p = mustGet('SELECT * FROM projects WHERE id = ?', id, 'Project');
+  guard(PROJECT_RULES[action](p, ctx.user));
+  const { to, done } = PROJECT_MOVES[action];
+  update(ctx, 'projects', id, { status: to }, { action: 'STATUS', summary: `Project ${done}`, reason: String(body.reason || '').trim() || null });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -125,11 +160,17 @@ function releaseTests(ctx, invoiceId, summary, testIds = null) {
   return tests.length;
 }
 
+const invoiceRule = (from, refusal) => (inv, me) => {
+  if (!can(me, 'billing.edit')) return forbidden();
+  if (!from.includes(inv.status)) return bad(refusal(inv));
+};
+
 export const INVOICE_RULES = {
-  attach(inv, me) {
-    if (!can(me, 'billing.edit')) return forbidden();
-    if (inv.status !== 'Draft') return bad('Issued invoices are locked');
-  },
+  edit: invoiceRule(['Draft'], () => 'Issued invoices are locked. Void and re-issue to make changes.'),
+  issue: invoiceRule(['Draft'], () => 'Only draft invoices can be issued'),
+  paid: invoiceRule(['Sent'], () => 'Only issued invoices can be marked paid'),
+  void: invoiceRule(['Draft', 'Sent'], (inv) => `A ${inv.status.toLowerCase()} invoice can't be voided`),
+  attach: invoiceRule(['Draft'], () => 'Issued invoices are locked'),
 };
 
 export function createInvoice(ctx, body) {
@@ -161,25 +202,21 @@ export function createInvoice(ctx, body) {
 }
 
 export function setInvoiceStatus(ctx, id, action, body = {}) {
-  assertCan(ctx, 'billing.edit');
+  if (!['issue', 'paid', 'void'].includes(action)) throw bad('Unknown action');
   const inv = mustGet('SELECT i.*, c.payment_terms_days FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ?', id, 'Invoice');
+  guard(INVOICE_RULES[action](inv, ctx.user));
   tx(() => {
     const dates = clean(body, { issued_date: { type: 'date' }, paid_date: { type: 'date' } }, { partial: true });
     if (action === 'issue') {
-      if (inv.status !== 'Draft') throw bad('Only draft invoices can be issued');
       if (!get('SELECT 1 FROM invoice_lines WHERE invoice_id = ?', id)) throw bad('Add at least one line before issuing');
       const issued = dates.issued_date || today();
       update(ctx, 'invoices', id, { status: 'Sent', issued_date: issued, due_date: addDays(issued, inv.payment_terms_days ?? 30) }, { action: 'STATUS', summary: 'Invoice issued to client' });
     } else if (action === 'paid') {
-      if (inv.status !== 'Sent') throw bad('Only issued invoices can be marked paid');
       update(ctx, 'invoices', id, { status: 'Paid', paid_date: dates.paid_date || today() }, { action: 'STATUS', summary: 'Payment received' });
-    } else if (action === 'void') {
-      if (!['Draft', 'Sent'].includes(inv.status)) throw bad(`A ${inv.status.toLowerCase()} invoice can't be voided`);
+    } else {
       if (!String(body.reason || '').trim()) throw bad('A reason is required to void an invoice', 'REASON_REQUIRED');
       releaseTests(ctx, id, 'Invoice voided — billable again');
       update(ctx, 'invoices', id, { status: 'Void' }, { action: 'STATUS', summary: 'Invoice voided — its tests are billable again', reason: body.reason });
-    } else {
-      throw bad('Unknown action');
     }
   });
   return { ok: true };
@@ -262,20 +299,24 @@ export default function routes(r) {
       notebook: all(`SELECT n.id, n.code, n.title, n.status, n.created_at, u.full_name AS author_name FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.project_id = ? ORDER BY n.id DESC`, id),
       investigations: all('SELECT id, code, type, title, status, severity FROM investigations WHERE project_id = ? ORDER BY id DESC', id),
       invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null,
-      can: { edit: can(ctx.user, 'projects.edit'), bill: can(ctx.user, 'billing.edit'), receive: can(ctx.user, 'samples.receive') },
+      can: flags(PROJECT_RULES, project, ctx.user),
     };
   });
 
   r.post('/api/projects', (ctx) => createProject(ctx, ctx.body));
 
   r.put('/api/projects/:id', (ctx) => {
-    assertCan(ctx, 'projects.edit');
-    const { client_id, ...schema } = projectSchema;
+    const id = +ctx.params.id;
+    guard(PROJECT_RULES.edit(mustGet('SELECT * FROM projects WHERE id = ?', id, 'Project'), ctx.user));
+    if (ctx.body?.status !== undefined) throw bad('Change a project\'s status with its own action');
+    const { client_id, status, ...schema } = projectSchema;
     const b = clean(ctx.body, schema, { partial: true });
     if ('budget' in b && !can(ctx.user, 'billing.edit')) delete b.budget;
-    update(ctx, 'projects', +ctx.params.id, b, { summary: 'Project edited' });
+    update(ctx, 'projects', id, b, { summary: 'Project edited' });
     return { ok: true };
   });
+
+  for (const action of Object.keys(PROJECT_MOVES)) r.post(`/api/projects/:id/${action}`, (ctx) => setProjectStatus(ctx, +ctx.params.id, action, ctx.body));
 
   // ----- Invoices -----
   r.get('/api/invoices', (ctx) => {
@@ -304,18 +345,16 @@ export default function routes(r) {
       lines: all('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort_order, id', id),
       totals: invoiceTotals(id, invoice.tax_rate),
       tests: all(`${TEST_SELECT} WHERE t.invoice_id = ? ORDER BY t.id`, id),
-      unbilledAvailable: invoice.project_id && invoice.status === 'Draft' ? unbilledLines(invoice.project_id).reduce((n, l) => n + l.quantity, 0) : 0,
-      can: { edit: can(ctx.user, 'billing.edit') && invoice.status === 'Draft', status: can(ctx.user, 'billing.edit') },
+      unbilledAvailable: invoice.project_id ? unbilledLines(invoice.project_id).reduce((n, l) => n + l.quantity, 0) : 0,
+      can: flags(INVOICE_RULES, invoice, ctx.user),
     };
   }, { perm: 'billing.view' });
 
   r.post('/api/invoices', (ctx) => createInvoice(ctx, ctx.body), { perm: 'billing.edit' });
 
   r.put('/api/invoices/:id', (ctx) => {
-    assertCan(ctx, 'billing.edit');
     const id = +ctx.params.id;
-    const inv = mustGet('SELECT * FROM invoices WHERE id = ?', id, 'Invoice');
-    if (inv.status !== 'Draft') throw forbidden('Issued invoices are locked. Void and re-issue to make changes.');
+    guard(INVOICE_RULES.edit(mustGet('SELECT * FROM invoices WHERE id = ?', id, 'Invoice'), ctx.user));
     const b = clean(ctx.body, { notes: { type: 'text' }, tax_rate: { type: 'num', min: 0, max: 100 }, po_number: {} }, { partial: true });
     const existing = all('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort_order, id', id);
     const byId = new Map(existing.map((l) => [l.id, l]));
@@ -352,10 +391,10 @@ export default function routes(r) {
   });
 
   r.post('/api/invoices/:id/add-unbilled', (ctx) => {
-    assertCan(ctx, 'billing.edit');
     const id = +ctx.params.id;
     const inv = mustGet('SELECT * FROM invoices WHERE id = ?', id, 'Invoice');
-    if (inv.status !== 'Draft' || !inv.project_id) throw bad('Only draft project invoices can pull in completed work');
+    guard(INVOICE_RULES.edit(inv, ctx.user));
+    if (!inv.project_id) throw bad('Only project invoices can pull in completed work');
     tx(() => {
       let order = get('SELECT COALESCE(MAX(sort_order), -1) m FROM invoice_lines WHERE invoice_id = ?', id).m;
       const lines = unbilledLines(inv.project_id);
