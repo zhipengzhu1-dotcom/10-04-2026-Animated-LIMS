@@ -4,30 +4,20 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, guard, flags } from '../http.js';
-import { assertCan, can } from '../auth.js';
+import { bad, guard, flags, queued } from '../http.js';
+import { assertCan } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
   SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN, rolesWith,
 } from '../lookups.js';
 import { clean, nowIso, today, addBusinessDays, dateOf, idList, likeTerm, limitParam, round } from '../util.js';
 import {
-  TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
+  TEST_SELECT, TEST_QUEUES, TEST_RULES, SAMPLE_SELECT, SAMPLE_QUEUES, SAMPLE_RULES, TEST_OPEN, getTest, isQualified, instrumentProblem, materialProblem, refreshSampleStatus,
   unassignedTests, assignTests, claimTest, startTest, saveResults, submitTest, reviewTest, approveTest, cancelTest, issueReport, cancelSample,
 } from '../workflow.js';
-import { OPEN_ON_SAMPLE, INVESTIGATION_RULES } from '../investigations.js';
+import { INVESTIGATION_RULES } from '../investigations.js';
 import { PROJECT_RULES } from './business.js';
-
-const SAMPLE_SELECT = `
-  SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
-    u.full_name AS received_by_name,
-    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
-    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved,
-    (SELECT COALESCE(MAX(t.oos), 0) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS has_oos
-  FROM samples s
-  JOIN clients c ON c.id = s.client_id
-  LEFT JOIN projects p ON p.id = s.project_id
-  LEFT JOIN users u ON u.id = s.received_by`;
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
@@ -135,17 +125,10 @@ export function addTestsToSample(ctx, sampleId, methodIds) {
   });
 }
 
-const WORK_FILTERS = {
-  assigned: { perm: 'tests.perform', match: TEST_QUEUES.assigned },
-  review: { perm: 'tests.review', match: TEST_QUEUES.review },
-  approval: { perm: 'tests.approve', match: TEST_QUEUES.approval },
-};
-
-function workFilter(ctx, name) {
-  const rule = Object.hasOwn(WORK_FILTERS, name) && WORK_FILTERS[name];
-  if (!rule) throw bad(`Work filter must be one of: ${Object.keys(WORK_FILTERS).join(', ')}`);
-  assertCan(ctx, rule.perm);
-  return rule.match(ctx.user.id);
+/** The distinct `key` of each Test in the signed-in person's Test Queue `name`: none without its permission, never a refusal. */
+function workFilter(ctx, name, key) {
+  if (!Object.hasOwn(TEST_QUEUES, name)) throw bad(`Work filter must be one of: ${Object.keys(TEST_QUEUES).join(', ')}`);
+  return [...new Set(queued(TEST_RULES, TEST_QUEUES[name], ctx.user).map((t) => t[key]))];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -164,11 +147,7 @@ export default function routes(r) {
     if (q.project_id) { where.push('s.project_id = ?'); params.push(+q.project_id); }
     if (q.priority) { where.push('s.priority = ?'); params.push(q.priority); }
     if (q.overdue) { where.push(`s.due_date < ? AND s.status IN (${ph(SAMPLE_OPEN)})`); params.push(today(), ...SAMPLE_OPEN); }
-    if (q.work) {
-      const [sql, ...args] = workFilter(ctx, q.work);
-      where.push(`EXISTS (SELECT 1 FROM tests t WHERE t.sample_id = s.id AND ${sql})`);
-      params.push(...args);
-    }
+    if (q.work) { const ids = workFilter(ctx, q.work, 'sample_id'); where.push(`s.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.q) {
       const t = likeTerm(q.q);
       where.push(`(s.code LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\' OR s.batch_no LIKE ? ESCAPE '\\' OR s.client_ref LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')`);
@@ -273,7 +252,7 @@ export default function routes(r) {
     const params = [];
     if (q.scope === 'open') { where.push(`t.status IN (${ph(TEST_OPEN)})`); params.push(...TEST_OPEN); }
     if (q.status) { const list = String(q.status).split(','); where.push(`t.status IN (${ph(list)})`); params.push(...list); }
-    if (q.work) { const [sql, ...args] = workFilter(ctx, q.work); where.push(sql); params.push(...args); }
+    if (q.work) { const ids = workFilter(ctx, q.work, 'id'); where.push(`t.id IN (${ph(ids)})`); params.push(...ids); }
     if (q.analyst_id) { where.push('t.analyst_id = ?'); params.push(+q.analyst_id); }
     if (q.unassigned) where.push('t.analyst_id IS NULL');
     if (q.method_id) { where.push('t.method_id = ?'); params.push(+q.method_id); }
@@ -339,21 +318,14 @@ export default function routes(r) {
   r.get('/api/reviews', (ctx) => {
     const lab = ctx.query.scope === 'lab';
     if (lab) assertCan(ctx, 'work.oversee');
-    const me = lab ? 0 : ctx.user.id;
-    const out = { toReview: [], toApprove: [], toWitness: [], toIssue: [] };
-    const queue = (name, order) => {
-      const [sql, ...params] = TEST_QUEUES[name](me);
-      return all(`${TEST_SELECT} WHERE ${sql} ORDER BY ${order}`, ...params);
+    // Oversight shows each stage whoever could act on it; it is nobody's Queue.
+    const shown = (rules, queue) => (lab ? queue.stage() : queued(rules, queue, ctx.user)).map((x) => ({ ...x, can: flags(rules, x, ctx.user) }));
+    const out = {
+      toReview: shown(TEST_RULES, TEST_QUEUES.review),
+      toApprove: shown(TEST_RULES, TEST_QUEUES.approval),
+      toWitness: shown(ENTRY_RULES, ENTRY_QUEUES.witness),
+      toIssue: shown(SAMPLE_RULES, SAMPLE_QUEUES.certificate),
     };
-    const sees = (perm) => lab || can(ctx.user, perm);
-    if (sees('tests.review')) out.toReview = queue('review', 't.submitted_at');
-    if (sees('tests.approve')) out.toApprove = queue('approval', 't.reviewed_at');
-    if (sees('notebook.witness')) {
-      out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
-        FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
-        WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
-    }
-    if (sees('reports.issue')) out.toIssue = all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' AND NOT EXISTS (SELECT 1 FROM investigations v WHERE ${OPEN_ON_SAMPLE}) ORDER BY s.due_date`);
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }

@@ -22,6 +22,10 @@ _Avoid_: Back office, admin site, LIMS (for this part alone)
 The separate part of Aliquot where a client's contacts follow their own samples, download CoAs and message the lab.
 _Avoid_: Customer site, extranet
 
+**Queue**:
+The records of one kind on which one person is offered one action: that person's work for that action, such as the Tests waiting for their review. A sidebar badge counts one or more of the person's Queues; a lab-wide count by status, or the Client portal inbox's count of what is new, is not a Queue.
+_Avoid_: To-do list, inbox (for a Queue)
+
 ### Lab work
 
 **Method**:

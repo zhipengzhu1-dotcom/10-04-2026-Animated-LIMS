@@ -194,12 +194,84 @@ test('the administrator oversees every work queue but cannot act on it', async (
   assert.ok(submitted.length && reviewed.length, 'the demo lab has tests waiting at both stages');
   assert.deepEqual(reviews.toReview.map((t) => t.id).sort(), submitted.map((t) => t.id).sort(), 'every test waiting for peer review');
   assert.deepEqual(reviews.toApprove.map((t) => t.id).sort(), reviewed.map((t) => t.id).sort(), 'every test waiting for approval');
+  for (const [list, records] of Object.entries(reviews)) {
+    for (const x of records) {
+      assert.ok(x.can, `${list} ${x.code} carries its can`);
+      assert.deepEqual(Object.keys(x.can).filter((action) => x.can[action]), [], `${list} ${x.code} offers nothing`);
+    }
+  }
 
   const blocked = await admin.req('POST', `/api/tests/${submitted[0].id}/review`, { decision: 'approve', password: PASSWORD });
   assert.equal(blocked.status, 403, 'seeing the queue is not signing it');
   assert.equal((await admin.ok('GET', `/api/tests/${submitted[0].id}`)).test.status, 'Submitted');
   const [unassigned] = await admin.ok('GET', '/api/tests?scope=open&unassigned=1');
   assert.equal((await admin.req('POST', '/api/tests/assign', { test_ids: [unassigned.id], analyst_id: lab.users['tom.fletcher'].id })).status, 403, 'nor assigning work');
+});
+
+/** Priya performs Test `testId` with in-specification results and submits it. */
+async function submit(testId) {
+  await assign(testId, 'priya.raman');
+  const d = await lab.priya.ok('GET', `/api/tests/${testId}`);
+  const instrument = d.instruments.find((i) => !i.problem && i.code.startsWith('HPLC'));
+  const mid = (r) => (r.spec_min != null && r.spec_max != null ? (r.spec_min + r.spec_max) / 2 : r.spec_max != null ? r.spec_max / 2 : (r.spec_min ?? 0) + 1);
+  await lab.priya.ok('PUT', `/api/tests/${testId}`, { instrument_id: instrument.id, results: d.results.map((r) => ({ id: r.id, value: String(mid(r)) })) });
+  await lab.priya.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+}
+
+test('oversight lists a Test awaiting review that nobody but its analyst could review', async () => {
+  await setupLab();
+  const testId = await receive();
+  await submit(testId);
+
+  // Every other reviewer becomes an analyst, so the only person holding tests.review is the one who performed the Test.
+  const admin = await as('admin');
+  const reviewers = Object.values(lab.users).filter((u) => u.active && ['manager', 'scientist', 'qa'].includes(u.role) && u.username !== 'priya.raman');
+  try {
+    for (const u of reviewers) await admin.ok('PUT', `/api/users/${u.id}`, { role: 'analyst' });
+    for (const u of [...reviewers, lab.users['priya.raman']]) {
+      const queue = (await (await as(u.username)).ok('GET', '/api/reviews')).toReview;
+      assert.ok(!queue.some((t) => t.id === testId), `${u.username} could not review it`);
+    }
+    assert.ok((await admin.ok('GET', '/api/reviews?scope=lab')).toReview.some((t) => t.id === testId), 'oversight still shows it waiting for review');
+  } finally {
+    for (const u of reviewers) await admin.ok('PUT', `/api/users/${u.id}`, { role: u.role });
+  }
+});
+
+test('oversight lists a signed entry that nobody but its author could witness', async () => {
+  await setupLab();
+  const { id } = await lab.priya.ok('POST', '/api/notebook', { title: 'Oversight entry', body: 'Column flushed' });
+  await lab.priya.ok('POST', `/api/notebook/${id}/sign`, { password: PASSWORD });
+
+  // Every other witness becomes an analyst, so the only person holding notebook.witness is the entry's author.
+  const admin = await as('admin');
+  const witnesses = Object.values(lab.users).filter((u) => u.active && ['manager', 'scientist', 'qa'].includes(u.role) && u.username !== 'priya.raman');
+  try {
+    for (const u of witnesses) await admin.ok('PUT', `/api/users/${u.id}`, { role: 'analyst' });
+    for (const u of [...witnesses, lab.users['priya.raman']]) {
+      const queue = (await (await as(u.username)).ok('GET', '/api/reviews')).toWitness;
+      assert.ok(!queue.some((n) => n.id === id), `${u.username} could not witness it`);
+    }
+    assert.ok((await admin.ok('GET', '/api/reviews?scope=lab')).toWitness.some((n) => n.id === id), 'oversight still shows it waiting for a witness');
+  } finally {
+    for (const u of witnesses) await admin.ok('PUT', `/api/users/${u.id}`, { role: u.role });
+  }
+});
+
+test('oversight lists an Approved Sample held by an open Investigation, which QA\'s certificate Queue does not', async () => {
+  await setupLab();
+  const testId = await receive();
+  await submit(testId);
+  await (await as('daniel.okafor')).ok('POST', `/api/tests/${testId}/review`, { decision: 'approve', password: PASSWORD });
+  await (await as('helena.weiss')).ok('POST', `/api/tests/${testId}/approve`, { decision: 'approve', password: PASSWORD });
+  const sampleId = (await lab.priya.ok('GET', `/api/tests/${testId}`)).test.sample_id;
+  await lab.priya.ok('POST', '/api/investigations', { type: 'Deviation', title: 'Storage excursion', description: 'Fridge alarm overnight', sample_id: sampleId });
+
+  const qa = await as('daniel.okafor');
+  assert.equal((await qa.ok('GET', `/api/samples/${sampleId}`)).sample.status, 'Approved');
+  assert.ok(!(await qa.ok('GET', '/api/reviews')).toIssue.some((s) => s.id === sampleId), 'QA may not issue its certificate yet');
+  const oversight = await (await as('admin')).ok('GET', '/api/reviews?scope=lab');
+  assert.ok(oversight.toIssue.some((s) => s.id === sampleId), 'oversight shows it waiting for its certificate');
 });
 
 test('only people who assign work see the workload', async () => {

@@ -1,5 +1,6 @@
 // Syntax-checks every JavaScript file in the project with `node --check`, refuses hand-written SQL writes that would
-// bypass the audit trail, rules tables imported where they would make a cycle, and `can` flags written by hand.
+// bypass the audit trail, rules tables imported where they would make a cycle, Queue tables away from their rules
+// tables, and `can` flags written by hand.
 // No dependencies needed.
 // Usage:  npm run check
 import { execFileSync } from 'node:child_process';
@@ -128,6 +129,25 @@ if (misplaced.length) {
   console.error('Move the rules table to a server module of its own (as server/notebook.js holds ENTRY_RULES) and import it from there.');
 } else console.log('Rules tables placed OK');
 
+// A record's Queue table lives in the same module as its rules table, wherever that table lives.
+/** Each `<RECORD><suffix>` table a server module exports, as [record, file]. */
+const exported = (suffix) => [...imports.keys()].flatMap((file) => {
+  const exports = fs.readFileSync(file, 'utf8').matchAll(new RegExp(`^export const (\\w+)${suffix}\\b`, 'gm'));
+  return [...exports].map((m) => [m[1], file]);
+});
+const rulesHome = new Map(exported('_RULES'));
+const strayQueues = [];
+for (const [record, file] of exported('_QUEUES')) {
+  const home = rulesHome.get(record);
+  if (home === file) continue;
+  const where = home ? `is not beside ${record}_RULES in ${path.relative(ROOT, home)}` : `has no ${record}_RULES`;
+  strayQueues.push(`${path.relative(ROOT, file)}: ${record}_QUEUES ${where}`);
+}
+if (strayQueues.length) {
+  console.error(strayQueues.join('\n'));
+  console.error('Define each Queue table in the module that exports its rules table.');
+} else console.log('Queue tables placed OK');
+
 // A record's `can` is built with flags() from its rules table. These payloads still write `can` by hand, each for the
 // reason given, and only as many times as listed.
 const HAND_FLAGS = {
@@ -145,4 +165,4 @@ if (handFlags.length) {
   console.error(handFlags.join('\n'));
   console.error("Build can with flags(<RECORD>_RULES, record, person), or add the file to HAND_FLAGS in scripts/check.js with the reason it has no rules.");
 } else console.log('Can flags OK');
-process.exit(failed || unaudited.length || misplaced.length || handFlags.length ? 1 : 0);
+process.exit(failed || unaudited.length || misplaced.length || strayQueues.length || handFlags.length ? 1 : 0);

@@ -24,6 +24,17 @@ export const TEST_RETURNED = [
   ...RETURN_MEANINGS,
 ];
 
+export const SAMPLE_SELECT = `
+  SELECT s.*, c.name AS client_name, c.code AS client_code, p.code AS project_code, p.title AS project_title,
+    u.full_name AS received_by_name,
+    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS test_count,
+    (SELECT COUNT(*) FROM tests t WHERE t.sample_id = s.id AND t.status = 'Approved') AS tests_approved,
+    (SELECT COALESCE(MAX(t.oos), 0) FROM tests t WHERE t.sample_id = s.id AND t.status != 'Cancelled') AS has_oos
+  FROM samples s
+  JOIN clients c ON c.id = s.client_id
+  LEFT JOIN projects p ON p.id = s.project_id
+  LEFT JOIN users u ON u.id = s.received_by`;
+
 export const TEST_SELECT = `
   SELECT t.*, s.code AS sample_code, s.description AS sample_description, s.batch_no, s.priority, s.client_id, s.project_id,
     c.code AS client_code, c.name AS client_name,
@@ -208,6 +219,10 @@ export const SAMPLE_RULES = {
     if (!can(me, 'samples.edit')) return forbidden();
     if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);
   },
+};
+
+export const SAMPLE_QUEUES = {
+  certificate: { rule: 'issue', stage: () => all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' ORDER BY s.due_date, s.id`) },
 };
 
 /** The one way a Test's status changes: audited as a status change, with its Sample's status re-derived in the same transaction. */
@@ -445,13 +460,13 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Each gives [SQL condition on tests aliased `t`, ...params], shared by the badges, Reviews, Worklist and work filters.
 export const TEST_QUEUES = {
-  assigned: (me) => [
-    `t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) AND EXISTS (SELECT 1 FROM qualifications q JOIN methods qm ON qm.code = q.method_code
-      WHERE qm.id = t.method_id AND q.user_id = t.analyst_id AND ${CURRENT_QUALIFICATION})`,
-    me, ...TEST_EDITABLE, today(),
-  ],
-  review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
-  approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
+  assigned: {
+    rule: 'edit',
+    stage: () => all(`${TEST_SELECT} WHERE t.analyst_id IS NOT NULL AND t.status IN (${ph(TEST_EDITABLE)})
+      ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date, t.id`, ...TEST_EDITABLE),
+  },
+  review: { rule: 'review', stage: () => all(`${TEST_SELECT} WHERE t.status = 'Submitted' ORDER BY t.submitted_at, t.id`) },
+  // An approver may still return a Test held by an open Investigation, so it stays in their Queue.
+  approval: { rule: 'return', stage: () => all(`${TEST_SELECT} WHERE t.status = 'Reviewed' ORDER BY t.reviewed_at, t.id`) },
 };

@@ -1,6 +1,7 @@
-// The agreement sweep: an action offered on a record is accepted, one withheld is refused, and a Test sits in a
-// person's queue and badge exactly when they are offered the matching action. Every rules table the server exports is
-// swept: the last test fails if any rule was never seen both offered and withheld.
+// The agreement sweep: an action offered on a record is accepted, one withheld is refused, and a record sits in a
+// person's Queue, on every surface and badge showing it, exactly when they are offered the Queue's rule. Every rules and
+// Queue table the server exports is swept: the last tests fail if any rule was never seen both offered and withheld, or
+// any Queue names a rule its table lacks or was never seen both listing and not listing a record.
 // Starts a real server on a temporary database with the demo lab and drives it over HTTP.
 // Run with:  npm test
 
@@ -59,7 +60,7 @@ async function as(username) {
 }
 
 const lab = {};
-const TABLES = await rulesTables();
+const TABLES = await exportedTables('_RULES');
 
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-test-'));
@@ -194,31 +195,96 @@ const TEST_ACTIONS = {
   raise: (c, t) => c.post('/api/investigations', { type: 'Deviation', title: 'Balance drift', description: 'Drift seen after the run', test_id: t.testId, sample_id: t.sampleId }),
 };
 
-// Each queue lists a Test exactly when its person is offered this action on it. Approval lists a Test under
-// Investigation too, because the approver can still return it.
-const QUEUE_FLAG = { assigned: 'edit', review: 'review', approval: 'return' };
-
 const badges = (c) => c.ok('GET', '/api/nav');
 
-async function queues(c, t) {
-  const inWork = async (name) => {
-    const r = await c.get(`/api/samples?work=${name}`);
-    assert.ok([200, 403].includes(r.status), `work=${name} → ${describe(r)}`);
-    return r.status === 200 && r.data.some((s) => s.id === t.sampleId);
-  };
+// ----- Queues -----
+
+// Every Queue in the registry is swept: on each surface showing it, a record is listed exactly when the person is
+// offered the Queue's rule on it, and each badge moves by the number of the person's Queues the record entered.
+const QUEUES = await exportedTables('_QUEUES');
+// Whether each Queue was seen listing and not listing a record, keyed by its table's exported name.
+const sighted = {};
+
+const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
+const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
+const inMyDrafts = async (c, e) => (await c.ok('GET', '/api/dashboard')).myDrafts.some((n) => n.id === e.id);
+const workFilters = (work) => ({
+  'Samples work filter': (c, t) => listed(c, `/api/samples?limit=2000&work=${work}`, t.sampleId),
+  'Tests work filter': (c, t) => listed(c, `/api/tests?limit=3000&work=${work}`, t.testId),
+});
+
+// The surfaces showing each Queue, by Queue table. Each reads whether the signed-in person sees the record there.
+const SURFACES = {
+  TEST_QUEUES: {
+    assigned: { ...workFilters('assigned'), 'Worklist My tests': (c, t) => listed(c, '/api/tests?scope=open&limit=3000&work=assigned', t.testId) },
+    review: { ...workFilters('review'), 'Reviews page review list': (c, t) => onReviews(c, 'toReview', t.testId) },
+    approval: { ...workFilters('approval'), 'Reviews page approval list': (c, t) => onReviews(c, 'toApprove', t.testId) },
+  },
+  SAMPLE_QUEUES: {
+    certificate: { 'Reviews page certificate list': (c, s) => onReviews(c, 'toIssue', s) },
+  },
+  ENTRY_QUEUES: {
+    witness: { 'Reviews page witness list': (c, e) => onReviews(c, 'toWitness', e.id) },
+    // A new draft is its author's most recent, so it is among the Dashboard's first five.
+    drafts: { 'Dashboard My drafts': inMyDrafts },
+  },
+};
+
+// The Queues each sidebar badge counts, as [Queue table, Queue].
+const BADGES = {
+  myTests: [['TEST_QUEUES', 'assigned']],
+  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['SAMPLE_QUEUES', 'certificate'], ['ENTRY_QUEUES', 'witness']],
+};
+
+/** Whether each surface of each Queue lists the record, for `records` keyed by Queue table, as `c` sees them. */
+async function queueViews(c, records) {
+  const views = {};
+  for (const [table, record] of Object.entries(records)) {
+    for (const name of Object.keys(QUEUES[table])) {
+      const surfaces = SURFACES[table]?.[name];
+      assert.ok(surfaces, `${table}.${name} has no surfaces in the agreement sweep`);
+      for (const [surface, shows] of Object.entries(surfaces)) ((views[table] ??= {})[name] ??= {})[surface] = await shows(c, record);
+    }
+  }
+  return views;
+}
+
+/**
+ * Each surface in `views` agrees with its record's `can`, and each badge moved by the Queues entered. `flags` is keyed by
+ * Queue table, one `can` or a list: a record whose surfaces are swept elsewhere still moves the badges.
+ */
+function assertQueues(label, flags, views, before, after) {
+  for (const [table, byQueue] of Object.entries(views)) {
+    const can = flags[table];
+    for (const [name, queue] of Object.entries(QUEUES[table])) {
+      assert.equal(typeof can[queue.rule], 'boolean', `${label}: ${table}.${name} names ${queue.rule}, which has no flag`);
+      for (const [surface, shown] of Object.entries(byQueue[name])) {
+        assert.equal(shown, can[queue.rule], `${label}: ${surface} (${name} Queue) vs can.${queue.rule}`);
+        ((sighted[table] ??= {})[name] ??= new Set()).add(shown);
+      }
+    }
+  }
+  for (const [badge, queues] of Object.entries(BADGES)) {
+    const entered = queues.reduce((n, [table, name]) => n + [flags[table] ?? []].flat().filter((can) => can[QUEUES[table][name].rule]).length, 0);
+    assert.equal(after[badge] - before[badge], entered, `${label}: ${badge} badge vs the Queues it counts`);
+  }
+}
+
+/** Each record the Reviews page lists carries the `can` its own page gives it, for `cans` keyed by list as [id, can]. */
+async function reviewsAgree(c, label, cans) {
   const reviews = await c.ok('GET', '/api/reviews');
-  const worklist = await c.get('/api/tests?work=assigned');
-  assert.ok([200, 403].includes(worklist.status), `Worklist My tests → ${describe(worklist)}`);
-  return {
-    assigned: await inWork('assigned'),
-    worklist: worklist.status === 200 && worklist.data.some((x) => x.id === t.testId),
-    worklistIds: worklist.status === 200 ? worklist.data.map((x) => x.id) : [],
-    dashboardIds: (await c.ok('GET', '/api/dashboard')).myTests.map((x) => x.id),
-    review: await inWork('review'),
-    approval: await inWork('approval'),
-    toReview: reviews.toReview.some((x) => x.id === t.testId),
-    toApprove: reviews.toApprove.some((x) => x.id === t.testId),
-  };
+  for (const [list, [id, can]] of Object.entries(cans)) {
+    const row = reviews[list].find((x) => x.id === id);
+    if (row) assert.deepEqual(row.can, can, `${label}: ${list} on the Reviews page vs the record's own can`);
+  }
+}
+
+// The Dashboard shows the first dozen of My tests.
+async function dashboardAgrees(c, label) {
+  const mine = (await c.ok('GET', '/api/tests?scope=open&limit=3000&work=assigned')).map((x) => x.id);
+  const dashboard = (await c.ok('GET', '/api/dashboard')).myTests.map((x) => x.id);
+  assert.deepEqual(dashboard.filter((id) => !mine.includes(id)), [], `${label}: Dashboard My tests outside the Worklist`);
+  assert.equal(dashboard.length, Math.min(12, mine.length), `${label}: Dashboard My tests vs Worklist`);
 }
 
 for (const [state, steps] of Object.entries(TEST_STATES)) {
@@ -227,21 +293,18 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
       const label = `Test ${state}, ${who}`;
       const before = await within(person, badges);
       const t = await prepareTest(steps);
-      const { can, queued, after } = await within(person, async (c) => ({
-        can: (await c.ok('GET', `/api/tests/${t.testId}`)).can,
-        queued: await queues(c, t),
-        after: await badges(c),
-      }));
-
-      for (const [queue, flag] of Object.entries(QUEUE_FLAG)) assert.equal(queued[queue], can[flag], `${label}: ${queue} queue vs can.${flag}`);
-      assert.equal(queued.worklist, can.edit, `${label}: Worklist My tests vs can.edit`);
-      // The Dashboard shows the first dozen of the same list.
-      assert.deepEqual(queued.dashboardIds.filter((id) => !queued.worklistIds.includes(id)), [], `${label}: Dashboard My tests outside the Worklist`);
-      assert.equal(queued.dashboardIds.length, Math.min(12, queued.worklistIds.length), `${label}: Dashboard My tests vs Worklist`);
-      assert.equal(queued.toReview, can.review, `${label}: Reviews page review list vs can.review`);
-      assert.equal(queued.toApprove, can.return, `${label}: Reviews page approval list vs can.return`);
-      assert.equal(after.myTests - before.myTests, can.edit ? 1 : 0, `${label}: My tests badge vs can.edit`);
-      assert.equal(after.reviews - before.reviews, can.review || can.return ? 1 : 0, `${label}: Reviews badge vs can.review / can.return`);
+      const { can, sampleCan, views, after } = await within(person, async (c) => {
+        await dashboardAgrees(c, label);
+        return {
+          can: (await c.ok('GET', `/api/tests/${t.testId}`)).can,
+          // An approved Test approves its Sample, which then enters the certificate Queue.
+          sampleCan: (await c.ok('GET', `/api/samples/${t.sampleId}`)).can,
+          views: await queueViews(c, { TEST_QUEUES: t, SAMPLE_QUEUES: t.sampleId }),
+          after: await badges(c),
+        };
+      });
+      await within(person, (c) => reviewsAgree(c, label, { toReview: [t.testId, can], toApprove: [t.testId, can], toIssue: [t.sampleId, sampleCan] }));
+      assertQueues(label, { TEST_QUEUES: can, SAMPLE_QUEUES: sampleCan }, views, before, after);
 
       const actions = Object.keys(TEST_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
@@ -298,14 +361,19 @@ async function prepareSample({ tests, then }) {
 }
 
 for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
-  test(`a Sample ${state}: offers, refusals and the certificate queue agree for everyone`, async () => {
+  test(`a Sample ${state}: offers, refusals, queues and badges agree for everyone`, async () => {
     for (const username of SAMPLE_PEOPLE) {
       const label = `Sample ${state}, ${username}`;
       const c = await as(username);
+      const before = await badges(c);
       const s = await prepareSample(spec);
-      const { can } = await c.ok('GET', `/api/samples/${s}`);
-      const toIssue = (await c.ok('GET', '/api/reviews')).toIssue.some((x) => x.id === s);
-      assert.equal(toIssue, can.issue, `${label}: certificate queue vs can.issue`);
+      const { can, tests } = await c.ok('GET', `/api/samples/${s}`);
+      // The Test sweep compares the Tests with their Queues; here they only move the badges they count in.
+      const testCans = [];
+      for (const t of tests) testCans.push((await c.ok('GET', `/api/tests/${t.id}`)).can);
+      const views = await queueViews(c, { SAMPLE_QUEUES: s });
+      await reviewsAgree(c, label, { toIssue: [s, can] });
+      assertQueues(label, { SAMPLE_QUEUES: can, TEST_QUEUES: testCans }, views, before, await badges(c));
 
       const actions = Object.keys(SAMPLE_ACTIONS);
       for (const action of actions.filter((a) => !can[a])) {
@@ -854,19 +922,18 @@ const ENTRY_PEOPLE = {
 };
 
 for (const [state, steps] of Object.entries(ENTRY_STATES)) {
-  test(`a notebook entry ${state}: offers and refusals agree for everyone`, async () => {
+  test(`a notebook entry ${state}: offers, refusals, queues and badges agree for everyone`, async () => {
     for (const [who, person] of Object.entries(ENTRY_PEOPLE)) {
       const label = `Entry ${state}, ${who}`;
       const before = await within(person, badges);
       const e = await prepareEntry(steps);
-      const { can, toWitness, after } = await within(person, async (c) => ({
+      const { can, views, after } = await within(person, async (c) => ({
         can: (await c.ok('GET', `/api/notebook/${e.id}`)).can,
-        toWitness: (await c.ok('GET', '/api/reviews')).toWitness.some((n) => n.id === e.id),
+        views: await queueViews(c, { ENTRY_QUEUES: e }),
         after: await badges(c),
       }));
-      // The witness list and the Reviews badge restate ENTRY_RULES.witness as SQL.
-      assert.equal(toWitness, can.witness, `${label}: Reviews page witness list vs can.witness`);
-      assert.equal(after.reviews - before.reviews, can.witness ? 1 : 0, `${label}: Reviews badge vs can.witness`);
+      assertQueues(label, { ENTRY_QUEUES: can }, views, before, after);
+      await within(person, (c) => reviewsAgree(c, label, { toWitness: [e.id, can] }));
 
       const actions = Object.keys(ENTRY_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
@@ -903,6 +970,12 @@ test('an author whose role lost notebook.write is refused editing and signing th
   });
   const { entry } = await (await as(ANALYST)).ok('GET', `/api/notebook/${e.id}`);
   assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
+});
+
+test('a draft whose author lost notebook.write leaves My drafts', async () => {
+  const e = await prepareEntry([]);
+  assert.ok(await inMyDrafts(await as(ANALYST), e), 'the author sees their draft');
+  await within({ username: ANALYST, role: 'business' }, async (tom) => assert.ok(!(await inMyDrafts(tom, e)), 'nor does the author once they may no longer edit it'));
 });
 
 // Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.
@@ -1126,13 +1199,13 @@ for (const [state, steps] of Object.entries(REQUEST_STATES)) {
 
 // ----- Coverage -----
 
-/** Every rules table exported by a server module, by name. Importing them opens no database. */
-async function rulesTables() {
+/** Every rules or Queue table exported by a server module, by name, as `suffix` picks. Importing them opens no database. */
+async function exportedTables(suffix) {
   const tables = {};
   for (const dir of ['../server/', '../server/routes/']) {
     const url = new URL(dir, import.meta.url);
     for (const file of fs.readdirSync(url).filter((f) => f.endsWith('.js'))) {
-      for (const [name, value] of Object.entries(await import(new URL(file, url)))) if (name.endsWith('_RULES')) tables[name] = value;
+      for (const [name, value] of Object.entries(await import(new URL(file, url)))) if (name.endsWith(suffix)) tables[name] = value;
     }
   }
   return tables;
@@ -1147,5 +1220,16 @@ test('the sweep saw every rule of every rules table both offered and withheld', 
   }
   for (const [table, rules] of Object.entries(seen)) {
     for (const rule of Object.keys(rules)) assert.ok(TABLES[table]?.[rule], `${table}.${rule} is swept but has no rule behind its flag`);
+  }
+});
+
+test('the sweep saw every Queue of every Queue table both listing and not listing a record', () => {
+  const queues = Object.entries(QUEUES).flatMap(([table, byName]) => Object.entries(byName).map(([name, queue]) => ({ table, name, queue })));
+  for (const { table, name, queue } of queues) {
+    const rules = table.replace(/_QUEUES$/, '_RULES');
+    assert.ok(TABLES[rules] && Object.hasOwn(TABLES[rules], queue.rule), `${table}.${name} names ${queue.rule}, which ${rules} lacks`);
+  }
+  for (const { table, name } of queues) {
+    assert.deepEqual([...(sighted[table]?.[name] ?? [])].sort(), [false, true], `${table}.${name} was not seen both listing and not listing a record`);
   }
 });
