@@ -12,7 +12,7 @@ import { nowIso } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES } from '../config.js';
 import { TEST_RULES, SAMPLE_RULES } from '../workflow.js';
 import { INVESTIGATION_RULES } from '../investigations.js';
-import { ENTRY_RULES } from './quality.js';
+import { ENTRY_RULES } from '../notebook.js';
 import { METHOD_RULES, INSTRUMENT_RULES, INVENTORY_RULES } from './resources.js';
 import { CLIENT_RULES, PROJECT_RULES, INVOICE_RULES } from './business.js';
 

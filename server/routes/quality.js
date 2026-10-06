@@ -3,13 +3,14 @@
 import { all, get, run, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, forbidden, guard, flags } from '../http.js';
+import { bad, guard, flags } from '../http.js';
 import { assertCan, can, verifySignature, applySignature } from '../auth.js';
 import { INVESTIGATION_STATUSES, SEVERITIES } from '../lookups.js';
 import { clean, nowIso, likeTerm } from '../util.js';
 import { listDocuments, freezeDocuments } from './documents.js';
 import { SAMPLE_RULES, TEST_RULES } from '../workflow.js';
 import { INVESTIGATION_OPEN, INVESTIGATION_RULES, raiseInvestigation } from '../investigations.js';
+import { ENTRY_RULES } from '../notebook.js';
 
 // ---------------------------------------------------------------------------------------------
 // Notebook
@@ -32,33 +33,6 @@ const notebookSchema = {
   method_id: { type: 'id', ref: 'methods', label: 'method' },
   body: { type: 'text', default: '' },
   tags: { max: 200 },
-};
-
-export const ENTRY_RULES = {
-  edit(n, me) {
-    if (!can(me, 'notebook.write')) return forbidden();
-    if (n.author_id !== me.id) return forbidden('Only the author can edit this entry');
-    if (n.status !== 'Draft') return bad('Signed entries are locked — add an addendum instead');
-  },
-  sign(n, me) {
-    if (!can(me, 'notebook.write')) return forbidden();
-    if (n.author_id !== me.id) return forbidden('Only the author can sign this entry');
-    if (n.status !== 'Draft') return bad('This entry has already been signed');
-  },
-  witness(n, me) {
-    if (!can(me, 'notebook.witness')) return forbidden();
-    if (n.author_id === me.id) return forbidden('You cannot witness your own entry');
-    if (n.status !== 'Signed') return bad('Only signed entries can be witnessed');
-  },
-  addendum(n, me) {
-    if (!can(me, 'notebook.write')) return forbidden();
-    if (n.status === 'Draft') return bad('Edit the draft directly instead of adding an addendum');
-  },
-  attach(n, me) {
-    if (!can(me, 'notebook.write')) return forbidden();
-    if (n.author_id !== me.id) return forbidden('Only the author can attach files to this entry');
-    if (n.status !== 'Draft') return bad('Signed notebook entries are locked — add an addendum instead');
-  },
 };
 
 export function createEntry(ctx, body) {
