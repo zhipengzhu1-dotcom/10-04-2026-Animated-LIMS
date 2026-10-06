@@ -23,7 +23,14 @@ const TRANSITIONS = {
   Effective: ['Retired'],
   Retired: [],
 };
-const STATUS_RULE = { Draft: 'backToDraft', 'In Development': 'develop', 'In Validation': 'validate', Effective: 'makeEffective', Retired: 'retire' };
+// Each status a method moves to: the rule that allows the move, and the meaning of the e-signature it needs, if any.
+const MOVES_TO = {
+  Draft: { rule: 'backToDraft' },
+  'In Development': { rule: 'develop' },
+  'In Validation': { rule: 'validate' },
+  Effective: { rule: 'makeEffective', signature: 'method.approve' },
+  Retired: { rule: 'retire', signature: 'method.retire' },
+};
 
 const methodSchema = {
   title: { required: true },
@@ -122,20 +129,20 @@ export function createMethod(ctx, body) {
 export function setMethodStatus(ctx, id, body) {
   const m = mustGet('SELECT * FROM methods WHERE id = ?', id, 'Method');
   const target = body.status;
-  const rule = Object.hasOwn(STATUS_RULE, target) ? METHOD_RULES[STATUS_RULE[target]] : null;
-  if (!rule) throw bad(`A method can't move from ${m.status} to ${target}`);
-  guard(rule(m, ctx.user));
+  const move = Object.hasOwn(MOVES_TO, target) ? MOVES_TO[target] : null;
+  if (!move) throw bad(`A method can't move from ${m.status} to ${target}`);
+  guard(METHOD_RULES[move.rule](m, ctx.user));
   if (target === 'Effective' && !get('SELECT 1 FROM method_analytes WHERE method_id = ?', id)) throw bad('Define at least one result parameter before making the method effective');
-  if (['Effective', 'Retired'].includes(target)) verifySignature(ctx, body.password);
+  if (move.signature) verifySignature(ctx, body.password);
   tx(() => {
     if (target === 'Effective') {
       for (const old of all(`SELECT id FROM methods WHERE code = ? AND status = 'Effective' AND id != ?`, m.code, id)) {
         update(ctx, 'methods', old.id, { status: 'Retired' }, { action: 'STATUS', summary: `Superseded by ${m.code} v${m.version}` });
       }
-      applySignature(ctx, 'methods', id, 'method.approve', { comment: body.comment || null, code: m.code });
+      applySignature(ctx, 'methods', id, move.signature, { comment: body.comment || null, code: m.code });
       update(ctx, 'methods', id, { status: target, effective_date: today(), approved_by: ctx.user.id }, { action: 'STATUS', summary: `Method → ${target}` });
     } else {
-      if (target === 'Retired') applySignature(ctx, 'methods', id, 'method.retire', { comment: body.comment || null, code: m.code });
+      if (move.signature) applySignature(ctx, 'methods', id, move.signature, { comment: body.comment || null, code: m.code });
       update(ctx, 'methods', id, { status: target }, { action: 'STATUS', summary: `Method → ${target}`, reason: body.comment || null });
     }
   });

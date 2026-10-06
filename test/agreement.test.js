@@ -903,12 +903,11 @@ const dav = async (link, method, body) => {
   return { status: res.status, text: await res.text() };
 };
 
-test('a WebDAV lock on a signed entry\'s document is refused', async () => {
+test('signing an entry expires its documents\' Office links, and no new one can be opened', async () => {
   const tom = await as(ANALYST);
   const e = await prepareEntry([]);
   const link = await tom.ok('POST', `/api/notebook-documents/${e.docId}/edit-link`);
   await signEntry(e.id);
-  // Signing ends every Office link to the entry's documents, so the lock is refused before any rule is asked.
   assert.deepEqual(await dav(link, 'LOCK', LOCK_INFO), { status: 404, text: 'This link has expired. Open the document again from Aliquot.' });
   const again = await tom.post(`/api/notebook-documents/${e.docId}/edit-link`);
   assert.equal(again.status, 400, 'nor can a new link be opened');
@@ -1072,7 +1071,7 @@ async function prepareRequest(steps) {
   return id;
 }
 
-const requestStatus = (status) => (c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { status, response: `${status}: details by email` });
+const requestStatus = (status) => Object.assign((c, id) => c.post(`/api/portal-admin/requests/${id}/status`, { status, response: `${status}: details by email` }), { to: status });
 
 const REQUEST_ACTIONS = {
   review: requestStatus('Under review'),
@@ -1105,8 +1104,13 @@ for (const [state, steps] of Object.entries(REQUEST_STATES)) {
     for (const [who, username] of Object.entries(REQUEST_PEOPLE)) {
       const c = await as(username);
       const id = await prepare();
-      const { can } = await c.ok('GET', `/api/portal-admin/requests/${id}`);
-      await sweepRecord({ label: `Request ${state}, ${who}`, c, table: 'REQUEST_RULES', actions: REQUEST_ACTIONS, can, id, prepare });
+      const { can, request } = await c.ok('GET', `/api/portal-admin/requests/${id}`);
+      const label = `Request ${state}, ${who}`;
+      // Posting the status the request already has changes nothing, so it is a reply rather than the move to that status.
+      const stay = Object.values(REQUEST_ACTIONS).find((act) => act.to === request.status);
+      const moves = Object.fromEntries(Object.entries(REQUEST_ACTIONS).filter(([, act]) => act !== stay));
+      await sweepRecord({ label, c, table: 'REQUEST_RULES', actions: moves, can, id, prepare });
+      if (stay) assert.equal((await stay(c, id)).status < 300, can.reply, `${label}: posting its own status is a reply`);
     }
   });
 }

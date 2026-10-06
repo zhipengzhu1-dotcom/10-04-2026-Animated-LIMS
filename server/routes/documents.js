@@ -14,7 +14,7 @@ import { HttpError, bad, clientIp, guard, notFound, readBody } from '../http.js'
 import { nowIso, localDate } from '../util.js';
 import { DATA_DIR, MAX_UPLOAD_BYTES, SESSION_MAX_HOURS } from '../config.js';
 import { KINDS, kindOf, inspectOffice, makeDocx, makeXlsx, preview } from '../ooxml.js';
-import { ENTRY_RULES } from './quality.js';
+import { ENTRY_RULES } from '../notebook.js';
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const SOURCES = { template: 'created in Aliquot', upload: 'uploaded', office: 'saved from' };

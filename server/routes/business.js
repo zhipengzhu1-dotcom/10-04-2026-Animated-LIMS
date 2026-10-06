@@ -5,7 +5,7 @@ import { insert, update, nextCode, mustGet } from '../repo.js';
 import { bad, forbidden, guard, flags } from '../http.js';
 import { assertCan, can } from '../auth.js';
 import { getNumber } from '../settings.js';
-import { PROJECT_TYPES, PROJECT_START_STATUSES, SAMPLE_OPEN } from '../lookups.js';
+import { PROJECT_TYPES, PROJECT_START_STATUSES, PROJECT_OPEN, SAMPLE_OPEN } from '../lookups.js';
 import { clean, nowIso, today, addDays, round } from '../util.js';
 import { TEST_SELECT, TEST_OPEN } from '../workflow.js';
 
@@ -67,37 +67,29 @@ const projectSchema = {
   description: { type: 'text' },
 };
 
-const CLOSED_PROJECT = ['Completed', 'Cancelled'];
 // A Project's status changes, one action each. A Cancelled Project never moves again; a client coming back gets a new one.
 const PROJECT_MOVES = {
   activate: { from: ['Quoted', 'On Hold'], to: 'Active', done: 'made active' },
   hold: { from: ['Active'], to: 'On Hold', done: 'put on hold' },
   complete: { from: ['Active'], to: 'Completed', done: 'completed' },
-  cancel: { from: ['Quoted', 'Active', 'On Hold'], to: 'Cancelled', done: 'cancelled' },
+  cancel: { from: PROJECT_OPEN, to: 'Cancelled', done: 'cancelled' },
   reopen: { from: ['Completed'], to: 'Active', done: 'reopened' },
 };
 
-const moveRule = ({ from, done }) => (p, me) => {
-  if (!can(me, 'projects.edit')) return forbidden();
-  if (!from.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+/** A rule for holders of `permission` on a record whose status is one of `from`, else refused with `refusal(record)`. */
+const statusRule = (permission, from, refusal) => (record, me) => {
+  if (!can(me, permission)) return forbidden();
+  if (!from.includes(record.status)) return bad(refusal(record));
 };
 
+const moveRule = ({ from, done }) => statusRule('projects.edit', from, (p) => `The project is ${p.status.toLowerCase()} — it can't be ${done}`);
+const whenOpen = (permission, completed, cancelled) => statusRule(permission, PROJECT_OPEN, (p) => (p.status === 'Completed' ? completed : cancelled));
+
 export const PROJECT_RULES = {
-  edit(p, me) {
-    if (!can(me, 'projects.edit')) return forbidden();
-    if (p.status === 'Completed') return bad('The project is completed — reopen it to make changes');
-    if (p.status === 'Cancelled') return bad('The project is cancelled and can no longer be changed');
-  },
+  edit: whenOpen('projects.edit', 'The project is completed — reopen it to make changes', 'The project is cancelled and can no longer be changed'),
   ...Object.fromEntries(Object.entries(PROJECT_MOVES).map(([action, move]) => [action, moveRule(move)])),
-  receive(p, me) {
-    if (!can(me, 'samples.receive')) return forbidden();
-    if (p.status === 'Completed') return bad('That project is completed — reopen it before adding samples to it');
-    if (p.status === 'Cancelled') return bad('That project is cancelled — samples can\'t be added to it');
-  },
-  attach(p, me) {
-    if (!can(me, 'projects.edit')) return forbidden();
-    if (CLOSED_PROJECT.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
-  },
+  receive: whenOpen('samples.receive', 'That project is completed — reopen it before adding samples to it', 'That project is cancelled — samples can\'t be added to it'),
+  attach: statusRule('projects.edit', PROJECT_OPEN, (p) => `The project is ${p.status.toLowerCase()} — attachments are locked`),
 };
 
 export function createProject(ctx, body) {
@@ -160,10 +152,7 @@ function releaseTests(ctx, invoiceId, summary, testIds = null) {
   return tests.length;
 }
 
-const invoiceRule = (from, refusal) => (inv, me) => {
-  if (!can(me, 'billing.edit')) return forbidden();
-  if (!from.includes(inv.status)) return bad(refusal(inv));
-};
+const invoiceRule = (from, refusal) => statusRule('billing.edit', from, refusal);
 
 export const INVOICE_RULES = {
   edit: invoiceRule(['Draft'], () => 'Issued invoices are locked. Void and re-issue to make changes.'),
@@ -232,12 +221,12 @@ export default function routes(r) {
     const showMoney = can(ctx.user, 'billing.view');
     return all(`
       SELECT c.*,
-        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status IN ('Quoted','Active','On Hold')) AS open_projects,
+        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status IN (${ph(PROJECT_OPEN)})) AS open_projects,
         (SELECT COUNT(*) FROM samples s WHERE s.client_id = c.id AND s.status IN (${ph(SAMPLE_OPEN)})) AS samples_in_lab,
         (SELECT MAX(received_at) FROM samples s WHERE s.client_id = c.id) AS last_sample_at
         ${showMoney ? `, (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoices i JOIN invoice_lines l ON l.invoice_id = i.id
             WHERE i.client_id = c.id AND i.status IN ('Sent','Paid') AND i.issued_date >= ?) AS revenue_ytd` : ''}
-      FROM clients c ORDER BY c.active DESC, c.name`, ...SAMPLE_OPEN, ...(showMoney ? [yearStart()] : []));
+      FROM clients c ORDER BY c.active DESC, c.name`, ...PROJECT_OPEN, ...SAMPLE_OPEN, ...(showMoney ? [yearStart()] : []));
   });
 
   r.get('/api/clients/:id', (ctx) => {
@@ -275,11 +264,11 @@ export default function routes(r) {
     const where = [];
     const params = [];
     if (q.client_id) { where.push('p.client_id = ?'); params.push(+q.client_id); }
-    if (q.status === 'open') where.push(`p.status IN ('Quoted','Active','On Hold')`);
+    if (q.status === 'open') { where.push(`p.status IN (${ph(PROJECT_OPEN)})`); params.push(...PROJECT_OPEN); }
     else if (q.status && q.status !== 'all') { where.push('p.status = ?'); params.push(q.status); }
     const rows = all(`SELECT p.*, c.name AS client_name, c.code AS client_code, u.full_name AS lead_name, ${PROJECT_STATS}
       FROM projects p JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.lead_id
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.status IN ('Completed','Cancelled'), p.due_date IS NULL, p.due_date, p.id DESC`, ...params);
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.status NOT IN (${ph(PROJECT_OPEN)}), p.due_date IS NULL, p.due_date, p.id DESC`, ...params, ...PROJECT_OPEN);
     if (!can(ctx.user, 'billing.view')) for (const p of rows) { p.budget = null; p.unbilled = null; p.invoiced = null; }
     return rows;
   });
