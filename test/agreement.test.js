@@ -1,6 +1,7 @@
 // The agreement sweep: an action offered on a record is accepted, one withheld is refused, and a record sits in a
-// person's Queue, on every surface and badge showing it, exactly when they are offered the Queue's rule. Every rules table the server exports is
-// swept: the last test fails if any rule was never seen both offered and withheld.
+// person's Queue, on every surface and badge showing it, exactly when they are offered the Queue's rule. Every rules and
+// Queue table the server exports is swept: the last tests fail if any rule was never seen both offered and withheld, or
+// any Queue names a rule its table lacks or was never seen both listing and not listing a record.
 // Starts a real server on a temporary database with the demo lab and drives it over HTTP.
 // Run with:  npm test
 
@@ -11,8 +12,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { startServer } from './server.js';
 import { ATTACHABLE } from '../server/routes/attachments.js';
-import { SAMPLE_QUEUES, TEST_QUEUES } from '../server/workflow.js';
-import { ENTRY_QUEUES } from '../server/notebook.js';
 
 let BASE;
 const PASSWORD = 'demo1234';
@@ -61,7 +60,7 @@ async function as(username) {
 }
 
 const lab = {};
-const TABLES = await rulesTables();
+const TABLES = await exportedTables('_RULES');
 
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aliquot-test-'));
@@ -202,7 +201,9 @@ const badges = (c) => c.ok('GET', '/api/nav');
 
 // Every Queue in the registry is swept: on each surface showing it, a record is listed exactly when the person is
 // offered the Queue's rule on it, and each badge moves by the number of the person's Queues the record entered.
-const QUEUES = { TEST_QUEUES, SAMPLE_QUEUES, ENTRY_QUEUES };
+const QUEUES = await exportedTables('_QUEUES');
+// Whether each Queue was seen listing and not listing a record, keyed by its table's exported name.
+const sighted = {};
 
 const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
@@ -259,6 +260,7 @@ function assertQueues(label, flags, views, before, after) {
       assert.equal(typeof can[queue.rule], 'boolean', `${label}: ${table}.${name} names ${queue.rule}, which has no flag`);
       for (const [surface, shown] of Object.entries(byQueue[name])) {
         assert.equal(shown, can[queue.rule], `${label}: ${surface} (${name} Queue) vs can.${queue.rule}`);
+        ((sighted[table] ??= {})[name] ??= new Set()).add(shown);
       }
     }
   }
@@ -1185,13 +1187,13 @@ for (const [state, steps] of Object.entries(REQUEST_STATES)) {
 
 // ----- Coverage -----
 
-/** Every rules table exported by a server module, by name. Importing them opens no database. */
-async function rulesTables() {
+/** Every rules or Queue table exported by a server module, by name, as `suffix` picks. Importing them opens no database. */
+async function exportedTables(suffix) {
   const tables = {};
   for (const dir of ['../server/', '../server/routes/']) {
     const url = new URL(dir, import.meta.url);
     for (const file of fs.readdirSync(url).filter((f) => f.endsWith('.js'))) {
-      for (const [name, value] of Object.entries(await import(new URL(file, url)))) if (name.endsWith('_RULES')) tables[name] = value;
+      for (const [name, value] of Object.entries(await import(new URL(file, url)))) if (name.endsWith(suffix)) tables[name] = value;
     }
   }
   return tables;
@@ -1206,5 +1208,16 @@ test('the sweep saw every rule of every rules table both offered and withheld', 
   }
   for (const [table, rules] of Object.entries(seen)) {
     for (const rule of Object.keys(rules)) assert.ok(TABLES[table]?.[rule], `${table}.${rule} is swept but has no rule behind its flag`);
+  }
+});
+
+test('the sweep saw every Queue of every Queue table both listing and not listing a record', () => {
+  const queues = Object.entries(QUEUES).flatMap(([table, byName]) => Object.entries(byName).map(([name, queue]) => ({ table, name, queue })));
+  for (const { table, name, queue } of queues) {
+    const rules = table.replace(/_QUEUES$/, '_RULES');
+    assert.ok(TABLES[rules] && Object.hasOwn(TABLES[rules], queue.rule), `${table}.${name} names ${queue.rule}, which ${rules} lacks`);
+  }
+  for (const { table, name } of queues) {
+    assert.deepEqual([...(sighted[table]?.[name] ?? [])].sort(), [false, true], `${table}.${name} was not seen both listing and not listing a record`);
   }
 });
