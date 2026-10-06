@@ -1,6 +1,6 @@
 // Syntax-checks every JavaScript file in the project with `node --check`, refuses hand-written SQL writes that would
 // bypass the audit trail, rules tables imported where they would make a cycle, Queue tables away from their rules
-// tables, and `can` flags written by hand.
+// tables, `can` flags written by hand, and verify feature maps naming code that is gone.
 // No dependencies needed.
 // Usage:  npm run check
 import { execFileSync } from 'node:child_process';
@@ -165,4 +165,30 @@ if (handFlags.length) {
   console.error(handFlags.join('\n'));
   console.error("Build can with flags(<RECORD>_RULES, record, person), or add the file to HAND_FLAGS in scripts/check.js with the reason it has no rules.");
 } else console.log('Can flags OK');
-process.exit(failed || unaudited.length || misplaced.length || strayQueues.length || handFlags.length ? 1 : 0);
+
+// The verify skill's feature maps name source paths, rules and Queue tables and `[data-act=…]` / `[name=…]` selectors.
+// A name that no longer exists in the code is drift: the next agent drives the app by a map that lies.
+const FEATURES = path.join(ROOT, '.claude', 'skills', 'verify', 'features');
+const shipped = ['public', 'server', 'server.js'].flatMap((p) => {
+  const file = path.join(ROOT, p);
+  return fs.statSync(file).isDirectory() ? [...jsFiles(file)] : [file];
+}).map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+const drifted = [];
+for (const name of fs.existsSync(FEATURES) ? fs.readdirSync(FEATURES).filter((f) => f.endsWith('.md')) : []) {
+  const text = fs.readFileSync(path.join(FEATURES, name), 'utf8');
+  const report = (token, why) => drifted.push(`${path.relative(ROOT, path.join(FEATURES, name))}: \`${token}\` ${why}`);
+  for (const [, token] of text.matchAll(/`([^`\n]+)`/g)) {
+    if (/^(public|server|test|docs)\/[\w./-]+$/.test(token) && !fs.existsSync(path.join(ROOT, token))) report(token, 'is not a file');
+    if (/^[A-Z]+_(RULES|QUEUES)$/.test(token) && !shipped.includes(`export const ${token}`)) report(token, 'is not exported');
+    for (const [, attr, values] of token.matchAll(/\[(data-[\w-]+|name)=([\w|-]+)\]/g)) {
+      for (const value of values.split('|')) {
+        if ((attr !== 'name' && !shipped.includes(attr)) || !new RegExp(`\\b${value}\\b`).test(shipped)) report(token, `names ${attr === 'name' ? value : `${attr} ${value}`}, which the code does not have`);
+      }
+    }
+  }
+}
+if (drifted.length) {
+  console.error(drifted.join('\n'));
+  console.error('Update the feature map (see /maintain-verification-skill) so it names what the code has.');
+} else console.log('Verify feature maps OK');
+process.exit(failed || unaudited.length || misplaced.length || strayQueues.length || handFlags.length || drifted.length ? 1 : 0);

@@ -63,7 +63,7 @@ export async function list(ctx) {
   const view = ctx.query.view || 'all';
   const params = {};
   if (view === 'mine') params.mine = 1;
-  if (view === 'drafts') { params.mine = 1; params.status = 'Draft'; }
+  if (view === 'drafts') params.work = 'drafts';
   if (view === 'signed') params.status = 'Signed';
   const rows = await api.get('/api/notebook', params);
   ctx.el.innerHTML = String(html`

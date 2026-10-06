@@ -4,7 +4,7 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
-import { bad, guard, flags, queued } from '../http.js';
+import { bad, guard, flags, queued, workQueue } from '../http.js';
 import { assertCan } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
@@ -127,8 +127,7 @@ export function addTestsToSample(ctx, sampleId, methodIds) {
 
 /** The distinct `key` of each Test in the signed-in person's Test Queue `name`: none without its permission, never a refusal. */
 function workFilter(ctx, name, key) {
-  if (!Object.hasOwn(TEST_QUEUES, name)) throw bad(`Work filter must be one of: ${Object.keys(TEST_QUEUES).join(', ')}`);
-  return [...new Set(queued(TEST_RULES, TEST_QUEUES[name], ctx.user).map((t) => t[key]))];
+  return [...new Set(workQueue(TEST_RULES, TEST_QUEUES, name, ctx.user).map((t) => t[key]))];
 }
 
 // ---------------------------------------------------------------------------------------------

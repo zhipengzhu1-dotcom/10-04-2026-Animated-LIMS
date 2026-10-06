@@ -93,6 +93,20 @@ export async function render(ctx) {
             </li>`)}</ul>` : emptyState({ icon: 'check', title: 'Nothing assigned to you', text: 'Pick up unassigned tests from the worklist.', action: html`<a class="btn sm" href="/worklist?view=unassigned">Unassigned tests</a>` }),
         }) : ''}
 
+        ${d.myDrafts.length ? card({
+          title: 'My drafts',
+          sub: 'Notebook entries you can still edit and sign',
+          actions: html`<a class="btn sm ghost" href="/notebook?view=drafts">All my drafts ${icon('arrowRight', { size: 13 })}</a>`,
+          flush: true,
+          body: html`<ul class="list">${d.myDrafts.map((n) => html`
+            <li class="link" data-href="/notebook/${n.id}">
+              <div class="grow">
+                <div class="title"><span class="code">${n.code}</span> · ${n.title}</div>
+                <div class="meta">${n.project_code ? `${n.project_code} · ` : ''}Updated ${relTime(n.updated_at)}</div>
+              </div>
+            </li>`)}</ul>`,
+        }) : ''}
+
         ${card({
           title: 'Samples due in the next 3 days',
           flush: true,
