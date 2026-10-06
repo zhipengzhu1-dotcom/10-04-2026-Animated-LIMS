@@ -203,11 +203,7 @@ const badges = (c) => c.ok('GET', '/api/nav');
 // offered the Queue's rule on it, and each badge moves by the number of the person's Queues the record entered.
 const QUEUES = { TEST_QUEUES };
 
-const listed = async (c, url, id) => {
-  const r = await c.get(url);
-  assert.ok([200, 403].includes(r.status), `${url} → ${describe(r)}`);
-  return r.status === 200 && r.data.some((x) => x.id === id);
-};
+const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
 const workFilters = (work) => ({
   'Samples work filter': (c, t) => listed(c, `/api/samples?limit=2000&work=${work}`, t.sampleId),
@@ -260,8 +256,7 @@ function assertQueues(label, flags, views, before, after) {
 
 // The Dashboard shows the first dozen of My tests.
 async function dashboardAgrees(c, label) {
-  const worklist = await c.get('/api/tests?scope=open&limit=3000&work=assigned');
-  const mine = worklist.status === 200 ? worklist.data.map((x) => x.id) : [];
+  const mine = (await c.ok('GET', '/api/tests?scope=open&limit=3000&work=assigned')).map((x) => x.id);
   const dashboard = (await c.ok('GET', '/api/dashboard')).myTests.map((x) => x.id);
   assert.deepEqual(dashboard.filter((id) => !mine.includes(id)), [], `${label}: Dashboard My tests outside the Worklist`);
   assert.equal(dashboard.length, Math.min(12, mine.length), `${label}: Dashboard My tests vs Worklist`);

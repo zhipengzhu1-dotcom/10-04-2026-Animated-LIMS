@@ -135,12 +135,9 @@ export function addTestsToSample(ctx, sampleId, methodIds) {
   });
 }
 
-const WORK_FILTERS = { assigned: 'tests.perform', review: 'tests.review', approval: 'tests.approve' };
-
-/** The Tests in the signed-in person's Test Queue `name`. */
+/** The Tests in the signed-in person's Test Queue `name`: none for someone without its permission, never a refusal. */
 function workFilter(ctx, name) {
   if (!Object.hasOwn(TEST_QUEUES, name)) throw bad(`Work filter must be one of: ${Object.keys(TEST_QUEUES).join(', ')}`);
-  assertCan(ctx, WORK_FILTERS[name]);
   return queued(TEST_RULES, TEST_QUEUES[name], ctx.user);
 }
 
