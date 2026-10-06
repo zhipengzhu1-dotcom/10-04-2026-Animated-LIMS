@@ -12,6 +12,7 @@ import path from 'node:path';
 import { startServer } from './server.js';
 import { ATTACHABLE } from '../server/routes/attachments.js';
 import { SAMPLE_QUEUES, TEST_QUEUES } from '../server/workflow.js';
+import { ENTRY_QUEUES } from '../server/notebook.js';
 
 let BASE;
 const PASSWORD = 'demo1234';
@@ -201,10 +202,11 @@ const badges = (c) => c.ok('GET', '/api/nav');
 
 // Every Queue in the registry is swept: on each surface showing it, a record is listed exactly when the person is
 // offered the Queue's rule on it, and each badge moves by the number of the person's Queues the record entered.
-const QUEUES = { TEST_QUEUES, SAMPLE_QUEUES };
+const QUEUES = { TEST_QUEUES, SAMPLE_QUEUES, ENTRY_QUEUES };
 
 const listed = async (c, url, id) => (await c.ok('GET', url)).some((x) => x.id === id);
 const onReviews = async (c, list, id) => (await c.ok('GET', '/api/reviews'))[list].some((x) => x.id === id);
+const inMyDrafts = async (c, e) => (await c.ok('GET', '/api/dashboard')).myDrafts.some((n) => n.id === e.id);
 const workFilters = (work) => ({
   'Samples work filter': (c, t) => listed(c, `/api/samples?limit=2000&work=${work}`, t.sampleId),
   'Tests work filter': (c, t) => listed(c, `/api/tests?limit=3000&work=${work}`, t.testId),
@@ -220,12 +222,17 @@ const SURFACES = {
   SAMPLE_QUEUES: {
     certificate: { 'Reviews page certificate list': (c, s) => onReviews(c, 'toIssue', s) },
   },
+  ENTRY_QUEUES: {
+    witness: { 'Reviews page witness list': (c, e) => onReviews(c, 'toWitness', e.id) },
+    // A new draft is its author's most recent, so it is among the Dashboard's first five.
+    drafts: { 'Dashboard My drafts': inMyDrafts },
+  },
 };
 
 // The Queues each sidebar badge counts, as [Queue table, Queue].
 const BADGES = {
   myTests: [['TEST_QUEUES', 'assigned']],
-  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['SAMPLE_QUEUES', 'certificate']],
+  reviews: [['TEST_QUEUES', 'review'], ['TEST_QUEUES', 'approval'], ['SAMPLE_QUEUES', 'certificate'], ['ENTRY_QUEUES', 'witness']],
 };
 
 /** Whether each surface of each Queue lists the record, for `records` keyed by Queue table, as `c` sees them. */
@@ -902,19 +909,17 @@ const ENTRY_PEOPLE = {
 };
 
 for (const [state, steps] of Object.entries(ENTRY_STATES)) {
-  test(`a notebook entry ${state}: offers and refusals agree for everyone`, async () => {
+  test(`a notebook entry ${state}: offers, refusals, queues and badges agree for everyone`, async () => {
     for (const [who, person] of Object.entries(ENTRY_PEOPLE)) {
       const label = `Entry ${state}, ${who}`;
       const before = await within(person, badges);
       const e = await prepareEntry(steps);
-      const { can, toWitness, after } = await within(person, async (c) => ({
+      const { can, views, after } = await within(person, async (c) => ({
         can: (await c.ok('GET', `/api/notebook/${e.id}`)).can,
-        toWitness: (await c.ok('GET', '/api/reviews')).toWitness.some((n) => n.id === e.id),
+        views: await queueViews(c, { ENTRY_QUEUES: e }),
         after: await badges(c),
       }));
-      // The witness list and the Reviews badge restate ENTRY_RULES.witness as SQL.
-      assert.equal(toWitness, can.witness, `${label}: Reviews page witness list vs can.witness`);
-      assert.equal(after.reviews - before.reviews, can.witness ? 1 : 0, `${label}: Reviews badge vs can.witness`);
+      assertQueues(label, { ENTRY_QUEUES: can }, views, before, after);
 
       const actions = Object.keys(ENTRY_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
@@ -951,6 +956,12 @@ test('an author whose role lost notebook.write is refused editing and signing th
   });
   const { entry } = await (await as(ANALYST)).ok('GET', `/api/notebook/${e.id}`);
   assert.deepEqual([entry.status, entry.body], ['Draft', 'Titre 4.98 mg/mL']);
+});
+
+test('a draft whose author lost notebook.write leaves My drafts', async () => {
+  const e = await prepareEntry([]);
+  assert.ok(await inMyDrafts(await as(ANALYST), e), 'the author sees their draft');
+  await within({ username: ANALYST, role: 'business' }, async (tom) => assert.ok(!(await inMyDrafts(tom, e)), 'nor does the author once they may no longer edit it'));
 });
 
 // Desktop Office reaches a notebook document over WebDAV through a link the author opened from the entry.

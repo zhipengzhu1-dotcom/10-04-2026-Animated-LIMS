@@ -5,7 +5,7 @@ import { all, get, run, ph, tx } from '../db.js';
 import { insert, update, nextCode, mustGet } from '../repo.js';
 import { audit } from '../audit.js';
 import { bad, guard, flags, queued } from '../http.js';
-import { assertCan, can } from '../auth.js';
+import { assertCan } from '../auth.js';
 import { getNumber, getSettings } from '../settings.js';
 import {
   SAMPLE_TYPES, STORAGE_CONDITIONS, RECEIPT_CONDITIONS, PRIORITIES, CUSTODY_ACTIONS, METHOD_USABLE, SAMPLE_OPEN, rolesWith,
@@ -17,6 +17,7 @@ import {
 } from '../workflow.js';
 import { INVESTIGATION_RULES } from '../investigations.js';
 import { PROJECT_RULES } from './business.js';
+import { ENTRY_QUEUES, ENTRY_RULES } from '../notebook.js';
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
@@ -321,17 +322,14 @@ export default function routes(r) {
   r.get('/api/reviews', (ctx) => {
     const lab = ctx.query.scope === 'lab';
     if (lab) assertCan(ctx, 'work.oversee');
-    const me = lab ? 0 : ctx.user.id;
     // Oversight shows each stage whoever could act on it; it is nobody's Queue.
-    const tests = (name) => (lab ? TEST_QUEUES[name].stage() : queued(TEST_RULES, TEST_QUEUES[name], ctx.user));
-    const out = { toReview: tests('review'), toApprove: tests('approval'), toWitness: [], toIssue: [] };
-    const sees = (perm) => lab || can(ctx.user, perm);
-    if (sees('notebook.witness')) {
-      out.toWitness = all(`SELECT n.id, n.code, n.title, n.signed_at, u.full_name AS author_name, p.code AS project_code
-        FROM notebook_entries n JOIN users u ON u.id = n.author_id LEFT JOIN projects p ON p.id = n.project_id
-        WHERE n.status = 'Signed' AND n.author_id != ? ORDER BY n.signed_at`, me);
-    }
-    out.toIssue = lab ? SAMPLE_QUEUES.certificate.stage() : queued(SAMPLE_RULES, SAMPLE_QUEUES.certificate, ctx.user);
+    const shown = (rules, queue) => (lab ? queue.stage() : queued(rules, queue, ctx.user));
+    const out = {
+      toReview: shown(TEST_RULES, TEST_QUEUES.review),
+      toApprove: shown(TEST_RULES, TEST_QUEUES.approval),
+      toWitness: shown(ENTRY_RULES, ENTRY_QUEUES.witness),
+      toIssue: shown(SAMPLE_RULES, SAMPLE_QUEUES.certificate),
+    };
     for (const list of [out.toReview, out.toApprove]) {
       for (const t of list) t.results = all('SELECT analyte, unit, result_type, value_num, value_text, outcome, decimals, spec_min, spec_max, spec_text FROM results WHERE test_id = ? ORDER BY sort_order, id', t.id);
     }
