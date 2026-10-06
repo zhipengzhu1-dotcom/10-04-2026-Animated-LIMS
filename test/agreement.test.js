@@ -848,6 +848,7 @@ const DOCUMENT_ACTIONS = {
 const ENTRY_PEOPLE = {
   'the author': { username: ANALYST },
   'the author without notebook.write': { username: ANALYST, role: 'business' },
+  'the author as a scientist, who may witness others': { username: ANALYST, role: 'scientist' },
   'a witness who is not the author': { username: 'sarah.lindqvist' },
   'someone without the permissions': { username: 'grace.holloway' },
 };
@@ -856,8 +857,16 @@ for (const [state, steps] of Object.entries(ENTRY_STATES)) {
   test(`a notebook entry ${state}: offers and refusals agree for everyone`, async () => {
     for (const [who, person] of Object.entries(ENTRY_PEOPLE)) {
       const label = `Entry ${state}, ${who}`;
+      const before = await within(person, badges);
       const e = await prepareEntry(steps);
-      const { can } = await within(person, (c) => c.ok('GET', `/api/notebook/${e.id}`));
+      const { can, toWitness, after } = await within(person, async (c) => ({
+        can: (await c.ok('GET', `/api/notebook/${e.id}`)).can,
+        toWitness: (await c.ok('GET', '/api/reviews')).toWitness.some((n) => n.id === e.id),
+        after: await badges(c),
+      }));
+      // The witness list and the Reviews badge restate ENTRY_RULES.witness as SQL.
+      assert.equal(toWitness, can.witness, `${label}: Reviews page witness list vs can.witness`);
+      assert.equal(after.reviews - before.reviews, can.witness ? 1 : 0, `${label}: Reviews badge vs can.witness`);
 
       const actions = Object.keys(ENTRY_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
