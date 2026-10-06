@@ -90,7 +90,9 @@ agent-browser wait 2000 && agent-browser get title    # "Dashboard · Aliquot" w
 2. Fill it with `demo1234`.
 3. Click `.modal-foot button[data-submit]`.
 
-Toasts appear in `.toasts`. Read them with `agent-browser eval 'document.querySelector(".toasts")?.innerText'`.
+Toasts appear in `.toasts`. Read them with `agent-browser eval 'document.querySelector(".toasts")?.innerText'`. The Client portal uses a single `.toast` instead.
+
+**Check every click that should change something.** A click can report `✓ Done` and change nothing, most often in a fast chain straight after `open` or after filling a modal. After each such click, read the toast, the URL or the record through `api.mjs`. If nothing changed, run doctor, then retry the click once.
 
 **API read-back.** `scripts/api.mjs` signs in as a demo person and prints `{status, data}`. It exits 1 on HTTP ≥ 400. Use it to read the state a UI action should have changed, and to check refusals:
 
