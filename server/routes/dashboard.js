@@ -4,7 +4,8 @@ import { all, get, ph } from '../db.js';
 import { can } from '../auth.js';
 import { SAMPLE_OPEN, rolesWith } from '../lookups.js';
 import { today, addDays, now, localDate } from '../util.js';
-import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES, TEST_RETURNED } from '../workflow.js';
+import { queued } from '../http.js';
+import { TEST_SELECT, TEST_EDITABLE, TEST_OPEN, TEST_QUEUES, TEST_RULES, TEST_RETURNED } from '../workflow.js';
 import { INVESTIGATION_OPEN } from '../investigations.js';
 
 function monthsBack(n) {
@@ -26,11 +27,6 @@ function lastMonthStart(date) {
 
 const [RETURNED_SQL, ...RETURNED_PARAMS] = TEST_RETURNED;
 const fillMonths = (months, rows, key = 'v') => months.map((m) => ({ month: m, value: rows.find((r) => r.month === m)?.[key] ?? 0 }));
-
-function myTests(me) {
-  const [sql, ...params] = TEST_QUEUES.assigned(me);
-  return all(`${TEST_SELECT} WHERE ${sql} ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date, t.id LIMIT 12`, ...params);
-}
 
 export default function routes(r) {
   r.get('/api/dashboard', (ctx) => {
@@ -88,7 +84,8 @@ export default function routes(r) {
 
     return {
       kpis,
-      myTests: can(me, 'tests.perform') ? myTests(me.id) : [],
+      // The assigned Queue is already in priority and due-date order.
+      myTests: queued(TEST_RULES, TEST_QUEUES.assigned, me).slice(0, 12),
       myReturned: all(`${TEST_SELECT} WHERE t.analyst_id = ? AND ${RETURNED_SQL}`, me.id, ...RETURNED_PARAMS).map((x) => x.id),
       myDrafts: all(`SELECT id, code, title, updated_at FROM notebook_entries WHERE author_id = ? AND status = 'Draft' ORDER BY updated_at DESC LIMIT 5`, me.id),
       alerts,

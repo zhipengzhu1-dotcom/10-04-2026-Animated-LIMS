@@ -202,6 +202,31 @@ test('the administrator oversees every work queue but cannot act on it', async (
   assert.equal((await admin.req('POST', '/api/tests/assign', { test_ids: [unassigned.id], analyst_id: lab.users['tom.fletcher'].id })).status, 403, 'nor assigning work');
 });
 
+test('oversight lists a Test awaiting review that nobody but its analyst could review', async () => {
+  await setupLab();
+  const testId = await receive();
+  await assign(testId, 'priya.raman');
+  const d = await lab.priya.ok('GET', `/api/tests/${testId}`);
+  const instrument = d.instruments.find((i) => !i.problem && i.code.startsWith('HPLC'));
+  const mid = (r) => (r.spec_min != null && r.spec_max != null ? (r.spec_min + r.spec_max) / 2 : r.spec_max != null ? r.spec_max / 2 : (r.spec_min ?? 0) + 1);
+  await lab.priya.ok('PUT', `/api/tests/${testId}`, { instrument_id: instrument.id, results: d.results.map((r) => ({ id: r.id, value: String(mid(r)) })) });
+  await lab.priya.ok('POST', `/api/tests/${testId}/submit`, { password: PASSWORD });
+
+  // Every other reviewer becomes an analyst, so the only person holding tests.review is the one who performed the Test.
+  const admin = await as('admin');
+  const reviewers = Object.values(lab.users).filter((u) => u.active && ['manager', 'scientist', 'qa'].includes(u.role) && u.username !== 'priya.raman');
+  try {
+    for (const u of reviewers) await admin.ok('PUT', `/api/users/${u.id}`, { role: 'analyst' });
+    for (const u of [...reviewers, lab.users['priya.raman']]) {
+      const queue = (await (await as(u.username)).ok('GET', '/api/reviews')).toReview;
+      assert.ok(!queue.some((t) => t.id === testId), `${u.username} could not review it`);
+    }
+    assert.ok((await admin.ok('GET', '/api/reviews?scope=lab')).toReview.some((t) => t.id === testId), 'oversight still shows it waiting for review');
+  } finally {
+    for (const u of reviewers) await admin.ok('PUT', `/api/users/${u.id}`, { role: u.role });
+  }
+});
+
 test('only people who assign work see the workload', async () => {
   assert.equal((await (await as('sarah.lindqvist')).get('/api/workload')).status, 200, 'senior scientists assign work');
   assert.equal((await (await as('tom.fletcher')).get('/api/workload')).status, 403, 'analyst');

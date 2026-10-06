@@ -1,7 +1,7 @@
 import { all, get, run, ph, tx } from '../db.js';
 import { insert, update } from '../repo.js';
 import { audit, verifyChain } from '../audit.js';
-import { HttpError, bad, forbidden, isLoopback, notFound } from '../http.js';
+import { HttpError, bad, forbidden, isLoopback, notFound, queued } from '../http.js';
 import {
   can, checkPasswordPolicy, destroySession, destroyOtherSessions, hashPassword, login, permissionsFor, publicUser, registerFailure, verifyPassword,
 } from '../auth.js';
@@ -11,7 +11,7 @@ import { clean, initialsOf, likeTerm, limitParam, nowIso, today, addDays } from 
 import { seedDemo } from '../seed.js';
 import { CLOUDFLARE_TUNNEL } from '../config.js';
 import { portalBadge } from './portal.js';
-import { TEST_QUEUES, TEST_OPEN } from '../workflow.js';
+import { TEST_QUEUES, TEST_RULES, TEST_OPEN } from '../workflow.js';
 import { INVESTIGATION_OPEN } from '../investigations.js';
 
 const USER_FIELDS = 'id, username, full_name, initials, email, title, role, active, last_login_at, created_at, must_change_password';
@@ -100,20 +100,11 @@ export default function routes(r) {
   // Counts for the sidebar badges.
   r.get('/api/nav', (ctx) => {
     const me = ctx.user.id;
-    const queued = (name) => {
-      const [sql, ...params] = TEST_QUEUES[name](me);
-      return get(`SELECT COUNT(*) n FROM tests t WHERE ${sql}`, ...params).n;
-    };
-    const reviews = () => {
-      let n = 0;
-      if (can(ctx.user, 'tests.review')) n += queued('review');
-      if (can(ctx.user, 'tests.approve')) n += queued('approval');
-      if (can(ctx.user, 'notebook.witness')) n += get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n;
-      return n;
-    };
+    const tests = (name) => queued(TEST_RULES, TEST_QUEUES[name], ctx.user).length;
+    const witness = can(ctx.user, 'notebook.witness') ? get(`SELECT COUNT(*) n FROM notebook_entries WHERE status = 'Signed' AND author_id != ?`, me).n : 0;
     return {
-      myTests: can(ctx.user, 'tests.perform') ? queued('assigned') : 0,
-      reviews: reviews(),
+      myTests: tests('assigned'),
+      reviews: tests('review') + tests('approval') + witness,
       investigations: get(`SELECT COUNT(*) n FROM investigations v WHERE ${INVESTIGATION_OPEN}`).n,
       portal: portalBadge(ctx.user), // unread client messages + new submissions/requests
     };

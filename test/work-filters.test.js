@@ -178,17 +178,32 @@ test('QA "approval" lists Reviewed Tests they neither performed nor reviewed', a
   assert.ok((await ids(daniel, 'work=approval')).has(performedByPriya.id), 'performed by someone else');
 });
 
-test('roles without the permission are refused the work filter', async () => {
-  const tom = await as('tom.fletcher');
-  assert.equal((await tom.get('/api/samples?work=review')).status, 403, 'analysts cannot review');
-  assert.equal((await tom.get('/api/samples?work=approval')).status, 403, 'analysts cannot approve');
-  const sarah = await as('sarah.lindqvist');
-  assert.equal((await sarah.get('/api/samples?work=approval')).status, 403, 'senior scientists cannot approve');
-  const daniel = await as('daniel.okafor');
-  assert.equal((await daniel.get('/api/samples?work=assigned')).status, 403, 'QA is never assigned Tests');
-  const oliver = await as('oliver.grant');
-  for (const work of ['assigned', 'review', 'approval']) assert.equal((await oliver.get(`/api/samples?work=${work}`)).status, 403, `business: ${work}`);
-  assert.equal((await tom.get('/api/samples?work=everything')).status, 400, 'unknown work filter');
+test('a work filter asked for without its permission returns 200 and an empty list', async () => {
+  await setupLab();
+  // Work waits at every stage, so an empty answer is the person's Queue, not an empty lab.
+  await perform(await receive(), 'tom.fletcher');
+  const reviewed = await receive();
+  await perform(reviewed, 'tom.fletcher');
+  await review(reviewed, 'sarah.lindqvist');
+  await assign(await receive(), 'lucia.fernandez');
+
+  const none = {
+    'tom.fletcher': ['review', 'approval'],
+    'sarah.lindqvist': ['approval'],
+    'daniel.okafor': ['assigned'],
+    'oliver.grant': ['assigned', 'review', 'approval'],
+  };
+  for (const [username, filters] of Object.entries(none)) {
+    const c = await as(username);
+    for (const work of filters) {
+      for (const list of ['samples', 'tests']) {
+        const r = await c.get(`/api/${list}?work=${work}`);
+        assert.equal(r.status, 200, `${username}: ${list} work=${work}`);
+        assert.deepEqual(r.data, [], `${username}: ${list} work=${work} is none of their work`);
+      }
+    }
+  }
+  assert.equal((await (await as('tom.fletcher')).get('/api/samples?work=everything')).status, 400, 'unknown work filter');
 });
 
 test('the work filter combines with the existing filters', async () => {

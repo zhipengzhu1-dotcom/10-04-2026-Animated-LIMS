@@ -34,6 +34,9 @@ export const flags = (rules, record, person) => Object.fromEntries(Object.entrie
 /** The `locks` object for `record`: each named rule's refusal message, or null when it allows the action. */
 export const locks = (rules, record, person, ...names) => Object.fromEntries(names.map((name) => [name, rules[name](record, person)?.message ?? null]));
 
+/** The records of `queue`'s stage on which `person` is offered the rule it names in `rules`, in the stage's order. */
+export const queued = (rules, queue, person) => queue.stage().filter((record) => !rules[queue.rule](record, person));
+
 export class Router {
   constructor() {
     this.routes = [];

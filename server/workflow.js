@@ -445,13 +445,15 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Each gives [SQL condition on tests aliased `t`, ...params], shared by the badges, Reviews, Worklist and work filters.
+// Each Queue names the rule it derives from and its stage: the Tests at that point of the work, in the Queue's order,
+// narrowed by status only. Every surface reads a person's Queue through `queued`.
 export const TEST_QUEUES = {
-  assigned: (me) => [
-    `t.analyst_id = ? AND t.status IN (${ph(TEST_EDITABLE)}) AND EXISTS (SELECT 1 FROM qualifications q JOIN methods qm ON qm.code = q.method_code
-      WHERE qm.id = t.method_id AND q.user_id = t.analyst_id AND ${CURRENT_QUALIFICATION})`,
-    me, ...TEST_EDITABLE, today(),
-  ],
-  review: (me) => [`t.status = 'Submitted' AND t.analyst_id != ?`, me],
-  approval: (me) => [`t.status = 'Reviewed' AND t.analyst_id != ? AND COALESCE(t.reviewed_by, 0) != ?`, me, me],
+  assigned: {
+    rule: 'edit',
+    stage: () => all(`${TEST_SELECT} WHERE t.analyst_id IS NOT NULL AND t.status IN (${ph(TEST_EDITABLE)})
+      ORDER BY CASE s.priority WHEN 'Urgent' THEN 0 WHEN 'Rush' THEN 1 ELSE 2 END, t.due_date, t.id`, ...TEST_EDITABLE),
+  },
+  review: { rule: 'review', stage: () => all(`${TEST_SELECT} WHERE t.status = 'Submitted' ORDER BY t.submitted_at, t.id`) },
+  // An approver may still return a Test held by an open Investigation, so it stays in their Queue.
+  approval: { rule: 'return', stage: () => all(`${TEST_SELECT} WHERE t.status = 'Reviewed' ORDER BY t.reviewed_at, t.id`) },
 };
