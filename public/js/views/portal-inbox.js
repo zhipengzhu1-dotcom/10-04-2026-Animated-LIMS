@@ -14,8 +14,8 @@ import { stepper } from '../core/components.js';
 const SUB_TONE = { Submitted: 'blue', Acknowledged: 'teal', Received: 'green', Declined: 'red', Withdrawn: 'gray' };
 const REQ_TONE = { Submitted: 'blue', 'Under review': 'amber', 'Proposal sent': 'violet', Accepted: 'green', Declined: 'red' };
 const REQUEST_STATUSES = ['Submitted', 'Under review', 'Proposal sent', 'Accepted', 'Declined'];
-// Each status a request can move to, after the rule that offers the move.
-const REQUEST_MOVES = [['review', 'Under review'], ['propose', 'Proposal sent'], ['accept', 'Accepted'], ['decline', 'Declined']];
+// The status each move posts, keyed by the rule that offers it; the server's flags decide which are offered.
+const REQUEST_MOVES = { review: 'Under review', propose: 'Proposal sent', accept: 'Accepted', decline: 'Declined' };
 
 // Conversation bubbles are specific to this view; the design system has no chat component.
 function ensureStyles() {
@@ -325,7 +325,7 @@ export async function request(ctx) {
   const { request: q, thread_id } = d;
   const thread = thread_id ? await api.get(`/api/portal-admin/threads/${thread_id}`) : null;
   ctx.title(q.code);
-  const moves = REQUEST_MOVES.filter(([action]) => d.can[action]).map(([, status]) => status);
+  const moves = Object.entries(REQUEST_MOVES).filter(([rule]) => d.can[rule]).map(([, status]) => status);
   ctx.el.innerHTML = String(html`
     ${pageHead({
       back: { href: '/portal-inbox?tab=requests', label: 'Method requests' },
@@ -367,7 +367,7 @@ export async function request(ctx) {
       size: 'lg',
       submitLabel: 'Send to client',
       body: html`
-        ${field({ label: 'Status', name: 'status', type: 'select', options: moves, empty: d.can.reply ? `No change (${q.status})` : undefined, value: d.can.review ? 'Under review' : '' })}
+        ${field({ label: 'Status', name: 'status', type: 'select', options: moves, empty: d.can.reply ? `No change (${q.status})` : undefined, value: d.can.review ? REQUEST_MOVES.review : '' })}
         <div></div>
         ${field({ label: 'Message to the client', name: 'response', type: 'textarea', rows: 6, span: 2, hint: 'Required for “Proposal sent” and “Declined”. Posted in the request’s conversation.' })}`,
       onSubmit: (d) => api.post(`/api/portal-admin/requests/${q.id}/status`, d),
