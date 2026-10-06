@@ -196,6 +196,10 @@ export const SAMPLE_RULES = {
     if (!can(me, 'samples.edit')) return forbidden();
     if (['Disposed', 'Cancelled'].includes(s.status)) return bad(`Sample is ${s.status.toLowerCase()}`);
   },
+  // A deviation can come to light after the certificate, so raising one depends on no status.
+  raise(s, me) {
+    if (!can(me, 'investigations.raise')) return forbidden();
+  },
   attach(s, me) {
     if (!can(me, 'samples.edit')) return forbidden();
     if (!SAMPLE_OPEN.includes(s.status)) return bad(`The sample is ${s.status.toLowerCase()} — attachments are locked`);

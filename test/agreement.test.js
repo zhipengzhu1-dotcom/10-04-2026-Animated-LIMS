@@ -282,6 +282,7 @@ const SAMPLE_ACTIONS = {
   edit: (c, s) => c.put(`/api/samples/${s}`, { description: 'Agreement sweep, relabelled', reason: 'Label corrected' }),
   addTests: (c, s) => c.post(`/api/samples/${s}/tests`, { method_ids: [lab.kf] }),
   custody: (c, s) => c.post(`/api/samples/${s}/custody`, { action: 'Moved', location: 'Shelf 3' }),
+  raise: (c, s) => c.post('/api/investigations', { type: 'Deviation', title: 'Label smudged', description: 'Batch number unreadable', sample_id: s }),
 };
 
 const SAMPLE_PEOPLE = ['priya.raman', 'daniel.okafor', 'admin', ANALYST];
