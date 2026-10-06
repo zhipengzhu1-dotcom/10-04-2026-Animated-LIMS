@@ -16,7 +16,7 @@ LIMS and electronic lab notebook for contract analytical labs. Read `README.md` 
 - **Signed records stay locked.** Anything a signature depends on is never edited or deleted; corrections are new records.
 - **E-signatures re-ask for the password** with `verifySignature` then `applySignature` (`server/auth.js`), with a stated meaning.
 - **Schema changes are a new entry in `MIGRATIONS`.** Never edit a migration that has already run.
-- **Everything else a reviewer enforces is in `CODING_STANDARDS.md`.** Read its "Every record's rules" and "Every list of work" bullets before adding or changing an action, a Queue, a badge or a `can` flag, and "Escape by default" before writing browser markup.
+- **Everything else a reviewer enforces is in `CODING_STANDARDS.md`.** Read its "Every record's rules" and "Every list of work" bullets before adding or changing an action, a Queue, a badge (its surfaces and badges are registered in `test/surfaces.js`) or a `can` flag, and "Escape by default" before writing browser markup.
 
 ## Agent skills
 
