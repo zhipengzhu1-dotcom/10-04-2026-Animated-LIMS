@@ -4,9 +4,9 @@ An analyst opens a test assigned to them, types results (checked live against sp
 
 ## Sub-features
 
-- Start a test (`[data-act=start]` "Start test", only for the assigned analyst on a Pending test) or pick up an unassigned Pending one (`[data-act=claim]` "Pick up this test", only for someone qualified on the method).
+- Start a test (`[data-act=start]` "Start test", only for the assigned analyst on a Pending test, while their qualification on the method is current) or pick up an unassigned Pending one (`[data-act=claim]` "Pick up this test", only for someone qualified on the method).
 - Numeric results with a live outcome in `td[data-outcome]`: "Pass", "OOS" for a failing value, "Reported" when the analyte has no limits. Text results with a specification text have a Conforms / Does not toggle; without one they are "Reported".
-- Instrument (`select[name=instrument_id]`), required unless the technique is Physical / Visual or Gravimetric. Instruments out of calibration, Out of Service or in Maintenance are disabled, and Retired ones are not listed.
+- Instrument (`select[name=instrument_id]`), required unless the technique is Physical / Visual or Gravimetric. Instruments out of calibration, Out of Service or in Maintenance are disabled, and Retired ones are not listed. The exception is the instrument already recorded on the test, which stays listed and selectable whatever its state.
 - Standards, reagents and columns (`input[name=material_ids]`), raw data reference (`input[name=raw_data_ref]`), comments (`textarea[name=comments]`).
 - Save (`button[data-save]`, PUT `/api/tests/:id`, moves Pending to In Progress).
 - Save & submit (e-sign "Performed", POST `/api/tests/:id/submit`). A failing result opens an OOS investigation automatically.

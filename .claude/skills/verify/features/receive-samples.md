@@ -44,6 +44,7 @@ End state that proves it:
 - **Audit:** `CREATE` "Sample received" on `samples` for each sample, and `CREATE` "ATM-xxxx vN requested on S-…" on `tests` for each test.
 - **Refusals:**
   - POST `/api/samples/receive` as daniel.okafor returns 403.
+  - The server checks the rows too: none gives 400 "Add at least one sample", and more than 200 gives 400 "Receive at most 200 samples at a time".
   - Receiving into a Completed Project, as someone allowed to receive, returns 400 ("That project is completed — reopen it before adding samples to it"); a Cancelled one gives "That project is cancelled — samples can't be added to it", and another client's Project "That project belongs to a different client". The demo lab has a Completed Acme Project, so no setup is needed: look it up with `GET /api/projects?client_id=<id>&status=all`. Editing a Sample into a closed Project is refused the same way.
 
 ## Gotchas
