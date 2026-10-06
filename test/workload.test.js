@@ -194,10 +194,12 @@ test('the administrator oversees every work queue but cannot act on it', async (
   assert.ok(submitted.length && reviewed.length, 'the demo lab has tests waiting at both stages');
   assert.deepEqual(reviews.toReview.map((t) => t.id).sort(), submitted.map((t) => t.id).sort(), 'every test waiting for peer review');
   assert.deepEqual(reviews.toApprove.map((t) => t.id).sort(), reviewed.map((t) => t.id).sort(), 'every test waiting for approval');
+  // The administrator may still edit or dispose of a Sample: oversight withholds only the action each list is for.
+  const acts = { toReview: ['review'], toApprove: ['accept', 'return'], toWitness: ['witness'], toIssue: ['issue'] };
   for (const [list, records] of Object.entries(reviews)) {
     for (const x of records) {
       assert.ok(x.can, `${list} ${x.code} carries its can`);
-      assert.deepEqual(Object.keys(x.can).filter((action) => x.can[action]), [], `${list} ${x.code} offers nothing`);
+      assert.deepEqual(acts[list].filter((action) => x.can[action]), [], `${list} ${x.code} offers its action`);
     }
   }
 
