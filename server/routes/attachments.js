@@ -22,20 +22,19 @@ export const ATTACHABLE = {
   instruments: INSTRUMENT_RULES, inventory: INVENTORY_RULES, projects: PROJECT_RULES, clients: CLIENT_RULES, invoices: INVOICE_RULES,
 };
 
-const recordOf = (entity, id) => mustGet(`SELECT * FROM ${entity} WHERE id = ?`, id, 'Record');
-
 /** The record whose files `ctx.user` asks about, once they may see it. */
 function viewable(ctx, entity, id) {
   if (!Object.hasOwn(ATTACHABLE, entity)) throw bad('Unknown record type');
   const { view } = RECORD_ACCESS[entity];
   if (view && !view.some((p) => can(ctx.user, p))) throw forbidden();
-  return recordOf(entity, id);
+  return mustGet(`SELECT * FROM ${entity} WHERE id = ?`, id, 'Record');
 }
 
+// Each rule takes an attachment row carrying the record it is on as `record`.
 export const ATTACHMENT_RULES = {
   remove(a, me) {
     if (a.removed) return bad('Already removed');
-    const locked = ATTACHABLE[a.entity].attach(recordOf(a.entity, a.entity_id), me);
+    const locked = ATTACHABLE[a.entity].attach(a.record, me);
     if (locked) return locked;
     if (a.uploaded_by !== me.id && !can(me, 'attachments.remove')) return forbidden('Only the uploader, or someone allowed to remove others\' files, can remove this file');
   },
@@ -50,8 +49,12 @@ export default function routes(r) {
     const record = viewable(ctx, entity, id);
     const files = all(`SELECT a.id, a.entity, a.entity_id, a.filename, a.mime, a.size, a.sha256, a.uploaded_by, a.uploaded_at, a.removed, a.removed_reason, u.full_name AS uploaded_by_name
       FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by WHERE a.entity = ? AND a.entity_id = ? ORDER BY a.id DESC`, entity, id);
-    const lock = locks(ATTACHABLE[entity], record, ctx.user, 'attach');
-    return { can: { attach: !lock.attach }, locks: lock, files: files.map((f) => ({ ...f, can: flags(ATTACHMENT_RULES, f, ctx.user) })) };
+    const { attach } = ATTACHABLE[entity];
+    return {
+      can: flags({ attach }, record, ctx.user),
+      locks: locks({ attach }, record, ctx.user, 'attach'),
+      files: files.map((f) => ({ ...f, can: flags(ATTACHMENT_RULES, { ...f, record }, ctx.user) })),
+    };
   });
 
   r.post('/api/attachments', async (ctx) => {
@@ -97,8 +100,8 @@ export default function routes(r) {
 
   r.post('/api/attachments/:id/remove', (ctx) => {
     const a = mustGet('SELECT * FROM attachments WHERE id = ?', +ctx.params.id, 'Attachment');
-    viewable(ctx, a.entity, a.entity_id);
-    guard(ATTACHMENT_RULES.remove(a, ctx.user));
+    const record = viewable(ctx, a.entity, a.entity_id);
+    guard(ATTACHMENT_RULES.remove({ ...a, record }, ctx.user));
     const reason = String(ctx.body.reason || '').trim();
     if (!reason) throw bad('A reason is required', 'REASON_REQUIRED');
     // The file itself is kept for the record; it is only hidden from the record's file list.
