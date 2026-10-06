@@ -5,7 +5,7 @@ Log a delivery from a client: one form for the delivery, a row per sample (or pa
 ## Sub-features
 
 - Delivery fields:
-  - `select[name=client_id]` (required), then `select[name=project_id][data-project]`, which fills in after a client is chosen.
+  - `select[name=client_id]` (required), then `select[name=project_id][data-project]`, which fills in after a client is chosen. It lists only that client's open Projects (Quoted, Active, On Hold), picks the one automatically when there is exactly one, and reads "No open projects for this client" when there are none.
   - `select[name=sample_type]`, `select[name=condition]`, `select[name=storage]`, `input[name=location]`, `input[name=received_at]`, `textarea[name=notes]`.
   - Priority `a[data-p="Standard|Rush|Urgent"]`.
 - Sample rows `tbody[data-rows] tr`:
@@ -19,7 +19,10 @@ Log a delivery from a client: one form for the delivery, a row per sample (or pa
 
 - **Samples** in the sidebar → the "Receive samples" button in the page head (`a.btn[href="/samples/receive"]`). The bare `a[href="/samples/receive"]` first matches the hidden copy in the New menu.
 - Top bar **New** menu → Receive samples.
-- From the staff Client portal inbox, on `/portal-inbox/submissions/:id` while the submission is open: `button[data-act=receive]` "Receive samples" opens a modal "Receive N sample(s) from SUB-…". It has received_at, condition, storage, location, project, due date, `input[name=method_ids]` and notes. Click "Receive & create samples" (`.modal-foot button[data-submit]`). The result is the toast "Received as S-…", not the "N sample(s) received" screen.
+- The Dashboard's "Receive samples" button.
+- A client's page (`/clients/:id`): `a.btn[href="/samples/receive?client=<id>"]` pre-selects the client.
+- A Project's page (`/projects/:id`): `a.btn[href="/samples/receive?client=<id>&project=<id>"]` pre-selects the client and the Project. It is offered only from the Project's `can.receive`, so a Completed or Cancelled Project has no such button.
+- From the staff Client portal inbox, on `/portal-inbox/submissions/:id`: `button[data-act=receive]` "Receive samples" is offered from the submission's `can.receive`, while it is Submitted or Acknowledged and to someone with `samples.receive`. It opens a modal "Receive N sample(s) from SUB-…". It has received_at, condition, storage, location, project (the client's open Projects), due date, `input[name=method_ids]` (inside `label.check`, not `label.method-opt`) and notes. Click "Receive & create samples" (`.modal-foot button[data-submit]`). The result is the toast "Received as S-…", not the "N sample(s) received" screen.
 
 ## Driving it with agent-browser
 
@@ -37,9 +40,11 @@ agent-browser screenshot $E/receive-done.png
 End state that proves it:
 
 - **Screen:** heading "N sample(s) received", and a "Samples logged" card of `a.code[href="/samples/<id>"]` links.
-- **API:** `GET /api/samples/<id>` returns status `Received`, a custody event "Received", and the tests in `Pending`.
+- **API:** `GET /api/samples/<id>` returns `{sample, tests, custody, can}`: `sample.status` is `Received`, `custody[].action` includes "Received", and each of `tests[]` is `Pending` with `analyst_id` null.
 - **Audit:** `CREATE` "Sample received" on `samples` for each sample, and `CREATE` "ATM-xxxx vN requested on S-…" on `tests` for each test.
-- **Refusal:** POST `/api/samples/receive` as daniel.okafor returns 403.
+- **Refusals:**
+  - POST `/api/samples/receive` as daniel.okafor returns 403.
+  - Receiving into a Completed Project, as someone allowed to receive, returns 400 ("That project is completed — reopen it before adding samples to it"); a Cancelled one gives "That project is cancelled — samples can't be added to it", and another client's Project "That project belongs to a different client". The demo lab has a Completed Acme Project, so no setup is needed: look it up with `GET /api/projects?client_id=<id>&status=all`. Editing a Sample into a closed Project is refused the same way.
 
 ## Gotchas
 
