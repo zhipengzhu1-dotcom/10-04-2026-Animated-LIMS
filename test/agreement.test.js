@@ -540,6 +540,56 @@ for (const [state, steps] of Object.entries(INVOICE_STATES)) {
   });
 }
 
+// ----- Project sweep -----
+
+async function prepareProject(status) {
+  const grace = await as('grace.holloway');
+  const { id } = await grace.ok('POST', '/api/projects', { client_id: lab.client, title: 'Project sweep', type: 'Other' });
+  if (status) await grace.ok('PUT', `/api/projects/${id}`, { status });
+  return id;
+}
+
+const PROJECT_STATES = {
+  active: null,
+  completed: 'Completed',
+};
+
+const PROJECT_ACTIONS = {
+  edit: (c, id) => c.put(`/api/projects/${id}`, { title: 'Project sweep, renamed' }),
+  receive: (c, id) => c.post('/api/samples/receive', { client_id: lab.client, project_id: id, samples: [{ description: 'Project sweep' }] }),
+};
+
+const PROJECT_PEOPLE = {
+  'a business person, who edits but does not receive': 'grace.holloway',
+  'a scientist, who does both': 'sarah.lindqvist',
+  'an analyst, who receives but does not edit': ANALYST,
+  'QA, who does neither': 'daniel.okafor',
+};
+
+for (const [state, status] of Object.entries(PROJECT_STATES)) {
+  test(`a Project ${state}: offers and refusals agree for everyone`, async () => {
+    for (const [who, username] of Object.entries(PROJECT_PEOPLE)) {
+      const label = `Project ${state}, ${who}`;
+      const c = await as(username);
+      const id = await prepareProject(status);
+      const { can } = await c.ok('GET', `/api/projects/${id}`);
+
+      const actions = Object.keys(PROJECT_ACTIONS);
+      assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);
+      for (const action of actions.filter((a) => !can[a])) {
+        const r = await PROJECT_ACTIONS[action](c, id);
+        assert.ok(refused(r), `${label}: ${action} is not offered but was accepted (${describe(r)})`);
+      }
+      for (const action of actions) {
+        note('PROJECT_RULES', action, can[action]);
+        if (!can[action]) continue;
+        const r = await PROJECT_ACTIONS[action](c, await prepareProject(status));
+        assert.ok(r.status < 300, `${label}: ${action} is offered but was refused (${describe(r)})`);
+      }
+    }
+  });
+}
+
 // ----- File sweep -----
 
 // Each attachable record type, in states that lock its files and states that don't. A state creates a fresh record;

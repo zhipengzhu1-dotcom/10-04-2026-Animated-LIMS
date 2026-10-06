@@ -67,10 +67,19 @@ const projectSchema = {
   description: { type: 'text' },
 };
 
+const CLOSED_PROJECT = ['Completed', 'Cancelled'];
+
 export const PROJECT_RULES = {
+  edit(p, me) {
+    if (!can(me, 'projects.edit')) return forbidden();
+  },
+  receive(p, me) {
+    if (!can(me, 'samples.receive')) return forbidden();
+    if (CLOSED_PROJECT.includes(p.status)) return bad(`That project is ${p.status.toLowerCase()} — reopen it before adding samples to it`);
+  },
   attach(p, me) {
     if (!can(me, 'projects.edit')) return forbidden();
-    if (['Completed', 'Cancelled'].includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
+    if (CLOSED_PROJECT.includes(p.status)) return bad(`The project is ${p.status.toLowerCase()} — attachments are locked`);
   },
 };
 
@@ -264,18 +273,19 @@ export default function routes(r) {
       notebook: all(`SELECT n.id, n.code, n.title, n.status, n.created_at, u.full_name AS author_name FROM notebook_entries n JOIN users u ON u.id = n.author_id WHERE n.project_id = ? ORDER BY n.id DESC`, id),
       investigations: all('SELECT id, code, type, title, status, severity FROM investigations WHERE project_id = ? ORDER BY id DESC', id),
       invoices: showMoney ? all(`SELECT i.*, ${NET} AS subtotal FROM invoices i WHERE i.project_id = ? ORDER BY i.id DESC`, id) : null,
-      can: { edit: can(ctx.user, 'projects.edit'), bill: can(ctx.user, 'billing.edit'), receive: can(ctx.user, 'samples.receive') },
+      can: flags(PROJECT_RULES, project, ctx.user),
     };
   });
 
   r.post('/api/projects', (ctx) => createProject(ctx, ctx.body));
 
   r.put('/api/projects/:id', (ctx) => {
-    assertCan(ctx, 'projects.edit');
+    const id = +ctx.params.id;
+    guard(PROJECT_RULES.edit(mustGet('SELECT * FROM projects WHERE id = ?', id, 'Project'), ctx.user));
     const { client_id, ...schema } = projectSchema;
     const b = clean(ctx.body, schema, { partial: true });
     if ('budget' in b && !can(ctx.user, 'billing.edit')) delete b.budget;
-    update(ctx, 'projects', +ctx.params.id, b, { summary: 'Project edited' });
+    update(ctx, 'projects', id, b, { summary: 'Project edited' });
     return { ok: true };
   });
 

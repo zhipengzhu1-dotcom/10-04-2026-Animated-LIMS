@@ -82,8 +82,8 @@ export async function detail(ctx) {
       badges: statusBadge(p.status),
       meta: html`<span class="code">${p.code}</span><span>${icon('building', { size: 14 })}<a href="/clients/${p.client_id}">${p.client_name}</a></span><span>${p.type}</span>${p.po_number ? html`<span>PO ${p.po_number}</span>` : ''}<span>${icon('clock', { size: 14 })}${dueChip(p.due_date, { done: ['Completed', 'Cancelled'].includes(p.status) })}</span>`,
       actions: html`
-        ${d.can.receive && !['Completed', 'Cancelled'].includes(p.status) ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
-        ${d.can.bill ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
+        ${d.can.receive ? html`<a class="btn primary" href="/samples/receive?client=${p.client_id}&project=${p.id}">${icon('inbox', { size: 15 })}Receive samples</a>` : ''}
+        ${can('billing.edit') ? html`<button class="btn" data-act="invoice">${icon('receipt', { size: 15 })}${p.unbilled ? `Invoice ${money(p.unbilled)}` : 'New invoice'}</button>` : ''}
         ${can('notebook.write') ? html`<button class="btn" data-act="note">${icon('book', { size: 15 })}Notebook</button>` : ''}
         ${d.can.edit ? html`<button class="btn" data-act="edit">${icon('edit', { size: 15 })}Edit</button>` : ''}`,
     })}
