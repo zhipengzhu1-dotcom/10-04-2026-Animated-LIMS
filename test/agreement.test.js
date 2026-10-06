@@ -270,6 +270,15 @@ function assertQueues(label, flags, views, before, after) {
   }
 }
 
+/** Each record the Reviews page lists carries the `can` its own page gives it, for `cans` keyed by list as [id, can]. */
+async function reviewsAgree(c, label, cans) {
+  const reviews = await c.ok('GET', '/api/reviews');
+  for (const [list, [id, can]] of Object.entries(cans)) {
+    const row = reviews[list].find((x) => x.id === id);
+    if (row) assert.deepEqual(row.can, can, `${label}: ${list} on the Reviews page vs the record's own can`);
+  }
+}
+
 // The Dashboard shows the first dozen of My tests.
 async function dashboardAgrees(c, label) {
   const mine = (await c.ok('GET', '/api/tests?scope=open&limit=3000&work=assigned')).map((x) => x.id);
@@ -294,6 +303,7 @@ for (const [state, steps] of Object.entries(TEST_STATES)) {
           after: await badges(c),
         };
       });
+      await within(person, (c) => reviewsAgree(c, label, { toReview: [t.testId, can], toApprove: [t.testId, can], toIssue: [t.sampleId, sampleCan] }));
       assertQueues(label, { TEST_QUEUES: can, SAMPLE_QUEUES: sampleCan }, views, before, after);
 
       const actions = Object.keys(TEST_ACTIONS);
@@ -362,6 +372,7 @@ for (const [state, spec] of Object.entries(SAMPLE_STATES)) {
       const testCans = [];
       for (const t of tests) testCans.push((await c.ok('GET', `/api/tests/${t.id}`)).can);
       const views = await queueViews(c, { SAMPLE_QUEUES: s });
+      await reviewsAgree(c, label, { toIssue: [s, can] });
       assertQueues(label, { SAMPLE_QUEUES: can, TEST_QUEUES: testCans }, views, before, await badges(c));
 
       const actions = Object.keys(SAMPLE_ACTIONS);
@@ -922,6 +933,7 @@ for (const [state, steps] of Object.entries(ENTRY_STATES)) {
         after: await badges(c),
       }));
       assertQueues(label, { ENTRY_QUEUES: can }, views, before, after);
+      await within(person, (c) => reviewsAgree(c, label, { toWitness: [e.id, can] }));
 
       const actions = Object.keys(ENTRY_ACTIONS);
       assert.deepEqual(actions.filter((a) => typeof can[a] !== 'boolean'), [], `${label}: every action has a flag`);

@@ -221,7 +221,6 @@ export const SAMPLE_RULES = {
   },
 };
 
-// Each Queue names the rule it derives from and its stage, as for TEST_QUEUES.
 export const SAMPLE_QUEUES = {
   certificate: { rule: 'issue', stage: () => all(`${SAMPLE_SELECT} WHERE s.status = 'Approved' ORDER BY s.due_date, s.id`) },
 };
@@ -461,8 +460,6 @@ export function cancelTest(ctx, id, reason) {
   return { ok: true };
 }
 
-// Each Queue names the rule it derives from and its stage: the Tests at that point of the work, in the Queue's order,
-// narrowed by status only. Every surface reads a person's Queue through `queued`.
 export const TEST_QUEUES = {
   assigned: {
     rule: 'edit',
