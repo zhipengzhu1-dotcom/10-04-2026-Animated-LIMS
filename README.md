@@ -169,6 +169,7 @@ Built in:
 
 - **The live copy is its own clone,** `~/Desktop/Claude/10. October 2026/Aliquot-Animated-live`, kept on `main`. Work in a different clone: every file under `public/` is served the moment it changes.
 - **The Mac has to stay awake.** It sleeps after a minute idle, and the demo goes down with it. The tunnel job runs under `caffeinate -i`, which holds off idle sleep for as long as the tunnel is up, on battery as well as on power. Closing the lid still puts it to sleep.
+- **When it is down:** Cloudflare error 1033 means the tunnel job is not running (`cloudflared tunnel info aliquot-animated`, `launchctl kickstart -k gui/$(id -u)/com.aliquot.animated-tunnel`); a 502 means the server on port 3003 is (`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3003/`, then kick `com.aliquot.animated`).
 - **To publish `main`:** `git -C ~/"Desktop/Claude/10. October 2026/Aliquot-Animated-live" pull --ff-only`, then `launchctl kickstart -k gui/$(id -u)/com.aliquot.animated` to restart the server.
 
 ### Settings via environment variables
