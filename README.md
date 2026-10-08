@@ -206,3 +206,7 @@ Built in:
 - Single sign-on (Microsoft 365 / Google).
 - Reagent preparation records with automatic expiry.
 - Periodic audit-trail review workflow.
+
+## Licence
+
+Released under the MIT License. See [LICENSE](LICENSE). three.js, copied into `public/vendor/three/`, keeps its own MIT licence from the three.js authors.
