@@ -6,6 +6,17 @@ It was built for a lab that develops methods and tests samples for pharmaceutica
 
 **Try it online:** [animated.nitrolims-demo.com](https://animated.nitrolims-demo.com) runs the fictional demo lab. Click a demo person on the sign-in screen (password `demo1234`). The client portal is at [/portal/](https://animated.nitrolims-demo.com/portal/). Anyone can change the demo data, and it resets to fresh demo data every night.
 
+![Aliquot sign-in screen: a 3-D DNA helix beside the sign-in panel, with one-click buttons for the demo accounts](docs/screenshots/sign-in-screen.png)
+*The sign-in screen, with one-click demo accounts while demo mode is on.*
+
+![Lab Manager dashboard: counts of samples, tests, reviews, investigations and money owed, the samples due in the next 3 days, and a list of instruments and materials that need attention](docs/screenshots/lab-manager-dashboard.png)
+*The Lab Manager's dashboard: workload, billing, samples due soon and what needs attention.*
+
+![Sample page for S-2026-0080: progress from received to reported, each test's results against specification with pass and OOS outcomes, sample details, chain of custody and the open OOS investigation](docs/screenshots/sample-results.png)
+*A sample in review. One impurity result is out of specification, so its OOS investigation is open and linked.*
+
+All screenshots show the fictional demo lab.
+
 ---
 
 ## Start it in 2 minutes
